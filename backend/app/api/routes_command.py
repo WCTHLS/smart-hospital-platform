@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/v1", tags=["command-center"])
 
 @router.get("/command-center/metrics")
 def metrics(db: Session = Depends(get_db)) -> dict:
-    today = date.today().isoformat()
+    today = date.today()
 
     patients_today = db.scalar(
         select(func.count()).select_from(models.Encounter)
