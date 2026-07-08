@@ -1,0 +1,362 @@
+"""FHIR-aligned domain model.
+
+One module per convenience, but each block maps to a service that *owns* that data in the
+microservices catalog. UUID string PKs + JSON columns keep this portable across SQLite (zero-setup
+dev) and PostgreSQL (prod).
+"""
+from __future__ import annotations
+
+import uuid
+from datetime import date, datetime, timezone
+
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.database import Base
+
+
+def _uuid() -> str:
+    return str(uuid.uuid4())
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# --------------------------------------------------------------------------- Identity & Registration
+class Patient(Base):
+    __tablename__ = "patient"
+
+    patient_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    abha_number: Mapped[str | None] = mapped_column(String(20), unique=True)
+    abha_address: Mapped[str | None] = mapped_column(String(60))
+    mrn: Mapped[str | None] = mapped_column(String(30), unique=True)
+    empi_id: Mapped[str | None] = mapped_column(String(40))
+    first_name: Mapped[str] = mapped_column(String(80))
+    last_name: Mapped[str | None] = mapped_column(String(80))
+    dob: Mapped[date | None] = mapped_column(Date)
+    gender: Mapped[str | None] = mapped_column(String(10))
+    mobile: Mapped[str | None] = mapped_column(String(15))
+    email: Mapped[str | None] = mapped_column(String(120))
+    blood_group: Mapped[str | None] = mapped_column(String(5))
+    address: Mapped[str | None] = mapped_column(String(240))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    allergies: Mapped[list["Allergy"]] = relationship(back_populates="patient")
+    encounters: Mapped[list["Encounter"]] = relationship(back_populates="patient")
+
+    @property
+    def full_name(self) -> str:
+        return " ".join(filter(None, [self.first_name, self.last_name]))
+
+    @property
+    def age(self) -> int | None:
+        if not self.dob:
+            return None
+        today = date.today()
+        return today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
+
+
+class Allergy(Base):
+    __tablename__ = "allergy"
+
+    allergy_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    substance: Mapped[str] = mapped_column(String(120))
+    drug_class: Mapped[str | None] = mapped_column(String(60))
+    severity: Mapped[str | None] = mapped_column(String(20))  # MILD / MODERATE / SEVERE
+    reaction: Mapped[str | None] = mapped_column(String(120))
+
+    patient: Mapped["Patient"] = relationship(back_populates="allergies")
+
+
+class ConsentArtifact(Base):
+    __tablename__ = "consent_artifact"
+
+    consent_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    purpose: Mapped[str] = mapped_column(String(60))  # CARE_MGMT / BILLING ...
+    hip_id: Mapped[str | None] = mapped_column(String(60))
+    hiu_id: Mapped[str | None] = mapped_column(String(60))
+    status: Mapped[str] = mapped_column(String(20), default="GRANTED")  # GRANTED/REVOKED/EXPIRED
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Staff(Base):
+    __tablename__ = "staff"
+
+    staff_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    hpr_id: Mapped[str | None] = mapped_column(String(40))  # ABDM Healthcare Professionals Registry
+    name: Mapped[str] = mapped_column(String(120))
+    role: Mapped[str] = mapped_column(String(40))  # DOCTOR / NURSE / PHARMACIST / OPS
+    department: Mapped[str | None] = mapped_column(String(60))
+    specialty: Mapped[str | None] = mapped_column(String(60))
+    available: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# ------------------------------------------------------------------------------- Encounter & Clinical
+class Encounter(Base):
+    __tablename__ = "encounter"
+
+    encounter_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    visit_type: Mapped[str] = mapped_column(String(20), default="OPD")  # OPD / FOLLOWUP
+    department: Mapped[str | None] = mapped_column(String(60))
+    doctor_id: Mapped[str | None] = mapped_column(String(36))
+    channel: Mapped[str | None] = mapped_column(String(20))  # WHATSAPP / KIOSK / APP / WALKIN
+    status: Mapped[str] = mapped_column(String(24), default="CHECKED_IN")
+    arrival_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    start_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    end_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disposition: Mapped[str | None] = mapped_column(String(40))
+
+    patient: Mapped["Patient"] = relationship(back_populates="encounters")
+
+
+class Vitals(Base):
+    __tablename__ = "vitals"
+
+    vital_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    encounter_id: Mapped[str] = mapped_column(ForeignKey("encounter.encounter_id"))
+    bp_systolic: Mapped[int | None] = mapped_column(Integer)
+    bp_diastolic: Mapped[int | None] = mapped_column(Integer)
+    spo2: Mapped[int | None] = mapped_column(Integer)
+    heart_rate: Mapped[int | None] = mapped_column(Integer)
+    respiratory_rate: Mapped[int | None] = mapped_column(Integer)
+    temperature: Mapped[float | None] = mapped_column(Float)
+    weight_kg: Mapped[float | None] = mapped_column(Float)
+    height_cm: Mapped[float | None] = mapped_column(Float)
+    bmi: Mapped[float | None] = mapped_column(Float)
+    captured_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Triage(Base):
+    __tablename__ = "triage"
+
+    triage_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    encounter_id: Mapped[str] = mapped_column(ForeignKey("encounter.encounter_id"))
+    chief_complaint: Mapped[str | None] = mapped_column(Text)
+    symptom_summary: Mapped[str | None] = mapped_column(Text)
+    acuity_level: Mapped[str | None] = mapped_column(String(10))  # ESI 1..5
+    specialty: Mapped[str | None] = mapped_column(String(60))
+    recommended_doctor_id: Mapped[str | None] = mapped_column(String(36))
+    red_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    red_flag_reason: Mapped[str | None] = mapped_column(String(200))
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Token(Base):
+    __tablename__ = "token"
+
+    token_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    encounter_id: Mapped[str] = mapped_column(ForeignKey("encounter.encounter_id"))
+    token_number: Mapped[str] = mapped_column(String(12))
+    department: Mapped[str | None] = mapped_column(String(60))
+    room: Mapped[str | None] = mapped_column(String(20))
+    floor: Mapped[str | None] = mapped_column(String(20))
+    eta_minutes: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(20), default="WAITING")
+    issued_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class ClinicalNote(Base):
+    __tablename__ = "clinical_note"
+
+    note_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    encounter_id: Mapped[str] = mapped_column(ForeignKey("encounter.encounter_id"))
+    note_type: Mapped[str] = mapped_column(String(20), default="SOAP")
+    ai_draft: Mapped[str | None] = mapped_column(Text)  # original AI output (retained for audit)
+    final_text: Mapped[str | None] = mapped_column(Text)  # clinician-approved
+    icd10_codes: Mapped[list | None] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(20), default="DRAFT")  # DRAFT / APPROVED
+    authored_by: Mapped[str | None] = mapped_column(String(36))
+    approved_by: Mapped[str | None] = mapped_column(String(36))
+    approved_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+# ------------------------------------------------------------------------ Orders, Results, Rx
+class LabOrder(Base):
+    __tablename__ = "lab_order"
+
+    lab_order_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    encounter_id: Mapped[str] = mapped_column(ForeignKey("encounter.encounter_id"))
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    test_code: Mapped[str | None] = mapped_column(String(20))  # LOINC
+    test_name: Mapped[str | None] = mapped_column(String(120))
+    panel: Mapped[str | None] = mapped_column(String(80))
+    priority: Mapped[str] = mapped_column(String(10), default="ROUTINE")
+    status: Mapped[str] = mapped_column(String(20), default="CREATED")
+    ordered_by: Mapped[str | None] = mapped_column(String(36))
+    qr_code: Mapped[str | None] = mapped_column(String(64), unique=True)
+    price: Mapped[float | None] = mapped_column(Float)
+    ordered_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class LabResult(Base):
+    __tablename__ = "lab_result"
+
+    result_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    lab_order_id: Mapped[str] = mapped_column(ForeignKey("lab_order.lab_order_id"))
+    test_code: Mapped[str | None] = mapped_column(String(20))
+    analyte: Mapped[str | None] = mapped_column(String(60))
+    value: Mapped[float | None] = mapped_column(Float)
+    unit: Mapped[str | None] = mapped_column(String(20))
+    reference_low: Mapped[float | None] = mapped_column(Float)
+    reference_high: Mapped[float | None] = mapped_column(Float)
+    abnormal_flag: Mapped[str | None] = mapped_column(String(4))  # H / L / HH / LL / N
+    status: Mapped[str] = mapped_column(String(20), default="FINAL")
+    resulted_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Prescription(Base):
+    __tablename__ = "prescription"
+
+    rx_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    encounter_id: Mapped[str] = mapped_column(ForeignKey("encounter.encounter_id"))
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    status: Mapped[str] = mapped_column(String(20), default="DRAFT")  # DRAFT / APPROVED
+    prescribed_by: Mapped[str | None] = mapped_column(String(36))
+    approved_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    items: Mapped[list["PrescriptionItem"]] = relationship(
+        back_populates="prescription", cascade="all, delete-orphan"
+    )
+
+
+class PrescriptionItem(Base):
+    __tablename__ = "prescription_item"
+
+    rx_item_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    rx_id: Mapped[str] = mapped_column(ForeignKey("prescription.rx_id"))
+    drug_code: Mapped[str | None] = mapped_column(String(30))
+    drug_name: Mapped[str] = mapped_column(String(120))
+    drug_class: Mapped[str | None] = mapped_column(String(60))
+    dose: Mapped[str | None] = mapped_column(String(40))
+    route: Mapped[str | None] = mapped_column(String(20))
+    frequency: Mapped[str | None] = mapped_column(String(30))
+    duration_days: Mapped[int | None] = mapped_column(Integer)
+    quantity: Mapped[int | None] = mapped_column(Integer)
+    substituted_from: Mapped[str | None] = mapped_column(String(120))
+
+    prescription: Mapped["Prescription"] = relationship(back_populates="items")
+
+
+class PharmacyStock(Base):
+    __tablename__ = "pharmacy_stock"
+
+    stock_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    drug_code: Mapped[str | None] = mapped_column(String(30))
+    drug_name: Mapped[str] = mapped_column(String(120))
+    drug_class: Mapped[str | None] = mapped_column(String(60))
+    salt: Mapped[str | None] = mapped_column(String(120))
+    batch: Mapped[str | None] = mapped_column(String(40))
+    quantity_available: Mapped[int] = mapped_column(Integer, default=0)
+    quantity_reserved: Mapped[int] = mapped_column(Integer, default=0)
+    unit_price: Mapped[float | None] = mapped_column(Float)
+    expiry_date: Mapped[date | None] = mapped_column(Date)
+    location: Mapped[str | None] = mapped_column(String(40))
+    formulary: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+# --------------------------------------------------------------------------------- Billing & Insurance
+class Invoice(Base):
+    __tablename__ = "invoice"
+
+    invoice_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    encounter_id: Mapped[str] = mapped_column(ForeignKey("encounter.encounter_id"))
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    consultation_amt: Mapped[float] = mapped_column(Float, default=0.0)
+    lab_amt: Mapped[float] = mapped_column(Float, default=0.0)
+    pharmacy_amt: Mapped[float] = mapped_column(Float, default=0.0)
+    package_adj: Mapped[float] = mapped_column(Float, default=0.0)
+    insurance_adj: Mapped[float] = mapped_column(Float, default=0.0)
+    tax: Mapped[float] = mapped_column(Float, default=0.0)
+    total: Mapped[float] = mapped_column(Float, default=0.0)
+    balance: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(20), default="OPEN")
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    lines: Mapped[list["InvoiceLine"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan"
+    )
+    payments: Mapped[list["Payment"]] = relationship(back_populates="invoice")
+
+
+class InvoiceLine(Base):
+    __tablename__ = "invoice_line"
+
+    line_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    invoice_id: Mapped[str] = mapped_column(ForeignKey("invoice.invoice_id"))
+    category: Mapped[str] = mapped_column(String(30))  # CONSULT / LAB / PHARMACY / PACKAGE
+    description: Mapped[str] = mapped_column(String(160))
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    amount: Mapped[float] = mapped_column(Float, default=0.0)
+
+    invoice: Mapped["Invoice"] = relationship(back_populates="lines")
+
+
+class Payment(Base):
+    __tablename__ = "payment"
+
+    payment_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    invoice_id: Mapped[str] = mapped_column(ForeignKey("invoice.invoice_id"))
+    method: Mapped[str] = mapped_column(String(20))  # UPI / CARD / CASH / WALLET
+    amount: Mapped[float] = mapped_column(Float)
+    reference: Mapped[str | None] = mapped_column(String(60))
+    status: Mapped[str] = mapped_column(String(20), default="COMPLETED")
+    paid_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    invoice: Mapped["Invoice"] = relationship(back_populates="payments")
+
+
+class InsuranceClaim(Base):
+    __tablename__ = "insurance_claim"
+
+    claim_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    invoice_id: Mapped[str] = mapped_column(ForeignKey("invoice.invoice_id"))
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    payer: Mapped[str | None] = mapped_column(String(80))
+    tpa: Mapped[str | None] = mapped_column(String(80))
+    policy_no: Mapped[str | None] = mapped_column(String(60))
+    claim_type: Mapped[str | None] = mapped_column(String(20))  # CASHLESS / REIMBURSEMENT
+    preauth_no: Mapped[str | None] = mapped_column(String(60))
+    claim_amount: Mapped[float | None] = mapped_column(Float)
+    status: Mapped[str] = mapped_column(String(24), default="INITIATED")
+    submitted_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class Document(Base):
+    __tablename__ = "document"
+
+    document_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    encounter_id: Mapped[str | None] = mapped_column(String(36))
+    doc_type: Mapped[str] = mapped_column(String(40))  # LAB_REPORT / DISCHARGE / SCAN / AUDIO
+    title: Mapped[str | None] = mapped_column(String(160))
+    uri: Mapped[str | None] = mapped_column(String(300))
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+# ------------------------------------------------------------------------------------- Audit (immutable)
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    audit_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    actor_id: Mapped[str | None] = mapped_column(String(36))
+    actor_role: Mapped[str | None] = mapped_column(String(40))
+    action: Mapped[str] = mapped_column(String(60))
+    entity_type: Mapped[str | None] = mapped_column(String(40))
+    entity_id: Mapped[str | None] = mapped_column(String(36))
+    consent_id: Mapped[str | None] = mapped_column(String(36))
+    ip_address: Mapped[str | None] = mapped_column(String(64))
+    audit_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, default=dict)
+    event_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

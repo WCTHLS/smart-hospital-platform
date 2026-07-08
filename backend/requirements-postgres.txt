@@ -1,0 +1,4 @@
+# Install only when using PostgreSQL (prod / docker):
+#   pip install -r requirements-postgres.txt
+# Then set DATABASE_URL=postgresql+psycopg://user:pass@host:5432/db
+psycopg[binary]>=3.1

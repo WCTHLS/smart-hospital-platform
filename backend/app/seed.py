@@ -1,0 +1,151 @@
+"""Seed the database with demo staff, pharmacy stock and patients.
+
+Run once:  python -m app.seed
+Idempotent: exits early if patients already exist (pass --force to reseed a fresh DB file).
+"""
+from __future__ import annotations
+
+import sys
+from datetime import date, datetime, timedelta, timezone
+
+from sqlalchemy import select
+
+from app import models
+from app.core.database import SessionLocal, init_db
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def seed() -> None:
+    init_db()
+    db = SessionLocal()
+    try:
+        if db.scalar(select(models.Patient).limit(1)) and "--force" not in sys.argv:
+            print("Database already seeded. Use --force on a fresh DB to reseed.")
+            return
+
+        # ---------------------------------------------------------------- Staff (doctors)
+        doctors = [
+            ("Dr. Ananya Mehta", "General Medicine"),
+            ("Dr. Vikram Rao", "Cardiology"),
+            ("Dr. Priya Iyer", "Pulmonology"),
+            ("Dr. Sameer Kapoor", "Paediatrics"),
+            ("Dr. Neha Nair", "Orthopaedics"),
+            ("Dr. Arjun Shah", "Dermatology"),
+        ]
+        for i, (name, spec) in enumerate(doctors):
+            db.add(models.Staff(hpr_id=f"HPR-{1000 + i}", name=name, role="DOCTOR",
+                                department=spec, specialty=spec, available=True))
+
+        # ---------------------------------------------------------------- Pharmacy stock
+        stock = [
+            # name, salt, class, available, price, formulary
+            ("Azithromycin 500mg", "Azithromycin", "macrolide", 120, 18.0, True),
+            ("Amoxicillin 500mg", "Amoxicillin", "penicillin", 80, 12.0, True),
+            ("Cefixime 200mg", "Cefixime", "cephalosporin", 90, 15.0, True),
+            ("Paracetamol 650mg", "Paracetamol", "analgesic", 500, 2.0, True),
+            ("Ibuprofen 400mg", "Ibuprofen", "nsaid", 300, 3.0, True),
+            ("Amlodipine 5mg", "Amlodipine", "ccb", 200, 3.0, True),
+            ("Metformin 500mg", "Metformin", "biguanide", 300, 2.0, True),
+            ("Pantoprazole 40mg", "Pantoprazole", "ppi", 150, 4.0, True),
+            ("Dextromethorphan Syrup X", "Dextromethorphan", "antitussive", 0, 60.0, True),
+            ("Dextromethorphan Syrup Y", "Dextromethorphan", "antitussive", 60, 55.0, True),
+            ("Insulin Glargine", "Insulin Glargine", "insulin", 8, 320.0, True),
+        ]
+        for name, salt, cls, qty, price, form in stock:
+            db.add(models.PharmacyStock(
+                drug_name=name, salt=salt, drug_class=cls, quantity_available=qty,
+                unit_price=price, formulary=form, batch="B-2026-01",
+                expiry_date=date(2027, 12, 31), location="Pharmacy 1",
+            ))
+
+        db.flush()
+
+        # ---------------------------------------------------------------- Hero patient (matches mockups)
+        rimjhim = models.Patient(
+            first_name="Rimjhim", last_name="Sharma", dob=date(1992, 4, 18), gender="Female",
+            abha_number="91-2345-6789-0123", abha_address="rimjhim.sharma@abdm", mrn="MRN-100234",
+            empi_id="EMPI-100234", mobile="9876500011", blood_group="O+",
+            address="12 MG Road, Pune, Maharashtra",
+        )
+        db.add(rimjhim)
+        db.flush()
+        db.add(models.Allergy(patient_id=rimjhim.patient_id, substance="Penicillin",
+                              drug_class="penicillin", severity="SEVERE", reaction="Urticaria, angioedema"))
+
+        # Active consent so Patient 360 works immediately in the demo
+        now = _utcnow()
+        db.add(models.ConsentArtifact(patient_id=rimjhim.patient_id, purpose="CARE_MGMT",
+                                      hip_id="aarogya-hip", hiu_id="aarogya-hiu", status="GRANTED",
+                                      valid_from=now, valid_to=now + timedelta(days=1)))
+
+        # Past encounter with approved note + labs + active meds (history for Patient 360)
+        past = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Endocrinology",
+                                channel="APP", status="DISCHARGED",
+                                arrival_ts=now - timedelta(days=60), end_ts=now - timedelta(days=60))
+        db.add(past)
+        db.flush()
+        note = models.ClinicalNote(
+            encounter_id=past.encounter_id, note_type="SOAP",
+            ai_draft="S: Routine diabetes review...", final_text="S: Routine diabetes review. O: Stable. "
+            "A: T2DM (E11.9), HTN (I10). P: Continue Metformin + Amlodipine; recheck HbA1c in 3 months.",
+            icd10_codes=[{"code": "E11.9", "label": "Type 2 diabetes mellitus"},
+                         {"code": "I10", "label": "Essential hypertension"}],
+            status="APPROVED", authored_by="ambient-agent", approved_by="Dr. Ananya Mehta",
+            approved_ts=now - timedelta(days=60),
+        )
+        db.add(note)
+        rx = models.Prescription(encounter_id=past.encounter_id, patient_id=rimjhim.patient_id,
+                                 status="APPROVED", prescribed_by="Dr. Ananya Mehta",
+                                 approved_ts=now - timedelta(days=60), created_ts=now - timedelta(days=60))
+        db.add(rx)
+        db.flush()
+        db.add(models.PrescriptionItem(rx_id=rx.rx_id, drug_name="Metformin 500mg", dose="500 mg",
+                                       route="PO", frequency="1-0-1", duration_days=90, quantity=180))
+        db.add(models.PrescriptionItem(rx_id=rx.rx_id, drug_name="Amlodipine 5mg", dose="5 mg",
+                                       route="PO", frequency="1-0-0", duration_days=90, quantity=90))
+        past_order = models.LabOrder(encounter_id=past.encounter_id, patient_id=rimjhim.patient_id,
+                                     test_code="4548-4", test_name="HbA1c", panel="HbA1c",
+                                     status="RESULTED", qr_code="LAB-SEED0001", price=500.0,
+                                     ordered_ts=now - timedelta(days=60))
+        db.add(past_order)
+        db.flush()
+        db.add(models.LabResult(lab_order_id=past_order.lab_order_id, test_code="4548-4", analyte="HbA1c",
+                                value=7.1, unit="%", reference_low=4.0, reference_high=5.7,
+                                abnormal_flag="H", resulted_ts=now - timedelta(days=60)))
+
+        # ---------------------------------------------------------------- Live waiting patients (Command Center)
+        waiting = [
+            ("Aarav", "Patel", "Male", 41, "General Medicine", "Room 3", "Floor 2", "3", 12),
+            ("Meera", "Nair", "Female", 6, "Paediatrics", "Room 2", "Floor 1", "3", 18),
+            ("Vikram", "Singh", "Male", 58, "Cardiology", "Room 7", "Floor 3", "2", 8),
+        ]
+        for i, (fn, ln, g, age, dept, room, floor, acuity, eta) in enumerate(waiting):
+            p = models.Patient(first_name=fn, last_name=ln, gender=g,
+                               dob=date(2026 - age, 6, 1), mrn=f"MRN-2003{i}0", mobile=f"98765111{i}0")
+            db.add(p)
+            db.flush()
+            enc = models.Encounter(patient_id=p.patient_id, visit_type="OPD", department=dept,
+                                   channel="WALKIN", status="TRIAGED")
+            db.add(enc)
+            db.flush()
+            db.add(models.Triage(encounter_id=enc.encounter_id, chief_complaint="See intake",
+                                 acuity_level=acuity, specialty=dept, red_flag=(acuity == "2")))
+            db.add(models.Token(encounter_id=enc.encounter_id, token_number=f"A-{100 + i:03d}",
+                                department=dept, room=room, floor=floor, eta_minutes=eta, status="WAITING"))
+
+        db.commit()
+
+        print("Seed complete.")
+        print(f"  Hero patient : Rimjhim Sharma  ·  patient_id={rimjhim.patient_id}")
+        print(f"  ABHA         : 91-2345-6789-0123  (allergic to Penicillin)")
+        print(f"  Doctors      : {len(doctors)}   Pharmacy items: {len(stock)}   Waiting patients: {len(waiting)}")
+        print("  Try: POST /api/v1/checkin  {\"abha_number\":\"91-2345-6789-0123\",\"channel\":\"WHATSAPP\"}")
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    seed()
