@@ -183,19 +183,28 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
     db.commit()
     bus.publish(Topics.PATIENT360_ASSEMBLED, {"patient_id": patient_id})
 
+    brief = _patient_brief(patient)
+    allergies_list = [
+        {"substance": a.substance, "drug_class": a.drug_class, "severity": a.severity, "reaction": a.reaction}
+        for a in patient.allergies
+    ]
+    formatted_notes = [{"date": n.created_ts.date().isoformat(), "text": n.final_text} for n in notes]
+    vitals_payload = None if not latest_vitals else {
+        "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}",
+        "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
+        "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
+    }
+
+    summary_res = agents.patient_summary_agent(
+        brief, allergies_list, active_meds, formatted_notes, vitals_payload
+    )
+
     return {
-        "patient": _patient_brief(patient),
-        "allergies": [
-            {"substance": a.substance, "drug_class": a.drug_class, "severity": a.severity, "reaction": a.reaction}
-            for a in patient.allergies
-        ],
+        "patient": brief,
+        "allergies": allergies_list,
         "active_medications": active_meds,
-        "latest_vitals": None if not latest_vitals else {
-            "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}",
-            "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
-            "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
-        },
-        "recent_notes": [{"date": n.created_ts.date().isoformat(), "text": n.final_text} for n in notes],
+        "latest_vitals": vitals_payload,
+        "recent_notes": formatted_notes,
         "recent_results": [
             {"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag,
              "date": r.resulted_ts.date().isoformat()}
@@ -207,6 +216,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             for e in encounters
         ],
         "consent_id": consent_id,
+        "ai_summary": summary_res,
     }
 
 
@@ -298,3 +308,62 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         "token": None if not token else {"number": token.token_number, "room": token.room,
                                          "floor": token.floor, "eta_minutes": token.eta_minutes},
     }
+
+
+@router.get("/doctors")
+def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
+    """Retrieve all staff with the DOCTOR role."""
+    doctors = db.scalars(select(models.Staff).where(models.Staff.role == "DOCTOR")).all()
+    return [{
+        "doctor_id": d.staff_id,
+        "name": d.name,
+        "department": d.department,
+        "specialty": d.specialty,
+        "available": d.available
+    } for d in doctors]
+
+
+@router.get("/doctors/{doctor_id}/encounters")
+def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> list[dict]:
+    """Retrieve all active encounters (queue) for a specific doctor."""
+    stmt = (
+        select(models.Encounter)
+        .where(models.Encounter.doctor_id == doctor_id)
+        .where(models.Encounter.status.in_(["CHECKED_IN", "TRIAGED", "IN_CONSULT", "EMERGENCY"]))
+        .order_by(models.Encounter.arrival_ts.desc())
+    )
+    encounters = db.scalars(stmt).all()
+    out = []
+    for e in encounters:
+        p = db.get(models.Patient, e.patient_id)
+        token = db.scalar(select(models.Token).where(models.Token.encounter_id == e.encounter_id)
+                          .order_by(models.Token.issued_ts.desc()))
+        triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == e.encounter_id)
+                           .order_by(models.Triage.created_ts.desc()))
+        out.append({
+            "encounter_id": e.encounter_id,
+            "status": e.status,
+            "visit_type": e.visit_type,
+            "arrival": e.arrival_ts.isoformat(),
+            "patient": {
+                "patient_id": p.patient_id,
+                "name": p.full_name,
+                "age": p.age,
+                "gender": p.gender,
+                "mobile": p.mobile,
+                "mrn": p.mrn,
+            } if p else None,
+            "token": {
+                "number": token.token_number,
+                "room": token.room,
+                "floor": token.floor,
+                "eta_minutes": token.eta_minutes
+            } if token else None,
+            "triage": {
+                "chief_complaint": triage.chief_complaint if triage else None,
+                "acuity": triage.acuity_level if triage else None,
+                "red_flag": triage.red_flag if triage else False,
+            } if triage else None,
+        })
+    return out
+

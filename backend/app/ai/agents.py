@@ -220,7 +220,12 @@ def rx_cds_agent(
                     "message": f"Allergy conflict: patient allergic to {cls or 'this substance'}. Choose an alternative.",
                 }
             )
-            for alt in kb.THERAPEUTIC_EQUIVALENTS.get(name_l, []):
+            matched_alts = []
+            for eq_key, eq_alts in kb.THERAPEUTIC_EQUIVALENTS.items():
+                if eq_key in name_l:
+                    matched_alts = eq_alts
+                    break
+            for alt in matched_alts:
                 suggestions.append({"for": name, "suggestion": alt, "reason": "Non-cross-reactive alternative"})
 
         # 2) Drug–drug interactions
@@ -297,3 +302,55 @@ def command_center_agent(metrics: dict[str, Any]) -> dict[str, Any]:
         needs_approval=False,
         source="deterministic-engine",
     )
+
+
+# ------------------------------------------------------------------------- Patient Summary Agent
+def patient_summary_agent(
+    patient_brief: dict[str, Any],
+    allergies: list[dict[str, Any]],
+    active_meds: list[str],
+    recent_notes: list[dict[str, Any]],
+    latest_vitals: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Generates an AI-drafted summary of the patient's medical history."""
+    allergies_str = ", ".join(a.get("substance", "") for a in allergies) or "No known allergies"
+    meds_str = ", ".join(active_meds) or "No active medications"
+    vitals_str = ""
+    if latest_vitals:
+        vitals_str = f"BP {latest_vitals.get('bp')}, SpO₂ {latest_vitals.get('spo2')}%"
+    
+    past_diagnoses = []
+    for n in recent_notes[:3]:
+        past_diagnoses.append(f"On {n.get('date')}: {n.get('text', '')[:80]}...")
+    diagnoses_str = "; ".join(past_diagnoses) or "No past visit notes"
+
+    summary = None
+    prompt = (
+        "You are an expert clinical summarizer. Summarize the following patient history in 2-3 concise bullet points "
+        "for the consulting doctor.\n\n"
+        f"Patient: {patient_brief.get('name')}, {patient_brief.get('age')} years, {patient_brief.get('gender')}.\n"
+        f"Allergies: {allergies_str}\n"
+        f"Active Meds: {meds_str}\n"
+        f"Latest Vitals: {vitals_str}\n"
+        f"Past History: {diagnoses_str}\n"
+        "Be factual, clinical, and highlight critical concerns (especially allergies)."
+    )
+    llm = gateway.generate(prompt, temperature=0.1)
+    if llm:
+        summary = llm.strip()
+    if not summary:
+        summary = (
+            f"Patient is a {patient_brief.get('age')}yo {patient_brief.get('gender')}. "
+            f"Allergies: {allergies_str}. "
+            f"Current active medications: {meds_str}. "
+            f"History: {len(recent_notes)} past visit note(s) recorded."
+        )
+
+    return envelope(
+        {"summary": summary},
+        agent="Patient History Summary",
+        needs_approval=False,
+        source=_source(),
+        citations=["Patient medical record timeline"],
+    )
+
