@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldAlert, FileText, FlaskConical, Pill, Receipt, CheckCircle2, Mic, Plus, Trash2, BadgeCheck,
+  Stethoscope, Clock, MapPin, User, ArrowRight, Activity, Users,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { useJourney } from "../lib/store";
@@ -20,16 +21,160 @@ export default function Copilot() {
   const nav = useNavigate();
   const journey = useJourney();
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("p360");
+  const [selectedDoctorId, setSelectedDoctorId] = useState<string>(() => {
+    return localStorage.getItem("selected_doctor_id") || "";
+  });
+
+  const { data: doctors } = useQuery({
+    queryKey: ["doctors"],
+    queryFn: api.doctors,
+  });
+
+  const { data: queue, refetch: refetchQueue } = useQuery({
+    queryKey: ["doctor-queue", selectedDoctorId],
+    queryFn: () => api.doctorEncounters(selectedDoctorId),
+    enabled: !!selectedDoctorId,
+    refetchInterval: 5000,
+  });
+
+  const handleSelectDoctor = (id: string) => {
+    setSelectedDoctorId(id);
+    localStorage.setItem("selected_doctor_id", id);
+  };
+
+  const handleSelectPatient = (enc: any) => {
+    journey.set({
+      patientId: enc.patient.patient_id,
+      encounterId: enc.encounter_id,
+      patientName: enc.patient.name,
+      token: enc.token?.number || null,
+      department: enc.visit_type || null,
+    });
+  };
 
   if (!journey.encounterId || !journey.patientId) {
     return (
-      <Card>
-        <SectionTitle>Doctor Copilot</SectionTitle>
-        <p style={{ color: "var(--muted)" }}>
-          No active encounter. Start at{" "}
-          <button className="btn ghost" onClick={() => nav("/checkin")}>Check-in</button> then run triage.
-        </p>
-      </Card>
+      <div className="space-y-6">
+        {/* Header Profile Selection */}
+        <Card className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="grad-text text-xl font-extrabold flex items-center gap-2">
+              <Stethoscope size={22} className="text-[var(--cyan)]" /> Doctor Portal Login
+            </h2>
+            <p className="text-[13px] mt-1" style={{ color: "var(--muted)" }}>
+              Select your clinical profile to view your active patient queue and consultation schedules.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <User size={15} color="var(--dim)" />
+            <select
+              value={selectedDoctorId}
+              onChange={(e) => handleSelectDoctor(e.target.value)}
+              className="input !py-1.5 !px-3 !w-auto text-[13.5px] font-bold"
+              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+            >
+              <option value="">-- Choose Doctor Profile --</option>
+              {doctors?.map((doc: any) => (
+                <option key={doc.doctor_id} value={doc.doctor_id}>
+                  {doc.name} ({doc.specialty})
+                </option>
+              ))}
+            </select>
+          </div>
+        </Card>
+
+        {/* Patient Queue */}
+        {selectedDoctorId ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="grad-text text-lg font-extrabold flex items-center gap-2">
+                <Users size={18} /> Active Patient Queue
+              </h3>
+              <span className="live">LIVE REFRESH</span>
+            </div>
+
+            {queue && queue.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {queue.map((enc: any) => {
+                  const acuity = enc.triage?.acuity || "4";
+                  const isRedFlag = enc.triage?.red_flag;
+                  const tagTone = acuity === "1" ? "red" : acuity === "2" ? "red" : acuity === "3" ? "amber" : "blue";
+
+                  return (
+                    <Card 
+                      key={enc.encounter_id} 
+                      className={`hover-border relative overflow-hidden flex flex-col justify-between h-full transition ${
+                        isRedFlag ? "border-red-500/30" : ""
+                      }`}
+                      style={{ border: isRedFlag ? "1px solid rgba(239, 68, 68, 0.4)" : "" }}
+                    >
+                      {/* Priority Aura */}
+                      {isRedFlag && (
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 rounded-full blur-2xl" />
+                      )}
+
+                      <div className="space-y-2">
+                        {/* Token & Priority Badge */}
+                        <div className="flex justify-between items-start">
+                          <span className="text-[12px] font-bold uppercase tracking-wider" style={{ color: "var(--dim)" }}>
+                            Token: <b className="text-white text-base">{enc.token?.number || "—"}</b>
+                          </span>
+                          <Tag tone={tagTone}>
+                            ESI {acuity} {isRedFlag ? "· RED FLAG" : ""}
+                          </Tag>
+                        </div>
+
+                        {/* Patient Name */}
+                        <div>
+                          <h4 className="text-base font-extrabold" style={{ color: "#dce9ff" }}>
+                            {enc.patient?.name}
+                          </h4>
+                          <p className="text-[12px]" style={{ color: "var(--muted)" }}>
+                            {enc.patient?.age} yrs · {enc.patient?.gender} · {enc.patient?.mobile}
+                          </p>
+                        </div>
+
+                        {/* Chief Complaint */}
+                        <div className="holo p-2 text-[12px] whitespace-pre-line" style={{ color: "#bcd2ff" }}>
+                          <b>Chief Complaint:</b><br />
+                          {enc.triage?.chief_complaint || "Routine consultation."}
+                        </div>
+
+                        {/* Room/Location info */}
+                        {enc.token?.room && (
+                          <div className="flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--dim)" }}>
+                            <MapPin size={12} color="var(--cyan)" />
+                            <span>{enc.token.room} ({enc.token.floor})</span>
+                            {enc.token.eta_minutes != null && <span className="ml-auto">Est: ~{enc.token.eta_minutes}m</span>}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action Button */}
+                      <button 
+                        onClick={() => handleSelectPatient(enc)}
+                        className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
+                      >
+                        Consult Patient <ArrowRight size={14} />
+                      </button>
+                    </Card>
+                  );
+                })}
+              </div>
+            ) : (
+              <Empty>No patients currently waiting in your queue. Sit back, new check-ins will appear live.</Empty>
+            )}
+          </div>
+        ) : (
+          <Card className="text-center py-10">
+            <Stethoscope size={48} className="mx-auto text-[var(--dim)] opacity-40 mb-3" />
+            <h3 className="font-bold text-base" style={{ color: "#d7e5ff" }}>Select Profile to Begin</h3>
+            <p className="text-[13px] max-w-md mx-auto mt-1" style={{ color: "var(--muted)" }}>
+              Please select your doctor name from the dropdown above to retrieve your scheduled queue.
+            </p>
+          </Card>
+        )}
+      </div>
     );
   }
 
@@ -44,7 +189,15 @@ export default function Copilot() {
             {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
           </div>
         </div>
-        <span className="ai-badge"><Mic size={13} /> Copilot session</span>
+        <div className="flex items-center gap-3">
+          <button 
+            className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold" 
+            onClick={() => journey.reset()}
+          >
+            ← Back to Patient Queue
+          </button>
+          <span className="ai-badge"><Mic size={13} /> Copilot session</span>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -91,51 +244,68 @@ function Patient360({ patientId }: { patientId: string }) {
   }
   const flag = (f: string) => (f === "N" ? "green" : f === "H" || f === "L" ? "amber" : "red");
   return (
-    <div className="grid gap-3 md:grid-cols-3">
-      <Card>
-        <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Allergies</h4>
-        {data.allergies.length ? data.allergies.map((a: any) => (
-          <div key={a.substance} className="mb-1"><Tag tone="red">⚠ {a.substance}{a.severity ? ` · ${a.severity}` : ""}</Tag></div>
-        )) : <Empty>No known allergies</Empty>}
-      </Card>
-      <Card>
-        <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Active medications</h4>
-        {data.active_medications.length ? (
-          <ul className="space-y-1 text-[13px]" style={{ color: "var(--muted)" }}>
-            {data.active_medications.map((m: string, i: number) => <li key={i}>• {m}</li>)}
-          </ul>
-        ) : <Empty>None recorded</Empty>}
-      </Card>
-      <Card>
-        <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Latest vitals</h4>
-        {data.latest_vitals ? (
-          <div className="grid grid-cols-2 gap-2 text-[13px]">
-            <div className="holo text-center"><small style={{ color: "var(--dim)" }}>BP</small><br /><b>{data.latest_vitals.bp}</b></div>
-            <div className="holo text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{data.latest_vitals.spo2}%</b></div>
-            <div className="holo text-center"><small style={{ color: "var(--dim)" }}>HR</small><br /><b>{data.latest_vitals.heart_rate}</b></div>
-            <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{data.latest_vitals.temperature}°F</b></div>
+    <div className="space-y-3">
+      {/* AI History Summary */}
+      {data.ai_summary?.result?.summary && (
+        <Card className="relative overflow-hidden" style={{ background: "radial-gradient(600px 180px at 0% 0%, rgba(52,225,232,0.1), transparent)" }}>
+          <div className="absolute top-3 right-3">
+            <AgentBadge label="Patient 360 AI" />
           </div>
-        ) : <Empty>No vitals yet</Empty>}
-      </Card>
-      <Card className="md:col-span-2">
-        <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Recent results</h4>
-        {data.recent_results.length ? (
-          <table className="w-full text-[13px]">
-            <thead><tr style={{ color: "var(--dim)" }}><th className="text-left">Analyte</th><th className="text-left">Value</th><th className="text-left">Flag</th><th className="text-left">Date</th></tr></thead>
-            <tbody>
-              {data.recent_results.map((r: any, i: number) => (
-                <tr key={i}><td>{r.analyte}</td><td>{r.value} {r.unit}</td><td><Tag tone={flag(r.flag)}>{r.flag}</Tag></td><td style={{ color: "var(--dim)" }}>{r.date}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <Empty>No results</Empty>}
-      </Card>
-      <Card>
-        <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Recent visits</h4>
-        {data.encounters.map((e: any) => (
-          <div key={e.encounter_id} className="kv"><span>{e.date}</span><b>{e.department || "—"}</b><Tag tone="blue">{e.status}</Tag></div>
-        ))}
-      </Card>
+          <h4 className="font-extrabold mb-2 flex items-center gap-2" style={{ color: "var(--cyan)" }}>
+            <Activity size={16} /> Clinical History Summary
+          </h4>
+          <div className="text-[13px] leading-relaxed whitespace-pre-line" style={{ color: "#d2e2ff" }}>
+            {data.ai_summary.result.summary}
+          </div>
+        </Card>
+      )}
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <Card>
+          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Allergies</h4>
+          {data.allergies.length ? data.allergies.map((a: any) => (
+            <div key={a.substance} className="mb-1"><Tag tone="red">⚠ {a.substance}{a.severity ? ` · ${a.severity}` : ""}</Tag></div>
+          )) : <Empty>No known allergies</Empty>}
+        </Card>
+        <Card>
+          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Active medications</h4>
+          {data.active_medications.length ? (
+            <ul className="space-y-1 text-[13px]" style={{ color: "var(--muted)" }}>
+              {data.active_medications.map((m: string, i: number) => <li key={i}>• {m}</li>)}
+            </ul>
+          ) : <Empty>None recorded</Empty>}
+        </Card>
+        <Card>
+          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Latest vitals</h4>
+          {data.latest_vitals ? (
+            <div className="grid grid-cols-2 gap-2 text-[13px]">
+              <div className="holo text-center"><small style={{ color: "var(--dim)" }}>BP</small><br /><b>{data.latest_vitals.bp}</b></div>
+              <div className="holo text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{data.latest_vitals.spo2}%</b></div>
+              <div className="holo text-center"><small style={{ color: "var(--dim)" }}>HR</small><br /><b>{data.latest_vitals.heart_rate}</b></div>
+              <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{data.latest_vitals.temperature}°F</b></div>
+            </div>
+          ) : <Empty>No vitals yet</Empty>}
+        </Card>
+        <Card className="md:col-span-2">
+          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Recent results</h4>
+          {data.recent_results.length ? (
+            <table className="w-full text-[13px]">
+              <thead><tr style={{ color: "var(--dim)" }}><th className="text-left">Analyte</th><th className="text-left">Value</th><th className="text-left">Flag</th><th className="text-left">Date</th></tr></thead>
+              <tbody>
+                {data.recent_results.map((r: any, i: number) => (
+                  <tr key={i}><td>{r.analyte}</td><td>{r.value} {r.unit}</td><td><Tag tone={flag(r.flag)}>{r.flag}</Tag></td><td style={{ color: "var(--dim)" }}>{r.date}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          ) : <Empty>No results</Empty>}
+        </Card>
+        <Card>
+          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Recent visits</h4>
+          {data.encounters.map((e: any) => (
+            <div key={e.encounter_id} className="kv"><span>{e.date}</span><b>{e.department || "—"}</b><Tag tone="blue">{e.status}</Tag></div>
+          ))}
+        </Card>
+      </div>
     </div>
   );
 }
@@ -286,10 +456,28 @@ function Rx({ encounterId }: { encounterId: string }) {
   const [done, setDone] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  const { data: stock } = useQuery({
+    queryKey: ["pharmacy-stock"],
+    queryFn: () => api.stock(),
+    refetchInterval: 10000,
+  });
+
   const setItem = (i: number, k: keyof Item, val: string) =>
     setItems((s) => s.map((it, idx) => (idx === i ? { ...it, [k]: val } : it)));
   const add = (preset?: Item) => setItems((s) => [...s, preset || { drug_name: "", dose: "", frequency: "1-0-1" }]);
   const del = (i: number) => setItems((s) => s.filter((_, idx) => idx !== i));
+
+  const applySuggestion = (forDrug: string, newDrug: string) => {
+    setItems((s) => s.map((it) => {
+      // Direct exact match or fuzzy match
+      const isMatch = it.drug_name.toLowerCase().trim() === forDrug.toLowerCase().trim() || 
+                      it.drug_name.toLowerCase().includes(forDrug.toLowerCase().trim()) || 
+                      forDrug.toLowerCase().includes(it.drug_name.toLowerCase().trim());
+      return isMatch ? { ...it, drug_name: newDrug } : it;
+    }));
+    setCds(null);
+    setErr(null);
+  };
 
   async function runCds() {
     setBusy(true); setDone(null); setErr(null);
@@ -321,15 +509,45 @@ function Rx({ encounterId }: { encounterId: string }) {
             <button className="chip" onClick={() => add({ drug_name: "Paracetamol 650mg", dose: "650 mg", frequency: "SOS" })}>+ Paracetamol</button>
           </div>
         </div>
-        {items.map((it, i) => (
-          <div key={i} className="mb-2 grid grid-cols-[1fr_70px_70px_28px] gap-2">
-            <input className="input" value={it.drug_name} placeholder="Drug" onChange={(e) => setItem(i, "drug_name", e.target.value)} />
-            <input className="input" value={it.dose} placeholder="Dose" onChange={(e) => setItem(i, "dose", e.target.value)} />
-            <input className="input" value={it.frequency} placeholder="Freq" onChange={(e) => setItem(i, "frequency", e.target.value)} />
-            <button className="chip" onClick={() => del(i)}><Trash2 size={14} /></button>
-          </div>
-        ))}
-        <div className="flex gap-2">
+
+        {items.map((it, i) => {
+          // Perform live stock matching
+          const searchVal = it.drug_name.toLowerCase().trim();
+          const matched = stock?.find(s => {
+            const nameLower = s.drug_name.toLowerCase();
+            return nameLower === searchVal || nameLower.includes(searchVal) || searchVal.includes(nameLower);
+          });
+          const available = matched ? matched.available : 0;
+
+          return (
+            <div key={i} className="mb-3 p-3 rounded-xl border" style={{ borderColor: "var(--glass-border)", background: "rgba(255,255,255,0.01)" }}>
+              <div className="grid grid-cols-[1fr_70px_70px_28px] gap-2">
+                <input className="input" value={it.drug_name} placeholder="Drug (e.g. Paracetamol)" onChange={(e) => setItem(i, "drug_name", e.target.value)} />
+                <input className="input" value={it.dose} placeholder="Dose" onChange={(e) => setItem(i, "dose", e.target.value)} />
+                <input className="input" value={it.frequency} placeholder="Freq" onChange={(e) => setItem(i, "frequency", e.target.value)} />
+                <button className="chip" onClick={() => del(i)}><Trash2 size={14} /></button>
+              </div>
+              
+              {it.drug_name.trim() && (
+                <div className="mt-1.5 px-1 flex items-center justify-between text-[11px]">
+                  {matched ? (
+                    <span className={available > 0 ? "text-[var(--mint)] font-medium" : "text-rose-400 font-semibold"}>
+                      {available > 0 ? `✓ In stock: ${available} left` : "⚠ OUT OF STOCK"} 
+                      <span className="text-[var(--dim)] ml-1.5">({matched.salt})</span>
+                    </span>
+                  ) : (
+                    <span className="text-amber-400 font-semibold">⚠ Not found in stock</span>
+                  )}
+                  {matched && !matched.formulary && (
+                    <span className="text-amber-500 font-bold uppercase text-[9px] tracking-wider">Non-Formulary</span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <div className="flex gap-2 mt-3">
           <button className="btn ghost" onClick={() => add()}><Plus size={15} /> Add</button>
           <button className="btn flex-1" disabled={busy || !items.length} onClick={runCds}><Pill size={15} /> Run CDS</button>
         </div>
@@ -349,9 +567,17 @@ function Rx({ encounterId }: { encounterId: string }) {
               )) : <div style={{ color: "var(--mint)" }}>✓ No conflicts — safe to prescribe.</div>}
             </div>
             {cds.suggestions?.length > 0 && (
-              <div className="holo mt-2 text-[12.5px]">
-                <AgentBadge label="AI" /> Suggested alternatives:
-                {cds.suggestions.map((s: any, i: number) => <div key={i}>• <b>{s.suggestion}</b> for {s.for} — {s.reason}</div>)}
+              <div className="holo mt-2 text-[12.5px] space-y-1.5">
+                <div className="font-semibold text-white"><AgentBadge label="AI" /> Suggested alternatives (click to apply):</div>
+                {cds.suggestions.map((s: any, i: number) => (
+                  <button
+                    key={i}
+                    onClick={() => applySuggestion(s.for, s.suggestion)}
+                    className="block text-left w-full hover:bg-white/5 p-1 rounded transition text-[var(--cyan)] border border-dashed border-[var(--cyan)]/20 px-2 py-1 mt-1"
+                  >
+                    • Use <b>{s.suggestion}</b> for {s.for} — <span className="text-[11.5px] text-[var(--muted)]">{s.reason}</span>
+                  </button>
+                ))}
               </div>
             )}
             <label className="mt-2 flex items-center gap-2 text-[12.5px]" style={{ color: "var(--muted)" }}>

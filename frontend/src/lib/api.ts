@@ -41,6 +41,8 @@ export const api = {
     post<any>("/api/v1/identity/verify", { method, value }),
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),
   patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
+  doctors: () => get<any[]>("/api/v1/doctors"),
+  doctorEncounters: (doctor_id: string) => get<any[]>(`/api/v1/doctors/${doctor_id}/encounters`),
   triage: (encounter_id: string, body: any) =>
     post<any>(`/api/v1/encounters/${encounter_id}/triage`, body),
   encounter: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}`),

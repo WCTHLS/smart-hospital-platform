@@ -1,22 +1,22 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ReactNode, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart, Cpu,
-  Smartphone, BellRing,
+  Smartphone, BellRing, User, ShieldAlert,
 } from "lucide-react";
 import { api } from "../lib/api";
-import { useJourney } from "../lib/store";
+import { useJourney, Role } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
 
 const NAV = [
   { to: "/", label: "Home", icon: Activity, end: true },
-  { to: "/checkin", label: "Check-in", icon: MessageSquareHeart },
-  { to: "/triage", label: "Triage", icon: HeartPulse },
-  { to: "/copilot", label: "Doctor Copilot", icon: Stethoscope },
-  { to: "/patient", label: "My Status", icon: Smartphone },
-  { to: "/command", label: "Command Center", icon: MonitorDot },
+  { to: "/checkin", label: "Check-in", icon: MessageSquareHeart, roles: ["patient"] },
+  { to: "/triage", label: "Triage Desk", icon: HeartPulse, roles: ["nurse"] },
+  { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, roles: ["doctor"] },
+  { to: "/patient", label: "My Status", icon: Smartphone, roles: ["patient"] },
+  { to: "/command", label: "Command Center", icon: MonitorDot, roles: ["admin"] },
 ];
 
 function AiPill() {
@@ -63,13 +63,29 @@ export default function Layout({ children }: { children: ReactNode }) {
   useRealtimeConnection();
   const journey = useJourney();
   const loc = useLocation();
+  const nav = useNavigate();
   const connected = useRealtime((s) => s.connected);
+
+  const activeRole = journey.activeRole;
+
+  // Filter navigation links dynamically by role
+  const visibleNav = NAV.filter(n => !n.roles || n.roles.includes(activeRole));
+
+  const handleRoleChange = (newRole: Role) => {
+    journey.reset();
+    journey.setRole(newRole);
+    if (newRole === "patient") nav("/checkin");
+    else if (newRole === "nurse") nav("/triage");
+    else if (newRole === "doctor") nav("/copilot");
+    else if (newRole === "admin") nav("/command");
+  };
+
   return (
     <div className="min-h-screen">
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-20 flex w-[236px] flex-col gap-1 p-4"
         style={{ borderRight: "1px solid var(--line)", background: "rgba(6,9,18,.7)", backdropFilter: "blur(14px)" }}>
-        <div className="mb-4 flex items-center gap-2.5 px-1">
+        <div className="mb-4 flex items-center gap-2.5 px-1" onClick={() => nav("/")} style={{ cursor: "pointer" }}>
           <div className="grid h-9 w-9 place-items-center rounded-xl"
             style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))", boxShadow: "0 0 18px rgba(52,225,232,.5)" }}>
             <HeartPulse size={18} color="#04121a" />
@@ -80,7 +96,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {NAV.map((n) => (
+        {visibleNav.map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end}
             className={({ isActive }) =>
               `flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition ${
@@ -97,21 +113,24 @@ export default function Layout({ children }: { children: ReactNode }) {
           </NavLink>
         ))}
 
-        <div className="mt-auto">
-          <div className="card p-3 text-[12px]">
-            <div className="mb-1 flex items-center gap-1.5 font-bold" style={{ color: "#bcd2ff" }}>
-              <ClipboardList size={13} /> Active journey
+        <div className="mt-auto space-y-2">
+          {journey.patientName && (
+            <div className="card p-3 text-[12px] relative group">
+              <div className="mb-1 flex items-center justify-between font-bold" style={{ color: "#bcd2ff" }}>
+                <span className="flex items-center gap-1"><ClipboardList size={13} /> Active Session</span>
+                <button 
+                  onClick={() => journey.reset()} 
+                  className="text-[10px] text-red-400 hover:text-red-300 font-bold uppercase transition"
+                  title="Clear patient session"
+                >
+                  Reset
+                </button>
+              </div>
+              <div style={{ color: "var(--ink)" }} className="font-semibold">{journey.patientName}</div>
+              <div style={{ color: "var(--dim)" }}>{journey.department || "—"}</div>
+              {journey.token && <div className="mt-1"><span className="tag violet">Token {journey.token}</span></div>}
             </div>
-            {journey.patientName ? (
-              <>
-                <div style={{ color: "var(--ink)" }}>{journey.patientName}</div>
-                <div style={{ color: "var(--dim)" }}>{journey.department || "—"}</div>
-                {journey.token && <div className="mt-1"><span className="tag violet">Token {journey.token}</span></div>}
-              </>
-            ) : (
-              <div style={{ color: "var(--dim)" }}>No patient selected</div>
-            )}
-          </div>
+          )}
         </div>
       </aside>
 
@@ -123,13 +142,33 @@ export default function Layout({ children }: { children: ReactNode }) {
             {NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
           </div>
           <div className="flex items-center gap-3">
+            {/* Live Connection Status */}
             <span className="flex items-center gap-1.5 text-[11px] font-bold"
               style={{ color: connected ? "#a7f3c4" : "#ffe0a3" }}>
               <span className="inline-block h-2 w-2 rounded-full"
                 style={{ background: connected ? "var(--mint)" : "var(--amber)", boxShadow: `0 0 8px ${connected ? "var(--mint)" : "var(--amber)"}` }} />
               {connected ? "LIVE" : "RECONNECTING"}
             </span>
+
+            {/* AI Status */}
             <AiPill />
+
+            {/* Custom Role Selector Dropdown */}
+            <div className="flex items-center gap-1.5 rounded-xl border px-2.5 py-1" 
+              style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}>
+              <User size={13} color="var(--dim)" />
+              <select 
+                value={activeRole} 
+                onChange={(e) => handleRoleChange(e.target.value as Role)}
+                className="bg-transparent text-[12.5px] font-bold text-white border-0 outline-none cursor-pointer pr-1"
+                style={{ color: "#dce9ff" }}
+              >
+                <option value="patient" style={{ background: "#0a1120" }}>👤 Patient Portal</option>
+                <option value="nurse" style={{ background: "#0a1120" }}>🏥 Triage Nurse</option>
+                <option value="doctor" style={{ background: "#0a1120" }}>🩺 Doctor Workspace</option>
+                <option value="admin" style={{ background: "#0a1120" }}>📊 Command Center</option>
+              </select>
+            </div>
           </div>
         </header>
         <motion.main key={loc.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
