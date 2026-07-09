@@ -19,6 +19,11 @@ def _utcnow() -> datetime:
 
 
 def seed() -> None:
+    if "--force" in sys.argv:
+        from app.core.database import engine, Base
+        import app.models  # Ensure all models are registered
+        Base.metadata.drop_all(bind=engine)
+        print("Dropped all tables for clean reseed.")
     init_db()
     db = SessionLocal()
     try:
@@ -50,6 +55,7 @@ def seed() -> None:
             ("Amlodipine 5mg", "Amlodipine", "ccb", 200, 3.0, True),
             ("Metformin 500mg", "Metformin", "biguanide", 300, 2.0, True),
             ("Pantoprazole 40mg", "Pantoprazole", "ppi", 150, 4.0, True),
+            ("Cetirizine 10mg", "Cetirizine", "antihistamine", 150, 5.0, True),
             ("Dextromethorphan Syrup X", "Dextromethorphan", "antitussive", 0, 60.0, True),
             ("Dextromethorphan Syrup Y", "Dextromethorphan", "antitussive", 60, 55.0, True),
             ("Insulin Glargine", "Insulin Glargine", "insulin", 8, 320.0, True),
@@ -115,6 +121,64 @@ def seed() -> None:
         db.add(models.LabResult(lab_order_id=past_order.lab_order_id, test_code="4548-4", analyte="HbA1c",
                                 value=7.1, unit="%", reference_low=4.0, reference_high=5.7,
                                 abnormal_flag="H", resulted_ts=now - timedelta(days=60)))
+
+        # Past Encounter 2 (30 days ago) - Cardiology for Palpitations & Lipid Profile
+        past2 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Cardiology",
+                                 channel="APP", status="DISCHARGED",
+                                 arrival_ts=now - timedelta(days=30), end_ts=now - timedelta(days=30))
+        db.add(past2)
+        db.flush()
+        note2 = models.ClinicalNote(
+            encounter_id=past2.encounter_id, note_type="SOAP",
+            ai_draft="S: Palpitations for 2 weeks...", final_text="S: Patient reports mild palpitations and occasional shortness of breath. O: Heart rate 92 bpm, BP 132/82. Lungs clear. A: Mild sinus tachycardia, borderline hyperlipidemia. P: Prescribe exercise regimen and check lipid profile. Continue amlodipine.",
+            icd10_codes=[{"code": "R00.2", "label": "Palpitations"},
+                         {"code": "E78.5", "label": "Hyperlipidemia, unspecified"}],
+            status="APPROVED", authored_by="ambient-agent", approved_by="Dr. Vikram Rao",
+            approved_ts=now - timedelta(days=30),
+        )
+        db.add(note2)
+        rx2 = models.Prescription(encounter_id=past2.encounter_id, patient_id=rimjhim.patient_id,
+                                  status="APPROVED", prescribed_by="Dr. Vikram Rao",
+                                  approved_ts=now - timedelta(days=30), created_ts=now - timedelta(days=30))
+        db.add(rx2)
+        db.flush()
+        db.add(models.PrescriptionItem(rx_id=rx2.rx_id, drug_name="Amlodipine 5mg", dose="5 mg",
+                                       route="PO", frequency="1-0-0", duration_days=30, quantity=30))
+        past2_order = models.LabOrder(encounter_id=past2.encounter_id, patient_id=rimjhim.patient_id,
+                                      test_code="9606-2", test_name="Lipid Profile", panel="Lipid Profile",
+                                      status="RESULTED", qr_code="LAB-SEED0002", price=600.0,
+                                      ordered_ts=now - timedelta(days=30))
+        db.add(past2_order)
+        db.flush()
+        db.add(models.LabResult(lab_order_id=past2_order.lab_order_id, test_code="9606-2", analyte="Cholesterol",
+                                value=210.0, unit="mg/dL", reference_low=100.0, reference_high=200.0,
+                                abnormal_flag="H", resulted_ts=now - timedelta(days=30)))
+        db.add(models.LabResult(lab_order_id=past2_order.lab_order_id, test_code="9606-2", analyte="LDL",
+                                value=135.0, unit="mg/dL", reference_low=0.0, reference_high=100.0,
+                                abnormal_flag="H", resulted_ts=now - timedelta(days=30)))
+
+        # Past Encounter 3 (15 days ago) - Dermatology for Rash
+        past3 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Dermatology",
+                                 channel="WALKIN", status="DISCHARGED",
+                                 arrival_ts=now - timedelta(days=15), end_ts=now - timedelta(days=15))
+        db.add(past3)
+        db.flush()
+        note3 = models.ClinicalNote(
+            encounter_id=past3.encounter_id, note_type="SOAP",
+            ai_draft="S: Contact dermatitis...", final_text="S: Patient reports intensely itchy red rash on arms for 3 days after contact with cleaning agent. O: Erythematous rash with excoriations on bilateral forearms. A: Contact dermatitis (L23.9). P: Avoid strong detergents, take anti-histamines. Apply soothing lotion.",
+            icd10_codes=[{"code": "L23.9", "label": "Allergic contact dermatitis"}],
+            status="APPROVED", authored_by="ambient-agent", approved_by="Dr. Arjun Shah",
+            approved_ts=now - timedelta(days=15),
+        )
+        db.add(note3)
+        rx3 = models.Prescription(encounter_id=past3.encounter_id, patient_id=rimjhim.patient_id,
+                                  status="APPROVED", prescribed_by="Dr. Arjun Shah",
+                                  approved_ts=now - timedelta(days=15), created_ts=now - timedelta(days=15))
+        db.add(rx3)
+        db.flush()
+        db.add(models.PrescriptionItem(rx_id=rx3.rx_id, drug_name="Cetirizine 10mg", dose="10 mg",
+                                       route="PO", frequency="0-0-1", duration_days=10, quantity=10))
+
 
         # ---------------------------------------------------------------- Live waiting patients (Command Center)
         waiting = [
