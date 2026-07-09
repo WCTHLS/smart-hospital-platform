@@ -1,12 +1,15 @@
 """Pydantic request/response schemas (API boundary)."""
 from __future__ import annotations
 
+from datetime import date
+
 from pydantic import BaseModel, Field
 
 
 # --------------------------------------------------------------------------------- Journey
 class CheckInRequest(BaseModel):
     channel: str = Field(default="KIOSK", description="WHATSAPP / KIOSK / APP / WALKIN")
+    patient_id: str | None = None
     abha_number: str | None = None
     mobile: str | None = None
     mrn: str | None = None
@@ -14,9 +17,55 @@ class CheckInRequest(BaseModel):
     reason: str | None = None
 
 
+class MobileProfilesRequest(BaseModel):
+    mobile: str
+
+
 class IdentityVerifyRequest(BaseModel):
     method: str = Field(description="ABHA / OTP / MRN")
     value: str
+
+
+class AllergyIn(BaseModel):
+    substance: str
+    drug_class: str | None = None
+    severity: str | None = None
+    reaction: str | None = None
+
+
+class DocumentIn(BaseModel):
+    doc_type: str
+    title: str | None = None
+    uri: str | None = None
+
+
+class PatientBasicRegistrationRequest(BaseModel):
+    first_name: str
+    last_name: str
+    dob: date
+    mobile: str
+
+
+class PatientRegistrationRequest(BaseModel):
+    first_name: str
+    last_name: str
+    dob: date
+    mobile: str
+    email: str
+    gender: str
+    blood_group: str
+    address: str
+    allergies: list[AllergyIn] = Field(default_factory=list)
+    documents: list[DocumentIn] = Field(default_factory=list)
+
+
+class PatientProfileUpdateRequest(BaseModel):
+    email: str
+    gender: str
+    blood_group: str
+    address: str
+    allergies: list[AllergyIn] = Field(default_factory=list)
+    documents: list[DocumentIn] = Field(default_factory=list)
 
 
 class ConsentRequest(BaseModel):
