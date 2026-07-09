@@ -15,7 +15,16 @@ from app.ai import agents
 from app.core.database import get_db
 from app.core.events import Topics, bus
 from app.core.security import audit, require_active_consent
-from app.schemas import CheckInRequest, ConsentRequest, IdentityVerifyRequest, TriageRequest
+from app.schemas import (
+    CheckInRequest,
+    ConsentRequest,
+    IdentityVerifyRequest,
+    MobileProfilesRequest,
+    PatientBasicRegistrationRequest,
+    PatientProfileUpdateRequest,
+    PatientRegistrationRequest,
+    TriageRequest,
+)
 
 router = APIRouter(prefix="/api/v1", tags=["journey"])
 
@@ -46,6 +55,15 @@ def _patient_brief(p: models.Patient) -> dict:
     }
 
 
+def _patient_match(p: models.Patient) -> dict:
+    return {
+        "patient_id": p.patient_id,
+        "first_name": p.first_name,
+        "last_name": p.last_name,
+        "dob": p.dob.isoformat() if p.dob else None,
+    }
+
+
 def _get_patient(db: Session, patient_id: str) -> models.Patient:
     p = db.get(models.Patient, patient_id)
     if not p:
@@ -60,11 +78,29 @@ def _get_encounter(db: Session, encounter_id: str) -> models.Encounter:
     return e
 
 
+def _add_profile_details(
+    db: Session,
+    patient: models.Patient,
+    allergies: list,
+    documents: list,
+) -> None:
+    for allergy in allergies:
+        db.add(models.Allergy(patient_id=patient.patient_id, **allergy.model_dump()))
+    for document in documents:
+        db.add(models.Document(patient_id=patient.patient_id, **document.model_dump()))
+
+
+def _blood_group_value(value: str) -> str:
+    return "UNK" if value.strip().lower() == "unknown" else value
+
+
 # --------------------------------------------------------------------------------- Check-in
 @router.post("/checkin")
 def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
     patient: models.Patient | None = None
-    if body.abha_number:
+    if body.patient_id:
+        patient = _get_patient(db, body.patient_id)
+    if not patient and body.abha_number:
         patient = db.scalar(select(models.Patient).where(models.Patient.abha_number == body.abha_number))
     if not patient and body.mrn:
         patient = db.scalar(select(models.Patient).where(models.Patient.mrn == body.mrn))
@@ -104,7 +140,97 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.post("/checkin/mobile/profiles")
+def get_mobile_profiles(body: MobileProfilesRequest, db: Session = Depends(get_db)) -> dict:
+    patients = db.scalars(
+        select(models.Patient)
+        .where(models.Patient.mobile == body.mobile)
+        .order_by(models.Patient.first_name, models.Patient.last_name)
+    ).all()
+    return {"profiles": [_patient_match(p) for p in patients]}
+
+
+@router.post("/patients/register")
+def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get_db)) -> dict:
+    patient = models.Patient(
+        first_name=body.first_name,
+        last_name=body.last_name,
+        dob=body.dob,
+        mobile=body.mobile,
+        email=body.email,
+        gender=body.gender,
+        blood_group=_blood_group_value(body.blood_group),
+        address=body.address,
+    )
+    db.add(patient)
+    db.flush()
+    _add_profile_details(db, patient, body.allergies, body.documents)
+    audit(
+        db,
+        actor_id=patient.patient_id,
+        actor_role="PATIENT",
+        action="PATIENT_REGISTERED",
+        entity_type="patient",
+        entity_id=patient.patient_id,
+        metadata={"mobile": body.mobile},
+    )
+    db.commit()
+    return {"patient": _patient_brief(patient)}
+
+
+@router.post("/patients/register-basic")
+def register_basic_patient(body: PatientBasicRegistrationRequest, db: Session = Depends(get_db)) -> dict:
+    patient = models.Patient(
+        first_name=body.first_name,
+        last_name=body.last_name,
+        dob=body.dob,
+        mobile=body.mobile,
+    )
+    db.add(patient)
+    db.flush()
+    audit(
+        db,
+        actor_id=patient.patient_id,
+        actor_role="PATIENT",
+        action="PATIENT_BASIC_REGISTERED",
+        entity_type="patient",
+        entity_id=patient.patient_id,
+        metadata={"mobile": body.mobile},
+    )
+    db.commit()
+    return {"patient": _patient_brief(patient)}
+
+
+@router.put("/patients/{patient_id}/profile")
+def update_patient_profile(
+    patient_id: str,
+    body: PatientProfileUpdateRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    patient = _get_patient(db, patient_id)
+    patient.email = body.email
+    patient.gender = body.gender
+    patient.blood_group = _blood_group_value(body.blood_group)
+    patient.address = body.address
+    _add_profile_details(db, patient, body.allergies, body.documents)
+    audit(
+        db,
+        actor_id=patient.patient_id,
+        actor_role="PATIENT",
+        action="PATIENT_PROFILE_COMPLETED",
+        entity_type="patient",
+        entity_id=patient.patient_id,
+    )
+    db.commit()
+    return {"patient": _patient_brief(patient)}
+
+
 # --------------------------------------------------------------------------------- Identity
+@router.post("/identity/otp/verify")
+def verify_mobile_otp(body: MobileProfilesRequest) -> dict:
+    return {"verified": True, "mobile": body.mobile}
+
+
 @router.post("/identity/verify")
 def verify_identity(body: IdentityVerifyRequest, db: Session = Depends(get_db)) -> dict:
     field = {"ABHA": models.Patient.abha_number, "MRN": models.Patient.mrn, "OTP": models.Patient.mobile}

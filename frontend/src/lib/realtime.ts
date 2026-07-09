@@ -75,6 +75,12 @@ export function useRealtimeConnection(): void {
     connect();
     return () => {
       stopped = true;
+      if (socket) {
+        socket.onclose = null;
+        socket.close();
+        socket = null;
+      }
+      useRealtime.getState().setConnected(false);
     };
   }, []);
 }
