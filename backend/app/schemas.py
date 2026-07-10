@@ -88,6 +88,7 @@ class PrescriptionCreateRequest(BaseModel):
 class ApproveRxRequest(BaseModel):
     approved_by: str | None = None
     accept_substitutions: bool = False
+    override_warnings: bool = False
 
 
 # --------------------------------------------------------------------------------- Billing
@@ -102,3 +103,13 @@ class ClaimRequest(BaseModel):
     tpa: str | None = None
     policy_no: str | None = None
     claim_type: str = "CASHLESS"
+
+
+# --------------------------------------------------------------------------------- Custom Lab Results
+class LabResultSubmitItem(BaseModel):
+    analyte: str
+    value: float
+
+
+class LabResultSubmitRequest(BaseModel):
+    results: list[LabResultSubmitItem]

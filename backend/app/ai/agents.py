@@ -16,7 +16,9 @@ from app.core.config import settings
 
 
 def _source() -> str:
-    return f"llm:{settings.ollama_model}" if gateway.available() else "deterministic-engine"
+    if not gateway.available():
+        return "deterministic-engine"
+    return f"llm:{gateway.active_model_name()}"
 
 
 # ------------------------------------------------------------------------------------ Intake Agent
@@ -187,78 +189,223 @@ def lab_intelligence_agent(results: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
 
+# ------------------------------------------------------------------------- Suggested Orders Agent
+def suggest_orders_agent(
+    chief_complaint: str,
+    symptom_summary: str,
+    vitals: dict[str, Any] | None,
+    history: list[str],
+) -> list[dict[str, str]]:
+    """AI suggests relevant lab or imaging orders based on patient symptoms, vitals, and history.
+    
+    Only suggests tests from the allowed catalog: CBC, CRP, HbA1c, Lipid Profile, TSH, RFT, Chest X-ray.
+    If no tests are strongly indicated, returns an empty list [].
+    """
+    if not gateway.available():
+        return []
+
+    vitals = vitals or {}
+    vitals_parts = []
+    for k, v in vitals.items():
+        if v is not None:
+            vitals_parts.append(f"{k}: {v}")
+    vitals_str = ", ".join(vitals_parts) if vitals_parts else "None recorded"
+    
+    history_str = ", ".join(history) if history else "None recorded"
+    
+    prompt = (
+        "You are an expert clinical triage assistant. Evaluate the patient's clinical presentation below "
+        "to determine if any diagnostic laboratory or imaging tests are strongly indicated.\n\n"
+        f"Chief Complaint: {chief_complaint}\n"
+        f"Symptom Summary: {symptom_summary}\n"
+        f"Vitals: {vitals_str}\n"
+        f"Medical History: {history_str}\n\n"
+        "Available Test Catalog (You can ONLY suggest tests from this exact list):\n"
+        "- CBC (indicated for infection, fever, bleeding, fatigue)\n"
+        "- CRP (indicated for acute inflammation, infection, fever)\n"
+        "- HbA1c (indicated for diabetes history, high blood sugar, polyuria)\n"
+        "- Lipid Profile (indicated for chest pain, history of cardiovascular disease, hyperlipidemia)\n"
+        "- TSH (indicated for thyroid history, fatigue, unexplained weight changes)\n"
+        "- RFT (indicated for hypertension, kidney disease history, electrolyte concerns)\n"
+        "- Chest X-ray (indicated for respiratory distress, persistent cough, chest pain, fever)\n\n"
+        "Guidelines:\n"
+        "1. Suggest tests ONLY if there is a clear, strong clinical justification based on the provided symptoms, vitals, or history.\n"
+        "2. Do NOT suggest tests (like CBC or CRP) for minor acute infections like a simple sore throat, common cold, simple cough, or mild fever under 101.5°F unless there are red flags (e.g., respiratory distress, chest pain, heart rate > 115 bpm, SpO2 < 95%) or chronic disease history. For simple sore throats, return an empty list [].\n"
+        "3. Output MUST be a JSON array of objects, where each object has:\n"
+        "   - 'test': exact name of the test from the catalog (e.g., 'CBC', 'Chest X-ray')\n"
+        "   - 'reason': a brief clinical explanation (5-10 words) of why it is indicated.\n\n"
+        "Do not include any markdown formatting, code block backticks, or surrounding text. Return only the raw JSON array."
+    )
+    
+    try:
+        res = gateway.generate_json(prompt)
+        if isinstance(res, dict):
+            for val in res.values():
+                if isinstance(val, list):
+                    res = val
+                    break
+        if isinstance(res, list):
+            allowed_tests = {"CBC", "CRP", "HbA1c", "Lipid Profile", "TSH", "RFT", "Chest X-ray"}
+            validated = []
+            for item in res:
+                if isinstance(item, dict) and item.get("test") in allowed_tests:
+                    validated.append({
+                        "test": item["test"],
+                        "reason": str(item.get("reason", "Clinically indicated.")),
+                    })
+            return validated
+    except Exception as e:
+        logger.warning("suggest_orders_agent failed: %s", str(e))
+        
+    return []
+
+
 # --------------------------------------------------------------------------------- Rx CDS Agent
 def rx_cds_agent(
     allergies: list[dict[str, Any]],
     current_meds: list[str],
     proposed_items: list[dict[str, Any]],
+    patient_context: dict[str, Any] | None = None,
     stock_index: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     stock_index = stock_index or {}
+    
+    ai_success = False
+    block = False
     alerts: list[dict[str, Any]] = []
     suggestions: list[dict[str, Any]] = []
-    block = False
-
-    allergy_classes = {(a.get("drug_class") or "").lower() for a in allergies if a.get("drug_class")}
-    allergy_substances = {(a.get("substance") or "").lower() for a in allergies}
-
-    all_meds_lower = [m.lower() for m in current_meds]
-
-    for item in proposed_items:
-        name = item.get("drug_name", "")
-        name_l = name.lower()
-        cls = kb.drug_class_of(name)
-
-        # 1) Allergy conflict → BLOCK
-        if (cls and cls in allergy_classes) or any(s and s in name_l for s in allergy_substances):
-            block = True
-            alerts.append(
-                {
+    
+    # 1. Try dynamic AI evaluation first (without sending the pharmacy stock list)
+    if gateway.available():
+        try:
+            allergies_str = ", ".join([
+                f"{a.get('substance', 'Unknown')} ({a.get('drug_class', 'class') or 'Unknown class'})"
+                for a in allergies
+            ]) if allergies else "None"
+            proposed_str = ", ".join([f"{i.get('drug_name')} ({i.get('dose', '')})" for i in proposed_items])
+            
+            # Format patient clinical context
+            ctx = patient_context or {}
+            issue = ctx.get("issue") or "Consultation ongoing"
+            vitals = ctx.get("vitals") or {}
+            vitals_str = f"BP: {vitals.get('bp') or '?'}, SpO2: {vitals.get('spo2') or '?'}%, HR: {vitals.get('heart_rate') or '?'} bpm, Temp: {vitals.get('temperature') or '?'}F"
+            history_str = "; ".join(ctx.get("history", [])) or "None recorded"
+            
+            prompt = (
+                "You are an expert clinical decision support (CDS) assistant. Evaluate the proposed prescription items against the patient's clinical context.\n\n"
+                f"Proposed Prescription Items: {proposed_str}\n"
+                f"Patient Allergies: {allergies_str}\n"
+                f"Patient Reason for Visit: {issue}\n"
+                f"Patient Vitals: {vitals_str}\n"
+                f"Past Serious Conditions / Medical History: {history_str}\n\n"
+                "Evaluate and generate alerts for the proposed medicines:\n"
+                "1. Drug-Allergy Warning: Alert if any proposed medicine conflicts with the patient's allergies.\n"
+                "2. Potential Side Effects: For EACH proposed medicine, list its common or clinically significant side effects (e.g. gastric upset for Ibuprofen, QTc prolongation for Azithromycin, peripheral edema for Amlodipine, etc.) and highlight if they could impact this patient's current symptoms, abnormal vitals, or history.\n"
+                "3. Appropriateness: State if a medicine is not directly related to the patient's presenting symptoms or medical history.\n\n"
+                "Note: Do not suggest alternative medicines. Keep alerts objective. The final decision is taken by the doctor.\n\n"
+                "Respond with a JSON object containing keys:\n"
+                "- 'block': boolean (true if there is an active allergy conflict with proposed meds, else false)\n"
+                "- 'alerts': list of objects, each containing:\n"
+                "  - 'drug': name of the proposed drug\n"
+                "  - 'severity': 'BLOCK' (for allergy conflicts), 'WARN' (for significant side effects/interactions), or 'INFO' (for appropriateness/general side effects)\n"
+                "  - 'type': 'ALLERGY', 'SIDE_EFFECT', or 'UNRELATED'\n"
+                "  - 'message': a brief clinical explanation in general terms (e.g., 'Allergy conflict: Patient allergic to Ibuprofen.' or 'Side effects: May cause stomach irritation or worsen asthma symptoms.' or 'Not directly related to current symptoms.')\n"
+                "- 'suggestions': [] (must be an empty list)\n\n"
+                "Do not add any markdown formatting or surrounding text, just return the raw JSON object."
+            )
+            
+            res = gateway.generate_json(prompt)
+            if isinstance(res, dict) and "alerts" in res:
+                block = bool(res.get("block", False))
+                alerts = res.get("alerts", [])
+                suggestions = res.get("suggestions", [])
+                ai_success = True
+        except Exception as e:
+            logger.warning("Dynamic Rx CDS agent failed: %s; falling back to deterministic backup", str(e))
+            
+    # 2. Fallback to deterministic rules if AI failed to respond
+    if not ai_success:
+        suggestions.append({
+            "for": proposed_items[0].get("drug_name") if proposed_items else "Prescription",
+            "suggestion": "AI responses did not give any response",
+            "reason": "AI clinical model suggestion failed"
+        })
+        
+        # Pull deterministic warnings from DB/Code as a safety net
+        allergy_classes = {(a.get("drug_class") or "").lower() for a in allergies if a.get("drug_class")}
+        allergy_substances = {(a.get("substance") or "").lower() for a in allergies}
+        all_meds_lower = [m.lower() for m in current_meds]
+        
+        for item in proposed_items:
+            name = item.get("drug_name", "")
+            name_l = name.lower()
+            cls = kb.drug_class_of(name)
+            
+            # Allergy warning (Rule-based backup)
+            if (cls and cls in allergy_classes) or any(s and s in name_l for s in allergy_substances):
+                block = True
+                alerts.append({
                     "severity": "BLOCK",
                     "type": "ALLERGY",
                     "drug": name,
-                    "message": f"Allergy conflict: patient allergic to {cls or 'this substance'}. Choose an alternative.",
-                }
-            )
-            matched_alts = []
-            for eq_key, eq_alts in kb.THERAPEUTIC_EQUIVALENTS.items():
-                if eq_key in name_l:
-                    matched_alts = eq_alts
-                    break
-            for alt in matched_alts:
-                suggestions.append({"for": name, "suggestion": alt, "reason": "Non-cross-reactive alternative"})
-
-        # 2) Drug–drug interactions
-        for a, b, sev, msg in kb.DRUG_INTERACTIONS:
-            partners = all_meds_lower + [i.get("drug_name", "").lower() for i in proposed_items if i is not item]
-            if a.strip() in name_l and any(b.strip() in p for p in partners):
-                alerts.append({"severity": sev, "type": "INTERACTION", "drug": name, "message": msg})
-
-        # 3) Stock + formulary
-        rec = stock_index.get(name_l)
-        if rec is None:
-            alerts.append(
-                {"severity": "INFO", "type": "STOCK", "drug": name, "message": "Not found in pharmacy stock."}
-            )
-        elif rec.get("available", 0) <= 0:
-            alerts.append({"severity": "WARN", "type": "STOCK", "drug": name, "message": "Out of stock."})
-            salt = (rec.get("salt") or "").lower()
+                    "message": f"[Rule-Based Safety Backup] Allergy conflict: patient allergic to {cls or 'this substance'}. Choose an alternative.",
+                })
+                
+            # Drug-drug interaction warning (Rule-based backup)
+            for a, b, sev, msg in kb.DRUG_INTERACTIONS:
+                partners = all_meds_lower + [i.get("drug_name", "").lower() for i in proposed_items if i is not item]
+                if a.strip() in name_l and any(b.strip() in p for p in partners):
+                    alerts.append({
+                        "severity": sev,
+                        "type": "INTERACTION",
+                        "drug": name,
+                        "message": f"[Rule-Based Safety Backup] {msg}"
+                    })
+                    
+    # 3. Independent Stock Checking (Determined from Postgres db, not Gemini)
+    for item in proposed_items:
+        name = item.get("drug_name", "")
+        name_l = name.lower()
+        
+        rec = None
+        if name_l in stock_index:
+            rec = stock_index[name_l]
+        else:
             for cand_name, cand in stock_index.items():
-                if cand.get("available", 0) > 0 and salt and (cand.get("salt") or "").lower() == salt and cand_name != name_l:
-                    suggestions.append(
-                        {"for": name, "suggestion": cand.get("display", cand_name.title()), "reason": "Same salt, in stock"}
-                    )
+                if name_l in cand_name or cand_name in name_l:
+                    rec = cand
                     break
+                    
+        if rec is None:
+            alerts.append({
+                "severity": "INFO",
+                "type": "STOCK",
+                "drug": name,
+                "message": "Not found in pharmacy stock."
+            })
+        elif rec.get("available", 0) <= 0:
+            alerts.append({
+                "severity": "WARN",
+                "type": "STOCK",
+                "drug": name,
+                "message": "Out of stock."
+            })
         elif rec.get("formulary") is False:
-            alerts.append({"severity": "INFO", "type": "FORMULARY", "drug": name, "message": "Non-formulary item."})
-
+            alerts.append({
+                "severity": "INFO",
+                "type": "FORMULARY",
+                "drug": name,
+                "message": "Non-formulary item."
+            })
+                
     return envelope(
         {"alerts": alerts, "suggestions": suggestions, "block": block},
         agent="Rx CDS",
         needs_approval=True,
-        source="deterministic-engine",
-        citations=["Allergy cross-reactivity table", "Drug-interaction knowledge base", "Live formulary"],
+        source="llm" if ai_success else "deterministic-engine",
+        citations=["Google Gemini safety checks" if ai_success else "Allergy cross-reactivity table"],
     )
+
 
 
 # ------------------------------------------------------------------------------- Compliance Agent
@@ -339,12 +486,7 @@ def patient_summary_agent(
     if llm:
         summary = llm.strip()
     if not summary:
-        summary = (
-            f"Patient is a {patient_brief.get('age')}yo {patient_brief.get('gender')}. "
-            f"Allergies: {allergies_str}. "
-            f"Current active medications: {meds_str}. "
-            f"History: {len(recent_notes)} past visit note(s) recorded."
-        )
+        summary = "AI responses did not give any response"
 
     return envelope(
         {"summary": summary},

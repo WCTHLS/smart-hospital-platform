@@ -93,6 +93,7 @@ def seed() -> None:
                                 arrival_ts=now - timedelta(days=60), end_ts=now - timedelta(days=60))
         db.add(past)
         db.flush()
+        db.add(models.Vitals(encounter_id=past.encounter_id, bp_systolic=130, bp_diastolic=84, spo2=98, heart_rate=78, temperature=98.6, bmi=24.2, captured_ts=now - timedelta(days=60)))
         note = models.ClinicalNote(
             encounter_id=past.encounter_id, note_type="SOAP",
             ai_draft="S: Routine diabetes review...", final_text="S: Routine diabetes review. O: Stable. "
@@ -128,6 +129,7 @@ def seed() -> None:
                                  arrival_ts=now - timedelta(days=30), end_ts=now - timedelta(days=30))
         db.add(past2)
         db.flush()
+        db.add(models.Vitals(encounter_id=past2.encounter_id, bp_systolic=132, bp_diastolic=82, spo2=97, heart_rate=92, temperature=98.8, bmi=24.5, captured_ts=now - timedelta(days=30)))
         note2 = models.ClinicalNote(
             encounter_id=past2.encounter_id, note_type="SOAP",
             ai_draft="S: Palpitations for 2 weeks...", final_text="S: Patient reports mild palpitations and occasional shortness of breath. O: Heart rate 92 bpm, BP 132/82. Lungs clear. A: Mild sinus tachycardia, borderline hyperlipidemia. P: Prescribe exercise regimen and check lipid profile. Continue amlodipine.",
@@ -163,6 +165,7 @@ def seed() -> None:
                                  arrival_ts=now - timedelta(days=15), end_ts=now - timedelta(days=15))
         db.add(past3)
         db.flush()
+        db.add(models.Vitals(encounter_id=past3.encounter_id, bp_systolic=120, bp_diastolic=80, spo2=99, heart_rate=72, temperature=98.4, bmi=24.4, captured_ts=now - timedelta(days=15)))
         note3 = models.ClinicalNote(
             encounter_id=past3.encounter_id, note_type="SOAP",
             ai_draft="S: Contact dermatitis...", final_text="S: Patient reports intensely itchy red rash on arms for 3 days after contact with cleaning agent. O: Erythematous rash with excoriations on bilateral forearms. A: Contact dermatitis (L23.9). P: Avoid strong detergents, take anti-histamines. Apply soothing lotion.",
@@ -178,6 +181,57 @@ def seed() -> None:
         db.flush()
         db.add(models.PrescriptionItem(rx_id=rx3.rx_id, drug_name="Cetirizine 10mg", dose="10 mg",
                                        route="PO", frequency="0-0-1", duration_days=10, quantity=10))
+
+        # Past Encounter 4 (10 days ago) - Gastroenterology for Gastritis
+        past4 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Gastroenterology",
+                                 channel="WALKIN", status="DISCHARGED",
+                                 arrival_ts=now - timedelta(days=10), end_ts=now - timedelta(days=10))
+        db.add(past4)
+        db.flush()
+        db.add(models.Vitals(encounter_id=past4.encounter_id, bp_systolic=118, bp_diastolic=78, spo2=98, heart_rate=80, temperature=99.1, bmi=24.1, captured_ts=now - timedelta(days=10)))
+        note4 = models.ClinicalNote(
+            encounter_id=past4.encounter_id, note_type="SOAP",
+            ai_draft="S: Epigastric burning...", final_text="S: Patient reports burning upper abdominal pain for 4 days, worse after spicy food. O: Epigastric tenderness on palpation. Bowel sounds normal. A: Acute gastritis (K29.7). P: Avoid spicy/fatty foods, prescribe Pantoprazole.",
+            icd10_codes=[{"code": "K29.7", "label": "Gastritis, unspecified"}],
+            status="APPROVED", authored_by="ambient-agent", approved_by="Dr. Ananya Mehta",
+            approved_ts=now - timedelta(days=10),
+        )
+        db.add(note4)
+        rx4 = models.Prescription(encounter_id=past4.encounter_id, patient_id=rimjhim.patient_id,
+                                  status="APPROVED", prescribed_by="Dr. Ananya Mehta",
+                                  approved_ts=now - timedelta(days=10), created_ts=now - timedelta(days=10))
+        db.add(rx4)
+        db.flush()
+        db.add(models.PrescriptionItem(rx_id=rx4.rx_id, drug_name="Pantoprazole 40mg", dose="40 mg",
+                                       route="PO", frequency="1-0-0", duration_days=14, quantity=14))
+
+        # Past Encounter 5 (5 days ago) - Pulmonology for Asthma
+        past5 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Pulmonology",
+                                 channel="APP", status="DISCHARGED",
+                                 arrival_ts=now - timedelta(days=5), end_ts=now - timedelta(days=5))
+        db.add(past5)
+        db.flush()
+        db.add(models.Vitals(encounter_id=past5.encounter_id, bp_systolic=122, bp_diastolic=80, spo2=96, heart_rate=84, temperature=98.7, bmi=24.3, captured_ts=now - timedelta(days=5)))
+        note5 = models.ClinicalNote(
+            encounter_id=past5.encounter_id, note_type="SOAP",
+            ai_draft="S: Cough and wheezing...", final_text="S: Patient reports dry cough and occasional wheezing for 5 days, worse at night. O: Scattered bilateral wheeze on auscultation. SpO2 96%. A: Mild intermittent asthma (J45.20). P: Avoid triggers, stay hydrated, start bronchodilator if symptoms persist.",
+            icd10_codes=[{"code": "J45.20", "label": "Mild intermittent asthma, uncomplicated"}],
+            status="APPROVED", authored_by="ambient-agent", approved_by="Dr. Priya Iyer",
+            approved_ts=now - timedelta(days=5),
+        )
+        db.add(note5)
+
+        # Seed active waiting encounter for Rimjhim Sharma (Token A-045, General Medicine)
+        active_enc = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="General Medicine",
+                                      channel="WALKIN", status="TRIAGED",
+                                      arrival_ts=now - timedelta(minutes=10))
+        db.add(active_enc)
+        db.flush()
+        db.add(models.Vitals(encounter_id=active_enc.encounter_id, bp_systolic=128, bp_diastolic=82, spo2=97, heart_rate=76, temperature=98.6, bmi=24.4, captured_ts=now - timedelta(minutes=10)))
+        db.add(models.Triage(encounter_id=active_enc.encounter_id, chief_complaint="Follow-up diabetes and persistent fatigue",
+                             acuity_level="3", specialty="General Medicine", red_flag=False))
+        db.add(models.Token(encounter_id=active_enc.encounter_id, token_number="A-045",
+                            department="General Medicine", room="Room 3", floor="Floor 2", eta_minutes=5, status="WAITING"))
 
 
         # ---------------------------------------------------------------- Live waiting patients (Command Center)

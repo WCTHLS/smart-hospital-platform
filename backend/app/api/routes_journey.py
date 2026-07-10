@@ -28,6 +28,9 @@ _ROOMS = {
     "Dermatology": ("Room 4", "Floor 1"),
 }
 
+# Cache to prevent hitting Gemini API 429 Rate Limits
+_SUMMARY_CACHE: dict[str, dict] = {}
+
 
 def _patient_brief(p: models.Patient) -> dict:
     return {
@@ -195,9 +198,13 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
     }
 
-    summary_res = agents.patient_summary_agent(
-        brief, allergies_list, active_meds, formatted_notes, vitals_payload
-    )
+    summary_res = None
+    if patient.summary:
+        summary_res = {
+            "result": {"summary": patient.summary},
+            "agent": "Patient History Summary",
+            "source": "database"
+        }
 
     return {
         "patient": brief,
@@ -218,6 +225,64 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "consent_id": consent_id,
         "ai_summary": summary_res,
     }
+
+
+@router.post("/patients/{patient_id}/summary")
+def generate_patient_summary(patient_id: str, db: Session = Depends(get_db)) -> dict:
+    """Explicitly generate or refresh the AI-drafted patient summary and save it to the DB."""
+    patient = _get_patient(db, patient_id)
+    
+    # Fetch all clinical details needed for summary
+    encounters = db.scalars(
+        select(models.Encounter).where(models.Encounter.patient_id == patient_id)
+        .order_by(models.Encounter.arrival_ts.desc()).limit(5)
+    ).all()
+    enc_ids = [e.encounter_id for e in encounters]
+
+    latest_vitals = None
+    if enc_ids:
+        latest_vitals = db.scalar(
+            select(models.Vitals).where(models.Vitals.encounter_id.in_(enc_ids))
+            .order_by(models.Vitals.captured_ts.desc())
+        )
+
+    notes = db.scalars(
+        select(models.ClinicalNote).where(models.ClinicalNote.encounter_id.in_(enc_ids or [""]))
+        .where(models.ClinicalNote.status == "APPROVED")
+        .order_by(models.ClinicalNote.created_ts.desc()).limit(5)
+    ).all()
+
+    active_meds: list[str] = []
+    for rx in db.scalars(
+        select(models.Prescription).where(models.Prescription.patient_id == patient_id)
+        .where(models.Prescription.status == "APPROVED")
+        .order_by(models.Prescription.created_ts.desc()).limit(3)
+    ):
+        active_meds.extend(f"{i.drug_name} {i.dose or ''}".strip() for i in rx.items)
+
+    brief = _patient_brief(patient)
+    allergies_list = [
+        {"substance": a.substance, "drug_class": a.drug_class, "severity": a.severity, "reaction": a.reaction}
+        for a in patient.allergies
+    ]
+    formatted_notes = [{"date": n.created_ts.date().isoformat(), "text": n.final_text} for n in notes]
+    vitals_payload = None if not latest_vitals else {
+        "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}",
+        "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
+        "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
+    }
+
+    summary_res = agents.patient_summary_agent(
+        brief, allergies_list, active_meds, formatted_notes, vitals_payload
+    )
+    
+    # If it succeeded, save to database
+    summary_text = summary_res.get("result", {}).get("summary")
+    if summary_text and summary_text != "AI responses did not give any response":
+        patient.summary = summary_text
+        db.commit()
+
+    return summary_res
 
 
 # --------------------------------------------------------------------------------- Intake + Triage + Token
@@ -298,6 +363,37 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
                        .order_by(models.Triage.created_ts.desc()))
     token = db.scalar(select(models.Token).where(models.Token.encounter_id == encounter_id)
                       .order_by(models.Token.issued_ts.desc()))
+
+    # Fetch vitals
+    vitals = db.scalar(select(models.Vitals).where(models.Vitals.encounter_id == encounter_id)
+                       .order_by(models.Vitals.captured_ts.desc()))
+
+    # Fetch clinical notes
+    note = db.scalar(select(models.ClinicalNote).where(models.ClinicalNote.encounter_id == encounter_id)
+                      .order_by(models.ClinicalNote.created_ts.desc()))
+
+    # Fetch prescriptions
+    rx = db.scalar(select(models.Prescription).where(models.Prescription.encounter_id == encounter_id)
+                    .order_by(models.Prescription.created_ts.desc()))
+    rx_items = []
+    if rx:
+        rx_items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)).all()
+
+    # Fetch lab orders and results
+    lab_orders = db.scalars(select(models.LabOrder).where(models.LabOrder.encounter_id == encounter_id)).all()
+    labs = []
+    for lo in lab_orders:
+        results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == lo.lab_order_id)).all()
+        labs.append({
+            "lab_order_id": lo.lab_order_id,
+            "test": lo.test_name,
+            "status": lo.status,
+            "results": [
+                {"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag}
+                for r in results
+            ]
+        })
+
     return {
         "encounter_id": e.encounter_id, "status": e.status, "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
@@ -307,6 +403,22 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
             "specialty": triage.specialty, "red_flag": triage.red_flag},
         "token": None if not token else {"number": token.token_number, "room": token.room,
                                          "floor": token.floor, "eta_minutes": token.eta_minutes},
+        "vitals": None if not vitals else {
+            "bp": f"{vitals.bp_systolic}/{vitals.bp_diastolic}", "spo2": vitals.spo2,
+            "heart_rate": vitals.heart_rate, "temperature": vitals.temperature, "bmi": vitals.bmi
+        },
+        "note": None if not note else {
+            "note_id": note.note_id, "note_type": note.note_type, "final_text": note.final_text,
+            "icd10_codes": note.icd10_codes
+        },
+        "prescription": None if not rx else {
+            "rx_id": rx.rx_id, "status": rx.status,
+            "items": [
+                {"drug_name": i.drug_name, "dose": i.dose, "frequency": i.frequency, "duration_days": i.duration_days}
+                for i in rx_items
+            ]
+        },
+        "labs": labs
     }
 
 
@@ -326,9 +438,16 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
 @router.get("/doctors/{doctor_id}/encounters")
 def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> list[dict]:
     """Retrieve all active encounters (queue) for a specific doctor."""
+    doctor = db.get(models.Staff, doctor_id)
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
     stmt = (
         select(models.Encounter)
-        .where(models.Encounter.doctor_id == doctor_id)
+        .where(
+            (models.Encounter.doctor_id == doctor_id) |
+            ((models.Encounter.doctor_id.is_(None)) & (models.Encounter.department == doctor.department))
+        )
         .where(models.Encounter.status.in_(["CHECKED_IN", "TRIAGED", "IN_CONSULT", "EMERGENCY"]))
         .order_by(models.Encounter.arrival_ts.desc())
     )
@@ -340,11 +459,19 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
                           .order_by(models.Token.issued_ts.desc()))
         triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == e.encounter_id)
                            .order_by(models.Triage.created_ts.desc()))
+        has_results = db.scalar(
+            select(models.LabOrder)
+            .where(models.LabOrder.encounter_id == e.encounter_id)
+            .where(models.LabOrder.status == "RESULTED")
+            .limit(1)
+        ) is not None
+
         out.append({
             "encounter_id": e.encounter_id,
             "status": e.status,
             "visit_type": e.visit_type,
             "arrival": e.arrival_ts.isoformat(),
+            "is_reconsult": has_results,
             "patient": {
                 "patient_id": p.patient_id,
                 "name": p.full_name,
