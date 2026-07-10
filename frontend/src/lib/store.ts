@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 /** Journey state shared across Check-in → Triage → Doctor Copilot. */
-export type Role = "patient" | "nurse" | "doctor" | "admin";
+export type Role = "patient" | "nurse" | "doctor" | "admin" | "lab";
 
 interface JourneyState {
   patientId: string | null;
@@ -9,6 +9,7 @@ interface JourneyState {
   encounterId: string | null;
   token: string | null;
   department: string | null;
+  chiefComplaint: string | null;
   activeRole: Role;
   setRole: (role: Role) => void;
   set: (partial: Partial<Omit<JourneyState, "set" | "reset" | "setRole">>) => void;
@@ -21,9 +22,10 @@ export const useJourney = create<JourneyState>((set) => ({
   encounterId: null,
   token: null,
   department: null,
+  chiefComplaint: null,
   activeRole: "patient",
   setRole: (role) => set({ activeRole: role }),
   set: (partial) => set(partial),
   reset: () =>
-    set({ patientId: null, patientName: null, encounterId: null, token: null, department: null }),
+    set({ patientId: null, patientName: null, encounterId: null, token: null, department: null, chiefComplaint: null }),
 }));

@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart, Cpu,
-  Smartphone, BellRing, User, ShieldAlert,
+  Smartphone, BellRing, User, ShieldAlert, FlaskConical,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useJourney, Role } from "../lib/store";
@@ -15,6 +15,7 @@ const NAV = [
   { to: "/checkin", label: "Check-in", icon: MessageSquareHeart, roles: ["patient"] },
   { to: "/triage", label: "Triage Desk", icon: HeartPulse, roles: ["nurse"] },
   { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, roles: ["doctor"] },
+  { to: "/lab", label: "Lab Workspace", icon: FlaskConical, roles: ["lab"] },
   { to: "/patient", label: "My Status", icon: Smartphone, roles: ["patient"] },
   { to: "/command", label: "Command Center", icon: MonitorDot, roles: ["admin"] },
 ];
@@ -71,6 +72,22 @@ export default function Layout({ children }: { children: ReactNode }) {
   // Filter navigation links dynamically by role
   const visibleNav = NAV.filter(n => !n.roles || n.roles.includes(activeRole));
 
+  // Sync store activeRole with browser URL path (useful on refresh or direct navigation)
+  useEffect(() => {
+    const path = loc.pathname;
+    if (path === "/copilot" && activeRole !== "doctor") {
+      journey.setRole("doctor");
+    } else if (path === "/lab" && activeRole !== "lab") {
+      journey.setRole("lab");
+    } else if (path === "/triage" && activeRole !== "nurse") {
+      journey.setRole("nurse");
+    } else if (path === "/command" && activeRole !== "admin") {
+      journey.setRole("admin");
+    } else if ((path === "/checkin" || path === "/patient") && activeRole !== "patient") {
+      journey.setRole("patient");
+    }
+  }, [loc.pathname, activeRole, journey]);
+
   const handleRoleChange = (newRole: Role) => {
     journey.reset();
     journey.setRole(newRole);
@@ -78,6 +95,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     else if (newRole === "nurse") nav("/triage");
     else if (newRole === "doctor") nav("/copilot");
     else if (newRole === "admin") nav("/command");
+    else if (newRole === "lab") nav("/lab");
   };
 
   return (
@@ -147,7 +165,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               style={{ color: connected ? "#a7f3c4" : "#ffe0a3" }}>
               <span className="inline-block h-2 w-2 rounded-full"
                 style={{ background: connected ? "var(--mint)" : "var(--amber)", boxShadow: `0 0 8px ${connected ? "var(--mint)" : "var(--amber)"}` }} />
-              {connected ? "LIVE" : "RECONNECTING"}
+              {connected ? "CONNECTED" : "CONNECTING"}
             </span>
 
             {/* AI Status */}
@@ -166,13 +184,14 @@ export default function Layout({ children }: { children: ReactNode }) {
                 <option value="patient" style={{ background: "#0a1120" }}>👤 Patient Portal</option>
                 <option value="nurse" style={{ background: "#0a1120" }}>🏥 Triage Nurse</option>
                 <option value="doctor" style={{ background: "#0a1120" }}>🩺 Doctor Workspace</option>
+                <option value="lab" style={{ background: "#0a1120" }}>🧪 Lab Portal</option>
                 <option value="admin" style={{ background: "#0a1120" }}>📊 Command Center</option>
               </select>
             </div>
           </div>
         </header>
         <motion.main key={loc.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }} className="mx-auto max-w-[1120px] px-7 py-6">
+          transition={{ duration: 0.25 }} className="mx-auto max-w-[1520px] px-7 py-6">
           {children}
         </motion.main>
       </div>

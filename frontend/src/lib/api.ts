@@ -41,6 +41,7 @@ export const api = {
     post<any>("/api/v1/identity/verify", { method, value }),
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),
   patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
+  generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
   doctors: () => get<any[]>("/api/v1/doctors"),
   doctorEncounters: (doctor_id: string) => get<any[]>(`/api/v1/doctors/${doctor_id}/encounters`),
   triage: (encounter_id: string, body: any) =>
@@ -56,6 +57,10 @@ export const api = {
   publishResult: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/publish-result`),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
+  suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
+  labOrders: () => get<any>("/api/v1/lab-orders"),
+  submitLabResults: (lab_order_id: string, results: any[]) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/submit-results`, { results }),
   createRx: (body: any) => post<any>("/api/v1/prescriptions", body),
   approveRx: (rx_id: string, body: any) => post<any>(`/api/v1/prescriptions/${rx_id}/approve`, body),
   stock: (drug?: string) => get<any>(`/api/v1/pharmacy/stock${drug ? `?drug=${encodeURIComponent(drug)}` : ""}`),
