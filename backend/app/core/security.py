@@ -14,6 +14,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
+def _fit_audit_value(
+    value: str | None,
+    limit: int,
+    metadata: dict[str, Any],
+    key: str,
+) -> str | None:
+    if value is None or len(value) <= limit:
+        return value
+    metadata[f"original_{key}"] = value
+    return value[:limit]
+
+
 def audit(
     db: Session,
     *,
@@ -29,16 +41,17 @@ def audit(
     """Write an immutable audit record."""
     from app.models import AuditLog
 
+    audit_metadata = dict(metadata or {})
     db.add(
         AuditLog(
-            actor_id=actor_id,
-            actor_role=actor_role,
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            consent_id=consent_id,
-            ip_address=ip_address,
-            audit_metadata=metadata or {},
+            actor_id=_fit_audit_value(actor_id, 36, audit_metadata, "actor_id"),
+            actor_role=_fit_audit_value(actor_role, 40, audit_metadata, "actor_role") or actor_role[:40],
+            action=_fit_audit_value(action, 60, audit_metadata, "action") or action[:60],
+            entity_type=_fit_audit_value(entity_type, 40, audit_metadata, "entity_type") or entity_type[:40],
+            entity_id=_fit_audit_value(entity_id, 36, audit_metadata, "entity_id"),
+            consent_id=_fit_audit_value(consent_id, 36, audit_metadata, "consent_id"),
+            ip_address=_fit_audit_value(ip_address, 64, audit_metadata, "ip_address"),
+            audit_metadata=audit_metadata,
         )
     )
     db.flush()

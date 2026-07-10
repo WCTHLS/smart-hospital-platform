@@ -37,9 +37,17 @@ export const api = {
 
   // journey
   checkin: (body: any) => post<any>("/api/v1/checkin", body),
+  mobileProfiles: (mobile: string) => post<any>("/api/v1/checkin/mobile/profiles", { mobile }),
+  registerBasicPatient: (body: any) => post<any>("/api/v1/patients/register-basic", body),
+  registerPatient: (body: any) => post<any>("/api/v1/patients/register", body),
+  updatePatientProfile: (patient_id: string, body: any) =>
+    put<any>(`/api/v1/patients/${patient_id}/profile`, body),
+  verifyOtp: (mobile: string) => post<any>("/api/v1/identity/otp/verify", { mobile }),
   verifyIdentity: (method: string, value: string) =>
     post<any>("/api/v1/identity/verify", { method, value }),
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),
+  appointmentSlots: (body: any) => post<any>("/api/v1/appointments/slots", body),
+  bookAppointment: (body: any) => post<any>("/api/v1/appointments/book", body),
   patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
   doctors: () => get<any[]>("/api/v1/doctors"),

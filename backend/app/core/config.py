@@ -1,7 +1,8 @@
 """Application configuration loaded from environment / .env."""
 from __future__ import annotations
 
-from pydantic import field_validator
+import json
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,18 +32,21 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-change-me"
 
     # CORS
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
-
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def _split_csv(cls, value: object) -> object:
-        if isinstance(value, str):
-            return [origin.strip() for origin in value.split(",") if origin.strip()]
-        return value
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        value = self.cors_origins.strip()
+        if not value:
+            return []
+        if value.startswith("["):
+            parsed = json.loads(value)
+            return [str(origin).strip() for origin in parsed if str(origin).strip()]
+        return [origin.strip() for origin in value.split(",") if origin.strip()]
 
 
 settings = Settings()

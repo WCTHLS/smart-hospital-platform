@@ -128,6 +128,27 @@ class Encounter(Base):
     patient: Mapped["Patient"] = relationship(back_populates="encounters")
 
 
+class Appointment(Base):
+    __tablename__ = "appointment"
+
+    appointment_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    doctor_id: Mapped[str | None] = mapped_column(ForeignKey("staff.staff_id"))
+    department: Mapped[str | None] = mapped_column(String(60))
+    specialty: Mapped[str | None] = mapped_column(String(60))
+    reason: Mapped[str | None] = mapped_column(Text)
+    appointment_type: Mapped[str] = mapped_column(String(20), default="OPD")
+    scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    scheduled_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(24), default="BOOKED")
+    channel: Mapped[str | None] = mapped_column(String(20))
+    encounter_id: Mapped[str | None] = mapped_column(ForeignKey("encounter.encounter_id"))
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+
 class Vitals(Base):
     __tablename__ = "vitals"
 

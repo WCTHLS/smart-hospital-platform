@@ -63,6 +63,7 @@ class EventBus:
 # Canonical topic names (kept in one place)
 class Topics:
     PATIENT_CHECKED_IN = "patient.checkedin"
+    APPOINTMENT_BOOKED = "appointment.booked"
     IDENTITY_VERIFIED = "identity.verified"
     CONSENT_GRANTED = "consent.granted"
     CONSENT_REVOKED = "consent.revoked"

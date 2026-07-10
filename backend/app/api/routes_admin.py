@@ -155,7 +155,6 @@ def update_doctor_schedule(
             end_time=item.end_time,
             slot_duration_minutes=item.slot_duration_minutes,
             department=doc.department,
-            specialty=doc.specialty,
             room=doc.room,
             active=True
         )

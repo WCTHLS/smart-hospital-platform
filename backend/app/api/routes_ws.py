@@ -19,18 +19,42 @@ def _now() -> str:
 async def stream(ws: WebSocket) -> None:
     await ws.accept()
     q = await hub.register()
-    await ws.send_json({"topic": "hello", "payload": {"message": "connected"}, "ts": _now()})
+    receive_task: asyncio.Task | None = None
     try:
+        await ws.send_json({"topic": "hello", "payload": {"message": "connected"}, "ts": _now()})
+        receive_task = asyncio.create_task(ws.receive_text())
         while True:
-            try:
-                event = await asyncio.wait_for(q.get(), timeout=25.0)
-            except asyncio.TimeoutError:
+            event_task = asyncio.create_task(q.get())
+            done, pending = await asyncio.wait(
+                {event_task, receive_task},
+                timeout=25.0,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            if receive_task in done:
+                # Raises WebSocketDisconnect when the browser goes away.
+                receive_task.result()
+                receive_task = asyncio.create_task(ws.receive_text())
+
+            if event_task in done:
+                event = event_task.result()
+            else:
                 # keepalive so proxies/browsers don't drop an idle socket
                 event = {"topic": "ping", "payload": {}, "ts": _now()}
+                event_task.cancel()
+
+            for task in pending:
+                if task is not receive_task:
+                    task.cancel()
+
             await ws.send_json(event)
-    except (WebSocketDisconnect, RuntimeError):
+    except asyncio.CancelledError:
+        raise
+    except (WebSocketDisconnect, RuntimeError, OSError):
         # Client went away: receive raises WebSocketDisconnect, while a send on a
-        # closed transport raises RuntimeError. Both just mean "stop streaming".
+        # closed transport raises RuntimeError/OSError. Both just mean "stop streaming".
         pass
     finally:
+        if receive_task and not receive_task.done():
+            receive_task.cancel()
         hub.unregister(q)
