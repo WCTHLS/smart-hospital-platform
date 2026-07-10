@@ -91,8 +91,10 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 export function Empty({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-dashed p-6 text-center text-[13px]"
-      style={{ borderColor: "var(--line2)", color: "var(--dim)" }}>
+    <div
+      className="rounded-xl border border-dashed p-6 text-center text-[13px]"
+      style={{ borderColor: "var(--line2)", color: "var(--dim)" }}
+    >
       {children}
     </div>
   );
