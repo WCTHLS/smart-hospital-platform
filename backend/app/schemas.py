@@ -113,3 +113,39 @@ class LabResultSubmitItem(BaseModel):
 
 class LabResultSubmitRequest(BaseModel):
     results: list[LabResultSubmitItem]
+
+
+# --------------------------------------------------------------------------------- Admin & Auth
+class DoctorRegisterRequest(BaseModel):
+    name: str
+    role: str = "DOCTOR"
+    department: str | None = None
+    specialty: str | None = None
+    experience_years: int | None = None
+    room: str | None = None
+    floor: str | None = None
+    access_pin: str | None = None
+    opd_fee: float = 500.0
+
+
+class DoctorVerifyPinRequest(BaseModel):
+    doctor_id: str
+    access_pin: str
+
+
+class DoctorUpdateRequest(BaseModel):
+    name: str | None = None
+    department: str | None = None
+    specialty: str | None = None
+    experience_years: int | None = None
+    room: str | None = None
+    floor: str | None = None
+    access_pin: str | None = None
+    opd_fee: float | None = None
+
+
+class DoctorScheduleRequest(BaseModel):
+    day_of_week: int
+    start_time: str
+    end_time: str
+    slot_duration_minutes: int = 15

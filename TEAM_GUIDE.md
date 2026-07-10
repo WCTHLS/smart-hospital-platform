@@ -74,3 +74,21 @@ Ensure the form collects the following details and maps them to the correspondin
 * **`Patient`** details should go to `/api/v1/patients`.
 * **`Triage`** details (symptom summary, chief complaint) must map to the `triage` table attached to the active `Encounter`.
 * **`Encounter`** status must start as `REGISTERED` or `CHECKED_IN` before transitioning to `TRIAGED` after the nurse records vitals.
+
+---
+
+## 🔑 Part 3: Pre-seeded Doctor Profiles & Credentials
+
+For local testing in the **Doctor Workspace**, use the following pre-seeded credentials and details:
+
+| Doctor Name | Department / Specialty | Room | Floor | OPD Fee | Access PIN |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Dr. Ananya Mehta** | General Medicine | Room 101 | Floor 1 | ₹500 | `1234` |
+| **Dr. Vikram Rao** | Cardiology | Room 102 | Floor 1 | ₹600 | `1234` |
+| **Dr. Priya Iyer** | Pulmonology | Room 103 | Floor 1 | ₹700 | `1234` |
+| **Dr. Sameer Kapoor** | Paediatrics | Room 104 | Floor 2 | ₹800 | `1234` |
+| **Dr. Neha Nair** | Orthopaedics | Room 105 | Floor 2 | ₹900 | `1234` |
+| **Dr. Arjun Shah** | Dermatology | Room 106 | Floor 2 | ₹1000 | `1234` |
+
+> [!NOTE]
+> Any new doctors registered via the **Admin Workspace** will be saved with the Room, Floor, OPD Fee, and Access PIN configured during onboarding. You can lookup newly registered doctor PINs directly in the **Admin Workspace Directory table**.

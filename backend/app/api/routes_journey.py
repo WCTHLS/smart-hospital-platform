@@ -431,7 +431,11 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
         "name": d.name,
         "department": d.department,
         "specialty": d.specialty,
-        "available": d.available
+        "available": d.available,
+        "experience_years": d.experience_years or 0,
+        "room": d.room or "Room 1",
+        "floor": d.floor or "Floor 1",
+        "opd_fee": d.opd_fee or 500.0,
     } for d in doctors]
 
 

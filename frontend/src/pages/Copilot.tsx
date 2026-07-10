@@ -56,9 +56,41 @@ export default function Copilot() {
     refetchInterval: 5000,
   });
 
+  const [pin, setPin] = useState("");
+  const [unlockedDoctorId, setUnlockedDoctorId] = useState<string>(() => {
+    return sessionStorage.getItem("unlocked_doctor_id") || "";
+  });
+  const [pinError, setPinError] = useState("");
+  const [verifyingPin, setVerifyingPin] = useState(false);
+
   const handleSelectDoctor = (id: string) => {
     setSelectedDoctorId(id);
     localStorage.setItem("selected_doctor_id", id);
+    setPin("");
+    setPinError("");
+  };
+
+  const handleVerifyPin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDoctorId || !pin) return;
+    setVerifyingPin(true);
+    setPinError("");
+    try {
+      await api.verifyDoctorPin(selectedDoctorId, pin);
+      setUnlockedDoctorId(selectedDoctorId);
+      sessionStorage.setItem("unlocked_doctor_id", selectedDoctorId);
+    } catch (err: any) {
+      setPinError(err.message || "Incorrect PIN code. Access denied.");
+    } finally {
+      setVerifyingPin(false);
+    }
+  };
+
+  const handleLogoutDoctor = () => {
+    setUnlockedDoctorId("");
+    sessionStorage.removeItem("unlocked_doctor_id");
+    setPin("");
+    setPinError("");
   };
 
   const handleSelectPatient = (enc: any) => {
@@ -81,6 +113,8 @@ export default function Copilot() {
   };
 
   if (!journey.encounterId || !journey.patientId) {
+    const activeDoc = doctors?.find((d: any) => d.doctor_id === selectedDoctorId);
+    
     return (
       <div className="space-y-6">
         {/* Header Profile Selection */}
@@ -93,26 +127,86 @@ export default function Copilot() {
               Select your clinical profile to view your active patient queue and consultation schedules.
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <User size={15} color="var(--dim)" />
-            <select
-              value={selectedDoctorId}
-              onChange={(e) => handleSelectDoctor(e.target.value)}
-              className="input !py-1.5 !px-3 !w-auto text-[13.5px] font-bold"
-              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
-            >
-              <option value="">-- Choose Doctor Profile --</option>
-              {doctors?.map((doc: any) => (
-                <option key={doc.doctor_id} value={doc.doctor_id}>
-                  {doc.name} ({doc.specialty})
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <User size={15} color="var(--dim)" />
+              <select
+                value={selectedDoctorId}
+                onChange={(e) => handleSelectDoctor(e.target.value)}
+                className="input !py-1.5 !px-3 !w-auto text-[13.5px] font-bold"
+                style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+              >
+                <option value="">-- Choose Doctor Profile --</option>
+                {doctors?.map((doc: any) => (
+                  <option key={doc.doctor_id} value={doc.doctor_id}>
+                    {doc.name} ({doc.specialty})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {selectedDoctorId && selectedDoctorId === unlockedDoctorId && (
+              <button 
+                onClick={handleLogoutDoctor} 
+                className="btn ghost !py-1.5 !px-2.5 text-xs text-red-400 hover:text-red-300 font-bold"
+              >
+                🔒 Lock
+              </button>
+            )}
           </div>
         </Card>
 
+        {/* PIN Login Form if locked */}
+        {selectedDoctorId && selectedDoctorId !== unlockedDoctorId && (
+          <div className="max-w-[440px] mx-auto py-8">
+            <Card className="space-y-4 relative overflow-hidden animate-in fade-in zoom-in-95 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.06), transparent)" }}>
+              <div className="flex flex-col items-center text-center space-y-2 pb-2">
+                <div className="w-12 h-12 rounded-full bg-[var(--cyan)]/10 border border-[var(--cyan)]/25 flex items-center justify-center text-[var(--cyan)]">
+                  <User size={24} />
+                </div>
+                <h3 className="font-extrabold text-[15px] text-slate-100">
+                  {activeDoc?.name}
+                </h3>
+                <p className="text-[12px] text-[var(--muted)]">
+                  {activeDoc?.specialty} · Room {activeDoc?.room} ({activeDoc?.floor})
+                </p>
+              </div>
+
+              <form onSubmit={handleVerifyPin} className="space-y-3.5 text-xs">
+                <div className="space-y-1">
+                  <label className="block font-bold text-slate-300 text-center">Enter Access PIN Code</label>
+                  <input
+                    type="password"
+                    placeholder="••••"
+                    className="input text-center text-lg font-bold tracking-widest font-mono py-2"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value)}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                {pinError && (
+                  <div className="p-2.5 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 flex items-center gap-1.5 justify-center">
+                    <ShieldAlert size={14} />
+                    <span>{pinError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={verifyingPin}
+                  className="btn w-full font-bold py-2 animate-pulse"
+                  style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                >
+                  {verifyingPin ? "Verifying..." : "Unlock Workspace"}
+                </button>
+              </form>
+            </Card>
+          </div>
+        )}
+
         {/* Patient Queue */}
-        {selectedDoctorId ? (
+        {selectedDoctorId && selectedDoctorId === unlockedDoctorId ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="grad-text text-lg font-extrabold flex items-center gap-2">

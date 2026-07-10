@@ -75,4 +75,12 @@ export const api = {
   metrics: () => get<any>("/api/v1/command-center/metrics"),
   events: (limit = 40) => get<any>(`/api/v1/events?limit=${limit}`),
   audit: (limit = 30) => get<any>(`/api/v1/audit?limit=${limit}`),
+
+  // admin & auth
+  adminDoctors: () => get<any[]>("/api/v1/admin/doctors"),
+  registerDoctor: (body: any) => post<any>("/api/v1/admin/doctors", body),
+  updateDoctor: (doctor_id: string, body: any) => put<any>(`/api/v1/admin/doctors/${doctor_id}`, body),
+  verifyDoctorPin: (doctor_id: string, access_pin: string) => post<any>("/api/v1/doctors/verify-pin", { doctor_id, access_pin }),
+  listDoctorSchedule: (doctor_id: string) => get<any[]>(`/api/v1/admin/doctors/${doctor_id}/schedule`),
+  updateDoctorSchedule: (doctor_id: string, body: any[]) => post<any>(`/api/v1/admin/doctors/${doctor_id}/schedule`, body),
 };

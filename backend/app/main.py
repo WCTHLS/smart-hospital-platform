@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    routes_admin,
     routes_ai,
     routes_billing,
     routes_clinical,
@@ -58,6 +59,7 @@ app.include_router(routes_billing.router)
 app.include_router(routes_command.router)
 app.include_router(routes_ai.router)
 app.include_router(routes_ws.router)
+app.include_router(routes_admin.router)
 
 
 @app.get("/health", tags=["meta"])
