@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     ai_enabled: bool = True
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
+    gemini_api_key: str | None = None
+    grok_api_key: str | None = None
+    grok_api: str | None = None
     ai_timeout_seconds: float = 20.0
 
     # Security

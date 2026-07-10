@@ -23,6 +23,7 @@ from app.schemas import (
     ApproveRxRequest,
     LabOrderRequest,
     PrescriptionCreateRequest,
+    LabResultSubmitRequest,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["clinical"])
@@ -173,8 +174,79 @@ def publish_result(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
     return {"lab_order_id": lab_order_id, "test": order.test_name, **ai}
 
 
+@router.get("/lab-orders")
+def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
+    # Select lab orders sorted by time
+    stmt = (
+        select(models.LabOrder, models.Patient.first_name, models.Patient.last_name)
+        .join(models.Patient, models.LabOrder.patient_id == models.Patient.patient_id)
+        .order_by(models.LabOrder.ordered_ts.desc())
+    )
+    results = db.execute(stmt).all()
+    out = []
+    for order, fn, ln in results:
+        out.append({
+            "lab_order_id": order.lab_order_id,
+            "test_name": order.test_name,
+            "status": order.status,
+            "qr_code": order.qr_code,
+            "ordered_ts": order.ordered_ts.isoformat() if order.ordered_ts else None,
+            "patient_name": f"{fn} {ln}",
+            "encounter_id": order.encounter_id
+        })
+    return out
+
+
+@router.post("/lab-orders/{lab_order_id}/submit-results")
+def submit_results(lab_order_id: str, body: LabResultSubmitRequest, db: Session = Depends(get_db)) -> dict:
+    order = db.get(models.LabOrder, lab_order_id)
+    if not order:
+        raise HTTPException(404, "Lab order not found")
+    
+    # Check if results already exist for this order
+    existing_results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == lab_order_id)).all()
+    for er in existing_results:
+        db.delete(er)
+    db.flush()
+
+    cat = services.catalog_for(order.test_name or "")
+    input_vals = {r.analyte.lower().strip(): r.value for r in body.results}
+    
+    results_payload = []
+    for analyte, unit, low, high, demo in cat["analytes"]:
+        val = input_vals.get(analyte.lower().strip(), demo)
+        res = models.LabResult(
+            lab_order_id=lab_order_id, test_code=cat["code"], analyte=analyte,
+            value=val, unit=unit, reference_low=low, reference_high=high, status="FINAL",
+        )
+        db.add(res)
+        results_payload.append({"analyte": analyte, "value": val, "unit": unit,
+                                "reference_low": low, "reference_high": high})
+                                
+    order.status = "RESULTED"
+    
+    ai = agents.lab_intelligence_agent(results_payload)
+    db.flush()
+    # persist computed flags back
+    for res_row, structured in zip(
+        db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == lab_order_id)),
+        ai["result"]["structured"],
+    ):
+        res_row.abnormal_flag = structured["abnormal_flag"]
+        
+    db.commit()
+    bus.publish(Topics.LABRESULT_PUBLISHED, {"lab_order_id": lab_order_id, "test": order.test_name,
+                                             "encounter_id": order.encounter_id})
+    if ai["result"]["abnormal"]:
+        bus.publish(Topics.RESULT_ABNORMAL, {"lab_order_id": lab_order_id, "test": order.test_name,
+                                             "encounter_id": order.encounter_id,
+                                             "count": len(ai["result"]["abnormal"])})
+    return {"lab_order_id": lab_order_id, "test": order.test_name, **ai}
+
+
 @router.get("/encounters/{encounter_id}/lab")
 def encounter_lab(encounter_id: str, db: Session = Depends(get_db)) -> dict:
+    encounter = _encounter(db, encounter_id)
     orders = db.scalars(select(models.LabOrder).where(models.LabOrder.encounter_id == encounter_id)).all()
     out = []
     for o in orders:
@@ -184,7 +256,54 @@ def encounter_lab(encounter_id: str, db: Session = Depends(get_db)) -> dict:
             "results": [{"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag,
                          "reference_low": r.reference_low, "reference_high": r.reference_high} for r in results],
         })
-    return {"orders": out}
+    return {"orders": out, "suggested_orders": []}
+
+
+@router.get("/encounters/{encounter_id}/lab/suggest")
+def suggest_encounter_labs(encounter_id: str, db: Session = Depends(get_db)) -> list[dict]:
+    encounter = _encounter(db, encounter_id)
+    suggested = []
+    try:
+        triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id))
+        if triage:
+            chief_complaint = triage.chief_complaint or ""
+            symptom_summary = triage.symptom_summary or ""
+            
+            vitals_rec = db.scalar(
+                select(models.Vitals).where(models.Vitals.encounter_id == encounter_id)
+                .order_by(models.Vitals.captured_ts.desc())
+            )
+            vitals_payload = None
+            if vitals_rec:
+                vitals_payload = {
+                    "bp": f"{vitals_rec.bp_systolic}/{vitals_rec.bp_diastolic}",
+                    "spo2": vitals_rec.spo2,
+                    "heart_rate": vitals_rec.heart_rate,
+                    "temperature": vitals_rec.temperature,
+                }
+                
+            past_notes = db.scalars(
+                select(models.ClinicalNote)
+                .join(models.Encounter)
+                .where(models.Encounter.patient_id == encounter.patient_id)
+                .where(models.ClinicalNote.status == "APPROVED")
+            ).all()
+            history_set = set()
+            for n in past_notes:
+                if n.icd10_codes:
+                    for item in n.icd10_codes:
+                        if isinstance(item, dict) and "label" in item:
+                            history_set.add(item["label"])
+                        elif isinstance(item, str):
+                            history_set.add(item)
+            history = list(history_set)
+            
+            suggested = agents.suggest_orders_agent(chief_complaint, symptom_summary, vitals_payload, history)
+    except Exception as e:
+        import logging
+        logging.getLogger("aarogya.api").warning("Failed to generate suggested orders: %s", str(e))
+        
+    return suggested
 
 
 # --------------------------------------------------------------------------------- Prescription & CDS
@@ -199,6 +318,54 @@ def _stock_index(db: Session) -> dict[str, dict]:
     return idx
 
 
+def _get_patient_context(db: Session, encounter_id: str, patient_id: str) -> dict:
+    # 1. Fetch Triage chief complaint / summary
+    triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id))
+    patient_issue = f"{triage.chief_complaint or ''}. {triage.symptom_summary or ''}".strip() if triage else "No complaint recorded"
+
+    # 2. Fetch Vitals
+    vitals_rec = db.scalar(
+        select(models.Vitals).where(models.Vitals.encounter_id == encounter_id)
+        .order_by(models.Vitals.captured_ts.desc())
+    )
+    vitals_payload = None
+    if vitals_rec:
+        vitals_payload = {
+            "bp": f"{vitals_rec.bp_systolic}/{vitals_rec.bp_diastolic}",
+            "spo2": vitals_rec.spo2,
+            "heart_rate": vitals_rec.heart_rate,
+            "temperature": vitals_rec.temperature,
+            "weight": vitals_rec.weight_kg,
+            "height": vitals_rec.height_cm,
+            "bmi": vitals_rec.bmi
+        }
+
+    # 3. Extract compact unique diagnosis labels to minimize token sizes
+    past_notes = db.scalars(
+        select(models.ClinicalNote)
+        .join(models.Encounter)
+        .where(models.Encounter.patient_id == patient_id)
+        .where(models.ClinicalNote.status == "APPROVED")
+    ).all()
+    
+    history_set = set()
+    for n in past_notes:
+        if n.icd10_codes:
+            for item in n.icd10_codes:
+                if isinstance(item, dict) and "label" in item:
+                    history_set.add(item["label"])
+                elif isinstance(item, str):
+                    history_set.add(item)
+                    
+    history = list(history_set)
+
+    return {
+        "issue": patient_issue or "Consultation ongoing",
+        "vitals": vitals_payload,
+        "history": history
+    }
+
+
 @router.post("/prescriptions")
 def create_prescription(body: PrescriptionCreateRequest, db: Session = Depends(get_db)) -> dict:
     encounter = _encounter(db, body.encounter_id)
@@ -207,7 +374,8 @@ def create_prescription(body: PrescriptionCreateRequest, db: Session = Depends(g
     proposed = [i.model_dump() for i in body.items]
     stock_index = _stock_index(db)
 
-    cds = agents.rx_cds_agent(allergies, body.current_meds, proposed, stock_index)
+    patient_ctx = _get_patient_context(db, body.encounter_id, encounter.patient_id)
+    cds = agents.rx_cds_agent(allergies, body.current_meds, proposed, patient_ctx, stock_index)
 
     rx = models.Prescription(encounter_id=body.encounter_id, patient_id=encounter.patient_id,
                              status="DRAFT", prescribed_by=body.prescribed_by or "doctor")
@@ -233,20 +401,21 @@ def approve_prescription(rx_id: str, body: ApproveRxRequest, db: Session = Depen
     stock_index = _stock_index(db)
 
     items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx_id)).all()
+    patient_ctx = _get_patient_context(db, rx.encounter_id, rx.patient_id)
 
     # Optionally auto-substitute blocked / out-of-stock items with a safe suggestion
     if body.accept_substitutions:
-        pre = agents.rx_cds_agent(allergies, [], [{"drug_name": i.drug_name} for i in items], stock_index)
+        pre = agents.rx_cds_agent(allergies, [], [{"drug_name": i.drug_name} for i in items], patient_ctx, stock_index)
         sugg = {s["for"]: s["suggestion"] for s in pre["result"]["suggestions"]}
         for i in items:
             if i.drug_name in sugg:
                 i.substituted_from = i.drug_name
                 i.drug_name = sugg[i.drug_name]
 
-    # Re-run CDS as the safety gate — allergy conflicts BLOCK approval
-    cds = agents.rx_cds_agent(allergies, [], [{"drug_name": i.drug_name} for i in items], stock_index)
-    if cds["result"]["block"]:
-        raise HTTPException(status_code=409, detail={"message": "Prescription blocked by CDS — resolve conflicts.",
+    # Re-run CDS as the safety gate — allergy conflicts BLOCK approval unless overridden by the doctor
+    cds = agents.rx_cds_agent(allergies, [], [{"drug_name": i.drug_name} for i in items], patient_ctx, stock_index)
+    if cds["result"]["block"] and not body.override_warnings:
+        raise HTTPException(status_code=409, detail={"message": "Prescription blocked by CDS — resolve conflicts or override warnings.",
                                                      "cds": cds})
 
     invoice = services.get_or_create_invoice(db, encounter)

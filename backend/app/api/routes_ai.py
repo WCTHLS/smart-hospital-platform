@@ -18,13 +18,22 @@ router = APIRouter(prefix="/api/v1/ai", tags=["ai"])
 @router.get("/status")
 def ai_status() -> dict:
     available = gateway.available()
+    model_name = gateway.active_model_name()
+    
+    # Determine the display message based on active keys
+    if settings.gemini_api_key:
+        msg = "Gemini API connected."
+    elif settings.grok_api_key or settings.grok_api:
+        msg = "xAI Grok API connected."
+    else:
+        msg = "Self-hosted LLM connected."
+
     return {
         "ai_enabled": settings.ai_enabled,
         "llm_available": available,
-        "model": settings.ollama_model if available else None,
+        "model": model_name if available else None,
         "mode": "llm" if available else "deterministic-fallback",
-        "message": ("Self-hosted LLM connected." if available
-                    else "Running on the deterministic clinical engine (no GPU required)."),
+        "message": msg if available else "Running on the deterministic clinical engine (no GPU required).",
     }
 
 

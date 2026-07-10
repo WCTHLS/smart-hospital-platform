@@ -24,9 +24,12 @@ class ModelGateway:
         self._known_available: bool | None = None
 
     def available(self) -> bool:
-        """Cheap reachability probe (cached until process restart on success)."""
+        """Probe reachability for LLM services."""
         if not settings.ai_enabled:
             return False
+        # If Gemini key or Grok key is provided, the API service is cloud-hosted and assumed available
+        if settings.gemini_api_key or settings.grok_api_key or settings.grok_api:
+            return True
         if self._known_available:
             return True
         try:
@@ -35,6 +38,63 @@ class ModelGateway:
         except Exception:  # noqa: BLE001
             self._known_available = False
         return bool(self._known_available)
+
+    def active_model_name(self) -> str:
+        if settings.gemini_api_key:
+            return "gemini-2.5-flash"
+        gkey = settings.grok_api_key or settings.grok_api
+        if gkey:
+            if gkey.startswith("gsk_"):
+                return "llama-3.3-70b-versatile"
+            return "grok-beta"
+        return settings.ollama_model
+
+    def _generate_grok(
+        self,
+        api_key: str,
+        prompt: str,
+        system: str | None = None,
+        json_mode: bool = False,
+        temperature: float = 0.2,
+    ) -> str | None:
+        if api_key.startswith("gsk_"):
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            model = "llama-3.3-70b-versatile"
+        else:
+            url = "https://api.x.ai/v1/chat/completions"
+            model = "grok-beta"
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        
+        payload = {
+            "messages": messages,
+            "model": model,
+            "stream": False,
+            "temperature": temperature
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+            
+        try:
+            resp = httpx.post(url, json=payload, headers=headers, timeout=self._timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            choices = data.get("choices") or []
+            if choices:
+                text = choices[0].get("message", {}).get("content")
+                if text:
+                    return text.strip()
+            return None
+        except Exception as e:
+            logger.warning("Grok/Groq API call failed: %s", str(e))
+            return None
 
     def generate(
         self,
@@ -47,6 +107,55 @@ class ModelGateway:
         """Return model text, or ``None`` if the LLM is unavailable/errored."""
         if not self.available():
             return None
+
+        # --- Google Gemini Integration ---
+        if settings.gemini_api_key:
+            # Use gemini-2.5-flash (which is the recommended default and free)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.gemini_api_key}"
+            payload = {
+                "contents": [
+                    {
+                        "parts": [{"text": prompt}]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": temperature
+                }
+            }
+            if system:
+                payload["systemInstruction"] = {
+                    "parts": [{"text": system}]
+                }
+            if json_mode:
+                payload["generationConfig"]["responseMimeType"] = "application/json"
+
+            try:
+                resp = httpx.post(url, json=payload, timeout=self._timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                candidates = data.get("candidates") or []
+                if candidates:
+                    text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text")
+                    if text:
+                        return text.strip()
+            except Exception as e:
+                logger.warning("Gemini API call failed: %s; trying Grok fallback...", str(e))
+                # Fall through to Grok check
+
+        # --- xAI Grok Fallback (if Gemini fails or is not set) ---
+        grok_key = settings.grok_api_key or settings.grok_api
+        if grok_key:
+            grok_res = self._generate_grok(
+                api_key=grok_key,
+                prompt=prompt,
+                system=system,
+                json_mode=json_mode,
+                temperature=temperature,
+            )
+            if grok_res:
+                return grok_res
+
+        # --- Ollama Fallback ---
         body: dict[str, object] = {
             "model": self._model,
             "prompt": prompt,
@@ -62,7 +171,7 @@ class ModelGateway:
             resp.raise_for_status()
             return (resp.json().get("response") or "").strip() or None
         except Exception:  # noqa: BLE001
-            logger.warning("LLM generate failed; using deterministic fallback", exc_info=False)
+            logger.warning("Ollama LLM generate failed; using deterministic fallback", exc_info=False)
             self._known_available = None  # re-probe next time
             return None
 
