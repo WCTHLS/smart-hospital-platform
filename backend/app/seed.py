@@ -53,28 +53,39 @@ def seed() -> None:
             return
 
         # ---------------------------------------------------------------- Staff (doctors)
+        # At least 2 doctors per specialty so the appointment-slot picker on the
+        # check-in flow always has a real choice of doctor/time to show.
         doctors = [
             ("Dr. Ananya Mehta", "General Medicine"),
+            ("Dr. Rohan Verma", "General Medicine"),
             ("Dr. Vikram Rao", "Cardiology"),
+            ("Dr. Kavita Joshi", "Cardiology"),
             ("Dr. Priya Iyer", "Pulmonology"),
+            ("Dr. Sanjay Gupta", "Pulmonology"),
             ("Dr. Sameer Kapoor", "Paediatrics"),
+            ("Dr. Ritu Malhotra", "Paediatrics"),
             ("Dr. Neha Nair", "Orthopaedics"),
+            ("Dr. Arvind Menon", "Orthopaedics"),
             ("Dr. Arjun Shah", "Dermatology"),
+            ("Dr. Divya Reddy", "Dermatology"),
         ]
+        doctor_by_name: dict[str, models.Staff] = {}
         for i, (name, spec) in enumerate(doctors):
-            db.add(models.Staff(
+            staff = models.Staff(
                 hpr_id=f"HPR-{1000 + i}",
                 name=name,
                 role="DOCTOR",
                 department=spec,
                 specialty=spec,
                 available=True,
-                experience_years=8 + (i * 2),
+                experience_years=6 + (i % 6) * 3,
                 room=f"Room {101 + i}",
-                floor=f"Floor {1 + (i // 3)}",
+                floor=f"Floor {1 + (i // 4)}",
                 access_pin="1234",
-                opd_fee=500.0 + (i * 100.0)
-            ))
+                opd_fee=400.0 + (i % 6) * 100.0,
+            )
+            db.add(staff)
+            doctor_by_name[name] = staff
 
         # ---------------------------------------------------------------- Pharmacy stock
         stock = [
@@ -99,7 +110,7 @@ def seed() -> None:
                 expiry_date=date(2027, 12, 31), location="Pharmacy 1",
             ))
 
-        db.flush()
+        db.flush()  # staff_id / stock_id now available for foreign keys below
 
         # ---------------------------------------------------------------- Hero patient (matches mockups)
         rimjhim = models.Patient(
@@ -115,9 +126,10 @@ def seed() -> None:
 
         # Active consent so Patient 360 works immediately in the demo
         now = _utcnow()
-        db.add(models.ConsentArtifact(patient_id=rimjhim.patient_id, purpose="CARE_MGMT",
+        consent = models.ConsentArtifact(patient_id=rimjhim.patient_id, purpose="CARE_MGMT",
                                       hip_id="aarogya-hip", hiu_id="aarogya-hiu", status="GRANTED",
-                                      valid_from=now, valid_to=now + timedelta(days=1)))
+                                      valid_from=now, valid_to=now + timedelta(days=1))
+        db.add(consent)
 
         # Past encounter with approved note + labs + active meds (history for Patient 360)
         past = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Endocrinology",
@@ -237,6 +249,12 @@ def seed() -> None:
         db.add(models.PrescriptionItem(rx_id=rx4.rx_id, drug_name="Pantoprazole 40mg", dose="40 mg",
                                        route="PO", frequency="1-0-0", duration_days=14, quantity=14))
 
+        # Document produced from encounter 4 (discharge summary) - exercises the Documents table.
+        db.add(models.Document(
+            patient_id=rimjhim.patient_id, encounter_id=past4.encounter_id, doc_type="DISCHARGE_SUMMARY",
+            title="Gastritis - discharge summary", uri=None, created_ts=now - timedelta(days=10),
+        ))
+
         # Past Encounter 5 (5 days ago) - Pulmonology for Asthma
         past5 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Pulmonology",
                                  channel="APP", status="DISCHARGED",
@@ -252,6 +270,64 @@ def seed() -> None:
             approved_ts=now - timedelta(days=5),
         )
         db.add(note5)
+
+        # ------------------------------------------------------------ Billing: Invoice, InvoiceLine, Payment
+        # Fully settled invoice for the Pulmonology visit (past5): consult only, paid via UPI.
+        invoice1 = models.Invoice(
+            encounter_id=past5.encounter_id, patient_id=rimjhim.patient_id,
+            consultation_amt=500.0, lab_amt=0.0, pharmacy_amt=0.0, package_adj=0.0,
+            insurance_adj=0.0, tax=25.0, total=525.0, balance=0.0, status="PAID",
+            created_ts=now - timedelta(days=5),
+        )
+        db.add(invoice1)
+        db.flush()
+        db.add(models.InvoiceLine(invoice_id=invoice1.invoice_id, category="CONSULT",
+                                  description="Pulmonology consultation - Dr. Priya Iyer",
+                                  quantity=1, amount=500.0))
+        db.add(models.Payment(invoice_id=invoice1.invoice_id, method="UPI", amount=525.0,
+                              reference="PAY-SEED0001", status="COMPLETED",
+                              paid_ts=now - timedelta(days=5)))
+
+        # Insurance-linked invoice for the Cardiology visit (past2): consult + lab, cashless claim pending.
+        invoice2 = models.Invoice(
+            encounter_id=past2.encounter_id, patient_id=rimjhim.patient_id,
+            consultation_amt=600.0, lab_amt=600.0, pharmacy_amt=0.0, package_adj=0.0,
+            insurance_adj=480.0, tax=36.0, total=756.0, balance=756.0, status="OPEN",
+            created_ts=now - timedelta(days=30),
+        )
+        db.add(invoice2)
+        db.flush()
+        db.add(models.InvoiceLine(invoice_id=invoice2.invoice_id, category="CONSULT",
+                                  description="Cardiology consultation - Dr. Vikram Rao",
+                                  quantity=1, amount=600.0))
+        db.add(models.InvoiceLine(invoice_id=invoice2.invoice_id, category="LAB",
+                                  description="Lipid Profile", quantity=1, amount=600.0))
+        db.add(models.InsuranceClaim(
+            invoice_id=invoice2.invoice_id, patient_id=rimjhim.patient_id,
+            payer="Star Health", tpa="MediAssist", policy_no="STAR-2024-88231",
+            claim_type="CASHLESS", preauth_no="PA-99213", claim_amount=756.0,
+            status="SUBMITTED", submitted_ts=now - timedelta(days=29),
+        ))
+
+        # ------------------------------------------------------------ Upcoming appointment (Appointment table)
+        appt_start = (now + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+        db.add(models.Appointment(
+            patient_id=rimjhim.patient_id, doctor_id=doctor_by_name["Dr. Ananya Mehta"].staff_id,
+            department="General Medicine", specialty="General Medicine",
+            reason="Follow-up diabetes and hypertension review",
+            appointment_type="OPD", scheduled_start=appt_start, scheduled_end=appt_start + timedelta(minutes=15),
+            status="BOOKED", channel="APP",
+        ))
+
+        # ------------------------------------------------------------ Audit trail (AuditLog table)
+        db.add(models.AuditLog(actor_id="system", actor_role="SYSTEM", action="CONSENT_GRANTED",
+                               entity_type="CONSENT_ARTIFACT", entity_id=consent.consent_id,
+                               consent_id=consent.consent_id, ip_address="127.0.0.1",
+                               audit_metadata={"purpose": "CARE_MGMT"}, event_ts=now))
+        db.add(models.AuditLog(actor_id=doctor_by_name["Dr. Ananya Mehta"].staff_id, actor_role="DOCTOR",
+                               action="NOTE_APPROVED", entity_type="CLINICAL_NOTE", entity_id=note.note_id,
+                               consent_id=consent.consent_id, ip_address="10.0.0.14",
+                               audit_metadata={"encounter_id": past.encounter_id}, event_ts=now - timedelta(days=60)))
 
         # Seed active waiting encounter for Rimjhim Sharma (Token A-045, General Medicine)
         active_enc = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="General Medicine",
@@ -286,12 +362,17 @@ def seed() -> None:
             db.add(models.Token(encounter_id=enc.encounter_id, token_number=f"A-{100 + i:03d}",
                                 department=dept, room=room, floor=floor, eta_minutes=eta, status="WAITING"))
 
+        # Doctor availability (DoctorSchedule) for every seeded doctor, across specialties.
+        _ensure_doctor_schedules(db)
+
         db.commit()
 
+        specialties = sorted({spec for _, spec in doctors})
         print("Seed complete.")
         print(f"  Hero patient : Rimjhim Sharma  ·  patient_id={rimjhim.patient_id}")
         print(f"  ABHA         : 91-2345-6789-0123  (allergic to Penicillin)")
-        print(f"  Doctors      : {len(doctors)}   Pharmacy items: {len(stock)}   Waiting patients: {len(waiting)}")
+        print(f"  Doctors      : {len(doctors)} across {len(specialties)} specialties (>=2 each)   "
+              f"Pharmacy items: {len(stock)}   Waiting patients: {len(waiting)}")
         print("  Try: POST /api/v1/checkin  {\"abha_number\":\"91-2345-6789-0123\",\"channel\":\"WHATSAPP\"}")
     finally:
         db.close()

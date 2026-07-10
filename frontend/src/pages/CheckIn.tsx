@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   CheckCircle2,
   ClipboardPlus,
+  CreditCard,
   FileUp,
   LockKeyhole,
   Phone,
@@ -11,13 +11,26 @@ import {
   Send,
   ShieldCheck,
   UserRound,
+  ArrowLeft,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { useJourney } from "../lib/store";
 import { DeviceBar, Field, SectionTitle } from "../components/ui";
 
 type Msg = { who: "bot" | "me"; text: string };
-type Profile = { patient_id: string; first_name: string; last_name?: string; dob?: string };
+type Profile = {
+  patient_id: string;
+  first_name: string;
+  last_name?: string;
+  dob?: string;
+  mobile?: string;
+  email?: string;
+  gender?: string;
+  blood_group?: string;
+  address?: string;
+  abha_number?: string;
+  mrn?: string;
+};
 type AppointmentSlot = {
   doctor_id: string;
   doctor_name: string;
@@ -28,13 +41,21 @@ type AppointmentSlot = {
   scheduled_start: string;
   scheduled_end: string;
 };
+type DoctorAvailability = {
+  doctor_id: string;
+  doctor_name: string;
+  specialty: string;
+  department?: string;
+  location?: string;
+  room?: string;
+  slots: AppointmentSlot[];
+};
 type Step =
   | "mobile"
   | "otp"
   | "profiles"
-  | "existing-consent"
+  | "existing-profile"
   | "existing-reason"
-  | "register-consent"
   | "register-basic"
   | "register-extended"
   | "register-verify"
@@ -50,11 +71,21 @@ type AllergyDraft = {
   reaction: string;
 };
 
+type DocumentDraft = {
+  doc_type: string;
+  file_name: string;
+};
+
 const emptyAllergy = (): AllergyDraft => ({
   substance: "",
   drug_class: "",
   severity: "Mild",
   reaction: "",
+});
+
+const emptyDocument = (): DocumentDraft => ({
+  doc_type: "Lab Report",
+  file_name: "",
 });
 
 const docTypes = ["Lab Report", "Discharge Summary", "Scan", "Audio", "Other"];
@@ -70,6 +101,30 @@ const bloodGroups = [
   ["O-", "O-"],
 ];
 
+// Maps each granular Step to the high-level stage shown in the sidebar tracker,
+// so the aside can highlight exactly where the person is in the flow.
+const STAGE_BY_STEP: Record<Step, number> = {
+  mobile: 0,
+  otp: 0,
+  profiles: 1,
+  "existing-profile": 1,
+  "register-basic": 1,
+  "register-extended": 1,
+  "register-verify": 1,
+  "existing-reason": 2,
+  "register-reason": 2,
+  "appointment-date": 3,
+  "appointment-slot": 3,
+  done: 3,
+};
+
+const STAGES = [
+  { title: "Mobile OTP", copy: "No patient details are shown before verification." },
+  { title: "Profile choice", copy: "Only first name, last name, and DOB are listed." },
+  { title: "Visit reason", copy: "Describe the current issue before booking." },
+  { title: "Appointment", copy: "Choose an available doctor and time." },
+];
+
 function errorText(e: unknown) {
   return e instanceof ApiError ? String(e.message) : "Something went wrong";
 }
@@ -82,8 +137,14 @@ function timeLabel(value: string) {
   return value.slice(11, 16);
 }
 
+function slotTimeLabel(value: string) {
+  const [hours, minutes] = timeLabel(value).split(":").map(Number);
+  const period = hours >= 12 ? "PM" : "AM";
+  const hour = hours % 12 || 12;
+  return `${hour}:${String(minutes).padStart(2, "0")} ${period}`;
+}
+
 export default function CheckIn() {
-  const nav = useNavigate();
   const setJourney = useJourney((s) => s.set);
   const [step, setStep] = useState<Step>("mobile");
   const [busy, setBusy] = useState(false);
@@ -99,26 +160,25 @@ export default function CheckIn() {
   const [appointmentSpecialty, setAppointmentSpecialty] = useState("");
   const [appointmentSlots, setAppointmentSlots] = useState<AppointmentSlot[]>([]);
   const [appointment, setAppointment] = useState<any>(null);
+  const [paymentDone, setPaymentDone] = useState(false);
+  const [showPaymentPopup, setShowPaymentPopup] = useState(false);
   const [basic, setBasic] = useState({ first_name: "", last_name: "", dob: "" });
   const [extended, setExtended] = useState({
     email: "",
     gender: "",
     blood_group: "UNK",
     address: "",
-    doc_type: "Lab Report",
-    doc_title: "",
-    doc_uri: "",
   });
   const [allergies, setAllergies] = useState<AllergyDraft[]>([emptyAllergy()]);
+  const [documents, setDocuments] = useState<DocumentDraft[]>([emptyDocument()]);
 
   const progress = useMemo(() => {
     const order: Step[] = [
       "mobile",
       "otp",
       "profiles",
-      "existing-consent",
+      "existing-profile",
       "existing-reason",
-      "register-consent",
       "register-basic",
       "register-extended",
       "register-verify",
@@ -130,6 +190,29 @@ export default function CheckIn() {
     return Math.max(12, Math.round(((order.indexOf(step) + 1) / order.length) * 100));
   }, [step]);
 
+  const activeStage = STAGE_BY_STEP[step];
+
+  const availableDoctors = useMemo<DoctorAvailability[]>(() => {
+    const doctors = new Map<string, DoctorAvailability>();
+    for (const slot of appointmentSlots) {
+      const doctor = doctors.get(slot.doctor_id);
+      if (doctor) {
+        doctor.slots.push(slot);
+      } else {
+        doctors.set(slot.doctor_id, {
+          doctor_id: slot.doctor_id,
+          doctor_name: slot.doctor_name,
+          specialty: slot.specialty,
+          department: slot.department,
+          location: slot.location,
+          room: slot.room,
+          slots: [slot],
+        });
+      }
+    }
+    return [...doctors.values()];
+  }, [appointmentSlots]);
+
   async function verifyMobile() {
     setBusy(true);
     setError("");
@@ -138,20 +221,6 @@ export default function CheckIn() {
       const res = await api.mobileProfiles(mobile);
       setProfiles(res.profiles ?? []);
       setStep("profiles");
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function grantExistingConsent() {
-    if (!selected) return;
-    setBusy(true);
-    setError("");
-    try {
-      await api.consent(selected.patient_id);
-      setStep("existing-reason");
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -171,12 +240,13 @@ export default function CheckIn() {
   }
 
   function documentPayload() {
-    if (!extended.doc_title.trim() && !extended.doc_uri.trim()) return [];
-    return [{
-      doc_type: extended.doc_type.toUpperCase().replace(/ /g, "_"),
-      title: extended.doc_title.trim() || extended.doc_type,
-      uri: extended.doc_uri.trim() || null,
-    }];
+    return documents
+      .filter((document) => document.file_name)
+      .map((document) => ({
+        doc_type: document.doc_type.toUpperCase().replace(/ /g, "_"),
+        title: document.file_name,
+        uri: null,
+      }));
   }
 
   async function createBasicPatient() {
@@ -290,19 +360,26 @@ export default function CheckIn() {
     }
   }
 
+  function payForAppointment() {
+    if (paymentDone) return;
+    setPaymentDone(true);
+    setShowPaymentPopup(true);
+    window.setTimeout(() => setShowPaymentPopup(false), 1000);
+  }
+
   const disabledBasic = !basic.first_name || !basic.last_name || !basic.dob;
   const disabledExtended = !extended.email || !extended.gender || !extended.blood_group || !extended.address;
 
   return (
-    <div className="space-y-5">
+    <div className="checkin-page space-y-5">
       <SectionTitle sub="Verify identity before showing patient information.">
         Digital check-in
       </SectionTitle>
 
       <div className="bar-tk" aria-hidden="true"><i style={{ width: `${progress}%` }} /></div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <section className="card">
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="card h-fit">
           {error && <div className="alertbox mb-4">{error}</div>}
 
           {step === "mobile" && (
@@ -311,9 +388,11 @@ export default function CheckIn() {
               <Field label="Mobile number">
                 <input className="input" value={mobile} onChange={(e) => setMobile(e.target.value)} />
               </Field>
-              <button className="btn" disabled={busy || mobile.length < 8} onClick={() => setStep("otp")}>
-                Send OTP <Send size={16} />
-              </button>
+              <div className="actions-row center">
+                <button className="btn" disabled={busy || mobile.length < 8} onClick={() => setStep("otp")}>
+                  Send OTP <Send size={16} />
+                </button>
+              </div>
             </div>
           )}
 
@@ -324,11 +403,23 @@ export default function CheckIn() {
                 Enter the OTP sent to {mobile}. Demo verification uses the registered mobile number.
               </p>
               <Field label="OTP">
-                <input className="input" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="6 digit OTP" />
+                <input
+                  className="input"
+                  value={otp}
+                  inputMode="numeric"
+                  maxLength={4}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  placeholder="4 digit OTP"
+                />
               </Field>
-              <button className="btn g" disabled={busy || otp.length < 4} onClick={verifyMobile}>
-                Verify and fetch profiles <ShieldCheck size={16} />
-              </button>
+              <div className="actions-row between">
+                <button className="btn-link" disabled={busy} onClick={() => setStep("mobile")}>
+                  <ArrowLeft size={14} /> Change number
+                </button>
+                <button className="btn g" disabled={busy || otp.length !== 4} onClick={verifyMobile}>
+                  Verify and fetch profiles <ShieldCheck size={16} />
+                </button>
+              </div>
             </div>
           )}
 
@@ -342,7 +433,7 @@ export default function CheckIn() {
                     className="holo text-left"
                     onClick={() => {
                       setSelected(p);
-                      setStep("existing-consent");
+                      setStep("existing-profile");
                     }}
                   >
                     <b>{p.first_name} {p.last_name}</b>
@@ -355,32 +446,44 @@ export default function CheckIn() {
               {!profiles.length && (
                 <div className="holo">No existing profile was found for this mobile number.</div>
               )}
-              <button className="btn ghost" onClick={() => setStep("register-consent")}>
-                <Plus size={16} /> Register
-              </button>
+              <div className="divider-row">
+                <span>or</span>
+              </div>
+              <div className="actions-row center" style={{ borderTop: "none", paddingTop: 0, marginTop: 0 }}>
+                <button className="btn ghost" onClick={() => setStep("register-basic")}>
+                  <Plus size={16} /> Register a new patient
+                </button>
+              </div>
             </div>
           )}
 
-          {step === "existing-consent" && selected && (
-            <ConsentPanel
-              title={`Grant access for ${selected.first_name} ${selected.last_name ?? ""}`}
-              copy="Allow the care team to access existing health records for this visit."
-              busy={busy}
-              onGrant={grantExistingConsent}
-            />
+          {step === "existing-profile" && selected && (
+            <div className="space-y-4">
+              <StepHeader icon={<UserRound size={20} />} title="Confirm patient details" />
+              <div className="grid gap-x-6 gap-y-1 md:grid-cols-2">
+                <Detail label="Patient name" value={`${selected.first_name} ${selected.last_name ?? ""}`.trim()} />
+                <Detail label="Date of birth" value={selected.dob} />
+                <Detail label="Gender" value={selected.gender} />
+                <Detail label="Blood group" value={selected.blood_group === "UNK" ? "Unknown" : selected.blood_group} />
+                <Detail label="Mobile number" value={selected.mobile} />
+                <Detail label="Email" value={selected.email} />
+                <Detail label="Address" value={selected.address} />
+                <Detail label="MRN" value={selected.mrn} />
+                <Detail label="ABHA number" value={selected.abha_number} />
+              </div>
+              <div className="actions-row between">
+                <button className="btn-link" onClick={() => setStep("profiles")}>
+                  <ArrowLeft size={14} /> Back to profiles
+                </button>
+                <button className="btn g" onClick={() => setStep("existing-reason")}>
+                  Proceed <CheckCircle2 size={16} />
+                </button>
+              </div>
+            </div>
           )}
 
           {step === "existing-reason" && (
-            <ReasonPanel busy={busy} reason={reason} setReason={setReason} onSubmit={completeCheckIn} />
-          )}
-
-          {step === "register-consent" && (
-            <ConsentPanel
-              title="Consent to store health records"
-              copy="Allow this hospital to create and store a patient health record."
-              busy={busy}
-              onGrant={() => setStep("register-basic")}
-            />
+            <ReasonPanel busy={busy} reason={reason} setReason={setReason} onSubmit={completeCheckIn} onBack={() => setStep("existing-profile")} />
           )}
 
           {step === "register-basic" && (
@@ -400,14 +503,19 @@ export default function CheckIn() {
                   <input className="input" value={mobile} onChange={(e) => setMobile(e.target.value)} />
                 </Field>
               </div>
-              <button className="btn" disabled={busy || disabledBasic} onClick={createBasicPatient}>
-                Create patient record <ClipboardPlus size={16} />
-              </button>
+              <div className="actions-row between">
+                <button className="btn-link" disabled={busy} onClick={() => setStep("profiles")}>
+                  <ArrowLeft size={14} /> Back
+                </button>
+                <button className="btn" disabled={busy || disabledBasic} onClick={createBasicPatient}>
+                  Create patient record <ClipboardPlus size={16} />
+                </button>
+              </div>
             </div>
           )}
 
           {step === "register-extended" && (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <StepHeader icon={<ClipboardPlus size={20} />} title="Extended information" />
               <div className="grid gap-3 md:grid-cols-2">
                 <Field label="Email">
@@ -431,42 +539,63 @@ export default function CheckIn() {
                 </Field>
               </div>
 
-              <div className="space-y-3">
-                <div className="font-bold" style={{ color: "#d7e5ff" }}>Allergies</div>
-                {allergies.map((allergy, index) => (
-                  <div className="grid gap-3 rounded-xl border p-3 md:grid-cols-4" style={{ borderColor: "var(--line2)" }} key={index}>
-                    <input className="input" placeholder="Substance" value={allergy.substance} onChange={(e) => updateAllergy(index, "substance", e.target.value)} />
-                    <input className="input" placeholder="Drug class, if known" value={allergy.drug_class} onChange={(e) => updateAllergy(index, "drug_class", e.target.value)} />
-                    <select className="input" value={allergy.severity} onChange={(e) => updateAllergy(index, "severity", e.target.value)}>
-                      <option>Mild</option>
-                      <option>Moderate</option>
-                      <option>Severe</option>
-                    </select>
-                    <input className="input" placeholder="Reaction" value={allergy.reaction} onChange={(e) => updateAllergy(index, "reaction", e.target.value)} />
-                  </div>
-                ))}
-                <button className="btn ghost" onClick={() => setAllergies((prev) => [...prev, emptyAllergy()])}>
-                  <Plus size={16} /> Allergy
+              <div className="subsection">
+                <div className="subsection-head">
+                  <span className="font-bold" style={{ color: "#d7e5ff" }}>Allergies</span>
+                  <span className="text-[11px]" style={{ color: "var(--dim)" }}>Optional</span>
+                </div>
+                <div className="space-y-3">
+                  {allergies.map((allergy, index) => (
+                    <div className="grid gap-3 rounded-xl border p-3 md:grid-cols-4" style={{ borderColor: "var(--line2)" }} key={index}>
+                      <input className="input" placeholder="Substance" value={allergy.substance} onChange={(e) => updateAllergy(index, "substance", e.target.value)} />
+                      <input className="input" placeholder="Drug class, if known" value={allergy.drug_class} onChange={(e) => updateAllergy(index, "drug_class", e.target.value)} />
+                      <select className="input" value={allergy.severity} onChange={(e) => updateAllergy(index, "severity", e.target.value)}>
+                        <option>Mild</option>
+                        <option>Moderate</option>
+                        <option>Severe</option>
+                      </select>
+                      <input className="input" placeholder="Reaction" value={allergy.reaction} onChange={(e) => updateAllergy(index, "reaction", e.target.value)} />
+                    </div>
+                  ))}
+                  <button className="btn ghost sm" onClick={() => setAllergies((prev) => [...prev, emptyAllergy()])}>
+                    <Plus size={14} /> Add allergy
+                  </button>
+                </div>
+              </div>
+
+              <div className="subsection">
+                <div className="subsection-head">
+                  <span className="font-bold" style={{ color: "#d7e5ff" }}>Documents</span>
+                  <span className="text-[11px]" style={{ color: "var(--dim)" }}>Optional</span>
+                </div>
+                <div className="space-y-3">
+                  {documents.map((document, index) => (
+                    <div className="grid gap-3 rounded-xl border p-3 md:grid-cols-2" style={{ borderColor: "var(--line2)" }} key={index}>
+                      <Field label="Document type">
+                        <select className="input" value={document.doc_type} onChange={(e) => updateDocument(index, "doc_type", e.target.value)}>
+                          {docTypes.map((d) => <option key={d}>{d}</option>)}
+                        </select>
+                      </Field>
+                      <Field label="Upload file">
+                        <input
+                          className="input file:mr-3 file:rounded-lg file:border-0 file:px-3 file:py-1 file:font-bold"
+                          type="file"
+                          onChange={(e) => updateDocument(index, "file_name", e.target.files?.[0]?.name ?? "")}
+                        />
+                      </Field>
+                    </div>
+                  ))}
+                  <button className="btn ghost sm" onClick={() => setDocuments((prev) => [...prev, emptyDocument()])}>
+                    <Plus size={14} /> Add document
+                  </button>
+                </div>
+              </div>
+
+              <div className="actions-row center">
+                <button className="btn g" disabled={busy || disabledExtended} onClick={completeRegistration}>
+                  Complete registration <FileUp size={16} />
                 </button>
               </div>
-
-              <div className="grid gap-3 md:grid-cols-3">
-                <Field label="Document type">
-                  <select className="input" value={extended.doc_type} onChange={(e) => setExtended({ ...extended, doc_type: e.target.value })}>
-                    {docTypes.map((d) => <option key={d}>{d}</option>)}
-                  </select>
-                </Field>
-                <Field label="Document title">
-                  <input className="input" value={extended.doc_title} onChange={(e) => setExtended({ ...extended, doc_title: e.target.value })} />
-                </Field>
-                <Field label="Document link">
-                  <input className="input" value={extended.doc_uri} onChange={(e) => setExtended({ ...extended, doc_uri: e.target.value })} />
-                </Field>
-              </div>
-
-              <button className="btn g" disabled={busy || disabledExtended} onClick={completeRegistration}>
-                Complete registration <FileUp size={16} />
-              </button>
             </div>
           )}
 
@@ -476,14 +605,16 @@ export default function CheckIn() {
               <div className="holo">
                 Mobile OTP was already verified before registration, so this patient can continue check-in.
               </div>
-              <button className="btn g" onClick={() => setStep("register-reason")}>
-                Continue <CheckCircle2 size={16} />
-              </button>
+              <div className="actions-row center">
+                <button className="btn g" onClick={() => setStep("register-reason")}>
+                  Continue <CheckCircle2 size={16} />
+                </button>
+              </div>
             </div>
           )}
 
           {step === "register-reason" && (
-            <ReasonPanel busy={busy} reason={reason} setReason={setReason} onSubmit={completeCheckIn} />
+            <ReasonPanel busy={busy} reason={reason} setReason={setReason} onSubmit={completeCheckIn} onBack={() => setStep("register-verify")} />
           )}
 
           {step === "done" && (
@@ -499,8 +630,8 @@ export default function CheckIn() {
                   </span>
                 </div>
               )}
-              <button className="btn w-full" onClick={() => nav("/triage", { state: { symptom: reason } })}>
-                Proceed to triage
+              <button className="btn g w-full" disabled={paymentDone} onClick={payForAppointment}>
+                <CreditCard size={16} /> {paymentDone ? "Paid" : "Pay"}
               </button>
             </div>
           )}
@@ -508,72 +639,107 @@ export default function CheckIn() {
           {step === "appointment-date" && (
             <div className="space-y-4">
               <StepHeader icon={<ClipboardPlus size={20} />} title="Book appointment" />
-              <div className="holo">
-                The visit reason will be mapped to the right specialty before showing doctors.
-              </div>
               <Field label="Appointment date">
                 <input className="input" type="date" min={todayIso()} value={appointmentDate} onChange={(e) => setAppointmentDate(e.target.value)} />
               </Field>
-              <button className="btn g" disabled={busy || !appointmentDate} onClick={fetchAppointmentSlots}>
-                Show available doctors <CheckCircle2 size={16} />
-              </button>
+              <div className="actions-row center">
+                <button className="btn g" disabled={busy || !appointmentDate} onClick={fetchAppointmentSlots}>
+                  Show available doctors <CheckCircle2 size={16} />
+                </button>
+              </div>
             </div>
           )}
 
           {step === "appointment-slot" && (
             <div className="space-y-4">
-              <StepHeader icon={<UserRound size={20} />} title="Select doctor and time" />
-              <div className="kv"><span>Mapped specialty</span><b>{appointmentSpecialty}</b></div>
-              {!appointmentSlots.length && (
+              <StepHeader icon={<UserRound size={20} />} title="Available doctors" />
+              <div className="grid gap-x-6 md:grid-cols-2">
+                <Detail label="Selected date" value={appointmentDate} />
+                <Detail label="Specialty" value={appointmentSpecialty} />
+              </div>
+              {!availableDoctors.length && (
                 <div className="holo">No available slots for this specialty on the selected date.</div>
               )}
-              <div className="grid gap-3 md:grid-cols-2">
-                {appointmentSlots.map((slot) => (
-                  <button
-                    key={`${slot.doctor_id}-${slot.scheduled_start}`}
-                    className="holo text-left"
-                    disabled={busy}
-                    onClick={() => bookAppointment(slot)}
-                  >
-                    <b>{slot.doctor_name}</b>
-                    <span className="mt-1 block text-[12px]" style={{ color: "var(--muted)" }}>
-                      {timeLabel(slot.scheduled_start)} - {timeLabel(slot.scheduled_end)}
-                      {slot.room ? ` · ${slot.room}` : ""}
-                    </span>
-                  </button>
+              <div className="space-y-3">
+                {availableDoctors.map((doctor) => (
+                  <div className="holo overflow-hidden" key={doctor.doctor_id}>
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <b className="block text-sm">{doctor.doctor_name}</b>
+                        <span className="mt-0.5 block text-[12px]" style={{ color: "var(--muted)" }}>
+                          {doctor.specialty}
+                        </span>
+                      </div>
+                      {(doctor.room || doctor.location) && (
+                        <span className="text-[11px]" style={{ color: "var(--dim)" }}>
+                          {[doctor.room, doctor.location].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
+                    </div>
+                    <div className="overflow-x-auto pb-2">
+                      <div className="flex min-w-max gap-2">
+                        {doctor.slots.map((slot) => (
+                          <button
+                            key={slot.scheduled_start}
+                            className="appointment-time-slot"
+                            disabled={busy}
+                            onClick={() => bookAppointment(slot)}
+                          >
+                            {slotTimeLabel(slot.scheduled_start)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 ))}
               </div>
-              <button className="btn ghost" disabled={busy} onClick={() => setStep("appointment-date")}>
-                Change date
-              </button>
+              <div className="actions-row start">
+                <button className="btn-link" disabled={busy} onClick={() => setStep("appointment-date")}>
+                  <ArrowLeft size={14} /> Change date
+                </button>
+              </div>
             </div>
           )}
         </section>
 
         <aside className="card h-fit">
           <div className="space-y-3">
-            {[
-              ["1", "Mobile OTP", "No patient details are shown before verification."],
-              ["2", "Profile choice", "Only first name, last name, and DOB are listed."],
-              ["3", "Consent", "Existing records are accessed only after consent."],
-              ["4", "Appointment", "Reason maps to specialty before triage."],
-            ].map(([n, title, copy]) => (
-              <div key={n} className="flex gap-3">
-                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold" style={{ background: "var(--panel2)", border: "1px solid var(--line2)" }}>{n}</span>
-                <div>
-                  <div className="font-bold" style={{ color: "#d7e5ff" }}>{title}</div>
-                  <div className="text-[12px]" style={{ color: "var(--muted)" }}>{copy}</div>
+            {STAGES.map((s, i) => {
+              const isActive = i === activeStage;
+              const isDone = i < activeStage;
+              return (
+                <div key={s.title} className={`stage-item ${isActive ? "is-active" : ""}`}>
+                  <span className={`stage-num ${isActive ? "is-active" : ""} ${isDone ? "is-done" : ""}`}>
+                    {isDone ? <CheckCircle2 size={14} /> : i + 1}
+                  </span>
+                  <div>
+                    <div className="font-bold" style={{ color: isActive ? "#eafcff" : "#d7e5ff" }}>{s.title}</div>
+                    <div className="text-[12px]" style={{ color: "var(--muted)" }}>{s.copy}</div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </aside>
       </div>
+
+      {showPaymentPopup && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4" role="status" aria-live="polite">
+          <div className="card w-full max-w-sm text-center">
+            <CheckCircle2 className="mx-auto mb-3" size={44} color="var(--mint)" />
+            <h3 className="text-lg font-extrabold" style={{ color: "#e8eefc" }}>Payment done</h3>
+          </div>
+        </div>
+      )}
     </div>
   );
 
   function updateAllergy(index: number, key: keyof AllergyDraft, value: string) {
     setAllergies((prev) => prev.map((a, i) => (i === index ? { ...a, [key]: value } : a)));
+  }
+
+  function updateDocument(index: number, key: keyof DocumentDraft, value: string) {
+    setDocuments((prev) => prev.map((document, i) => (i === index ? { ...document, [key]: value } : document)));
   }
 }
 
@@ -588,28 +754,18 @@ function StepHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   );
 }
 
-function ConsentPanel({ title, copy, busy, onGrant }: { title: string; copy: string; busy: boolean; onGrant: () => void }) {
-  return (
-    <div className="space-y-4">
-      <StepHeader icon={<ShieldCheck size={20} />} title={title} />
-      <div className="holo">{copy}</div>
-      <button className="btn g" disabled={busy} onClick={onGrant}>
-        Grant consent <ShieldCheck size={16} />
-      </button>
-    </div>
-  );
-}
-
 function ReasonPanel({
   busy,
   reason,
   setReason,
   onSubmit,
+  onBack,
 }: {
   busy: boolean;
   reason: string;
   setReason: (value: string) => void;
   onSubmit: () => void;
+  onBack?: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -620,19 +776,34 @@ function ReasonPanel({
         onChange={(e) => setReason(e.target.value)}
         placeholder="Describe symptoms or reason for visit"
       />
-      <button className="btn g" disabled={busy || !reason.trim()} onClick={onSubmit}>
-        Complete check-in <CheckCircle2 size={16} />
-      </button>
+      <div className="actions-row between">
+        {onBack ? (
+          <button className="btn-link" disabled={busy} onClick={onBack}>
+            <ArrowLeft size={14} /> Back
+          </button>
+        ) : <span />}
+        <button className="btn g" disabled={busy || !reason.trim()} onClick={onSubmit}>
+          Book appointment <CheckCircle2 size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="kv min-w-0">
+      <span>{label}</span>
+      <b className="truncate text-right">{value || "Not available"}</b>
     </div>
   );
 }
 
 function LegacyWhatsAppCheckIn() {
-  const nav = useNavigate();
   const setJourney = useJourney((s) => s.set);
   const [abha, setAbha] = useState("91-2345-6789-0123");
   const [reason, setReason] = useState("Fever and cough for 3 days");
-  const [step, setStep] = useState<"abha" | "reason" | "consent" | "done">("abha");
+  const [step, setStep] = useState<"abha" | "reason" | "done">("abha");
   const [busy, setBusy] = useState(false);
   const [patient, setPatient] = useState<any>(null);
   const [msgs, setMsgs] = useState<Msg[]>([
@@ -668,18 +839,6 @@ function LegacyWhatsAppCheckIn() {
       if (r.red_flags?.length) {
         push({ who: "bot", text: `Red flag noted: ${r.red_flags.join(" ")} You'll be prioritised.` });
       }
-      setStep("consent");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function doConsent() {
-    if (!patient) return;
-    setBusy(true);
-    try {
-      await api.consent(patient.patient_id);
-      push({ who: "bot", text: "Consent granted. Your records are available to your care team for this visit only." });
       setStep("done");
     } finally {
       setBusy(false);
@@ -715,22 +874,9 @@ function LegacyWhatsAppCheckIn() {
           </div>
         )}
 
-        {step === "consent" && (
-          <div className="mt-3">
-            <div className="holo mb-2 flex items-center gap-2">
-              <ShieldCheck size={16} color="var(--cyan)" />
-              <span>Grant access to your health records for this visit.</span>
-            </div>
-            <button className="btn g w-full" disabled={busy} onClick={doConsent}>Grant consent</button>
-          </div>
-        )}
-
         {step === "done" && (
           <div className="mt-3 space-y-2">
             <div className="kv"><span>Status</span><b style={{ color: "var(--mint)" }}>Ready - no queue</b></div>
-            <button className="btn w-full" onClick={() => nav("/triage", { state: { symptom: reason } })}>
-              Proceed to triage
-            </button>
           </div>
         )}
       </div>

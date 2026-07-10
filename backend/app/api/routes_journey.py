@@ -64,6 +64,13 @@ def _patient_match(p: models.Patient) -> dict:
         "first_name": p.first_name,
         "last_name": p.last_name,
         "dob": p.dob.isoformat() if p.dob else None,
+        "mobile": p.mobile,
+        "email": p.email,
+        "gender": p.gender,
+        "blood_group": p.blood_group,
+        "address": p.address,
+        "abha_number": p.abha_number,
+        "mrn": p.mrn,
     }
 
 

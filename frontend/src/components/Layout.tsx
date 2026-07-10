@@ -137,9 +137,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             <div className="card p-3 text-[12px] relative group">
               <div className="mb-1 flex items-center justify-between font-bold" style={{ color: "#bcd2ff" }}>
                 <span className="flex items-center gap-1"><ClipboardList size={13} /> Active Session</span>
-                <button 
-                  onClick={() => journey.reset()} 
-                  className="text-[10px] text-red-400 hover:text-red-300 font-bold uppercase transition"
+                <button
+                  onClick={() => journey.reset()}
+                  className="text-[10px] text-red-400 hover:text-red-300 font-bold uppercase transition opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                   title="Clear patient session"
                 >
                   Reset
@@ -173,11 +173,11 @@ export default function Layout({ children }: { children: ReactNode }) {
             <AiPill />
 
             {/* Custom Role Selector Dropdown */}
-            <div className="flex items-center gap-1.5 rounded-xl border px-2.5 py-1" 
+            <div className="flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
               style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}>
               <User size={13} color="var(--dim)" />
-              <select 
-                value={activeRole} 
+              <select
+                value={activeRole}
                 onChange={(e) => handleRoleChange(e.target.value as Role)}
                 className="bg-transparent text-[12.5px] font-bold text-white border-0 outline-none cursor-pointer pr-1"
                 style={{ color: "#dce9ff" }}
