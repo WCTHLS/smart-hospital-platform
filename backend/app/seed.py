@@ -41,8 +41,19 @@ def seed() -> None:
             ("Dr. Arjun Shah", "Dermatology"),
         ]
         for i, (name, spec) in enumerate(doctors):
-            db.add(models.Staff(hpr_id=f"HPR-{1000 + i}", name=name, role="DOCTOR",
-                                department=spec, specialty=spec, available=True))
+            db.add(models.Staff(
+                hpr_id=f"HPR-{1000 + i}",
+                name=name,
+                role="DOCTOR",
+                department=spec,
+                specialty=spec,
+                available=True,
+                experience_years=8 + (i * 2),
+                room=f"Room {101 + i}",
+                floor=f"Floor {1 + (i // 3)}",
+                access_pin="1234",
+                opd_fee=500.0 + (i * 100.0)
+            ))
 
         # ---------------------------------------------------------------- Pharmacy stock
         stock = [

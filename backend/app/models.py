@@ -99,6 +99,13 @@ class Staff(Base):
     department: Mapped[str | None] = mapped_column(String(60))
     specialty: Mapped[str | None] = mapped_column(String(60))
     available: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # EMR details
+    experience_years: Mapped[int | None] = mapped_column(Integer)
+    room: Mapped[str | None] = mapped_column(String(20))
+    floor: Mapped[str | None] = mapped_column(String(20))
+    access_pin: Mapped[str | None] = mapped_column(String(40))
+    opd_fee: Mapped[float | None] = mapped_column(Float, default=500.0)
 
 
 # ------------------------------------------------------------------------------- Encounter & Clinical
@@ -361,3 +368,18 @@ class AuditLog(Base):
     ip_address: Mapped[str | None] = mapped_column(String(64))
     audit_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, default=dict)
     event_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class DoctorSchedule(Base):
+    __tablename__ = "doctor_schedule"
+
+    schedule_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    doctor_id: Mapped[str] = mapped_column(ForeignKey("staff.staff_id"))
+    day_of_week: Mapped[int] = mapped_column(Integer)  # 0 = Monday, 6 = Sunday
+    start_time: Mapped[str] = mapped_column(String(5))  # "09:00"
+    end_time: Mapped[str] = mapped_column(String(5))  # "13:00"
+    slot_duration_minutes: Mapped[int] = mapped_column(Integer, default=15)
+    department: Mapped[str | None] = mapped_column(String(60))
+    location: Mapped[str | None] = mapped_column(String(120))
+    room: Mapped[str | None] = mapped_column(String(20))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)

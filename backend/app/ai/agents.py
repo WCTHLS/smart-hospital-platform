@@ -220,19 +220,11 @@ def suggest_orders_agent(
         f"Symptom Summary: {symptom_summary}\n"
         f"Vitals: {vitals_str}\n"
         f"Medical History: {history_str}\n\n"
-        "Available Test Catalog (You can ONLY suggest tests from this exact list):\n"
-        "- CBC (indicated for infection, fever, bleeding, fatigue)\n"
-        "- CRP (indicated for acute inflammation, infection, fever)\n"
-        "- HbA1c (indicated for diabetes history, high blood sugar, polyuria)\n"
-        "- Lipid Profile (indicated for chest pain, history of cardiovascular disease, hyperlipidemia)\n"
-        "- TSH (indicated for thyroid history, fatigue, unexplained weight changes)\n"
-        "- RFT (indicated for hypertension, kidney disease history, electrolyte concerns)\n"
-        "- Chest X-ray (indicated for respiratory distress, persistent cough, chest pain, fever)\n\n"
         "Guidelines:\n"
         "1. Suggest tests ONLY if there is a clear, strong clinical justification based on the provided symptoms, vitals, or history.\n"
         "2. Do NOT suggest tests (like CBC or CRP) for minor acute infections like a simple sore throat, common cold, simple cough, or mild fever under 101.5°F unless there are red flags (e.g., respiratory distress, chest pain, heart rate > 115 bpm, SpO2 < 95%) or chronic disease history. For simple sore throats, return an empty list [].\n"
         "3. Output MUST be a JSON array of objects, where each object has:\n"
-        "   - 'test': exact name of the test from the catalog (e.g., 'CBC', 'Chest X-ray')\n"
+        "   - 'test': exact name of the diagnostic test (e.g., 'CBC', 'Chest X-ray', 'LFT', 'Urinalysis', 'Widal Test', etc.)\n"
         "   - 'reason': a brief clinical explanation (5-10 words) of why it is indicated.\n\n"
         "Do not include any markdown formatting, code block backticks, or surrounding text. Return only the raw JSON array."
     )
@@ -245,12 +237,11 @@ def suggest_orders_agent(
                     res = val
                     break
         if isinstance(res, list):
-            allowed_tests = {"CBC", "CRP", "HbA1c", "Lipid Profile", "TSH", "RFT", "Chest X-ray"}
             validated = []
             for item in res:
-                if isinstance(item, dict) and item.get("test") in allowed_tests:
+                if isinstance(item, dict) and item.get("test"):
                     validated.append({
-                        "test": item["test"],
+                        "test": str(item["test"]).strip(),
                         "reason": str(item.get("reason", "Clinically indicated.")),
                     })
             return validated

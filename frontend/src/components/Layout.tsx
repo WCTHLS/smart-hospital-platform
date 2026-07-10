@@ -18,6 +18,7 @@ const NAV = [
   { to: "/lab", label: "Lab Workspace", icon: FlaskConical, roles: ["lab"] },
   { to: "/patient", label: "My Status", icon: Smartphone, roles: ["patient"] },
   { to: "/command", label: "Command Center", icon: MonitorDot, roles: ["admin"] },
+  { to: "/admin", label: "Admin Workspace", icon: ShieldAlert, roles: ["admin"] },
 ];
 
 function AiPill() {
@@ -81,7 +82,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       journey.setRole("lab");
     } else if (path === "/triage" && activeRole !== "nurse") {
       journey.setRole("nurse");
-    } else if (path === "/command" && activeRole !== "admin") {
+    } else if ((path === "/command" || path === "/admin") && activeRole !== "admin") {
       journey.setRole("admin");
     } else if ((path === "/checkin" || path === "/patient") && activeRole !== "patient") {
       journey.setRole("patient");

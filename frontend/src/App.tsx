@@ -8,6 +8,7 @@ import Copilot from "./pages/Copilot";
 import LabPortal from "./pages/LabPortal";
 import Patient from "./pages/Patient";
 import Command from "./pages/Command";
+import AdminPortal from "./pages/AdminPortal";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/lab" element={<LabPortal />} />
             <Route path="/patient" element={<Patient />} />
             <Route path="/command" element={<Command />} />
+            <Route path="/admin" element={<AdminPortal />} />
           </Routes>
         </Layout>
       </BrowserRouter>
