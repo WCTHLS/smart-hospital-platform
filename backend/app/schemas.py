@@ -1,7 +1,7 @@
 """Pydantic request/response schemas (API boundary)."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -92,6 +92,24 @@ class TriageRequest(BaseModel):
     symptom_text: str
     duration: str | None = None
     vitals: VitalsIn | None = None
+
+
+class AppointmentSlotsRequest(BaseModel):
+    encounter_id: str
+    appointment_date: date
+    reason: str
+
+
+class BookAppointmentRequest(BaseModel):
+    encounter_id: str
+    patient_id: str
+    doctor_id: str
+    scheduled_start: datetime
+    scheduled_end: datetime
+    reason: str
+    specialty: str
+    appointment_type: str = "OPD"
+    channel: str = "KIOSK"
 
 
 class IntakeRequest(BaseModel):

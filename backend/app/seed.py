@@ -18,6 +18,25 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _ensure_doctor_schedules(db) -> None:
+    if db.scalar(select(models.DoctorSchedule).limit(1)):
+        return
+    doctors = db.scalars(select(models.Staff).where(models.Staff.role == "DOCTOR")).all()
+    for index, doctor in enumerate(doctors):
+        for day in range(0, 6):
+            db.add(models.DoctorSchedule(
+                doctor_id=doctor.staff_id,
+                day_of_week=day,
+                start_time="09:00",
+                end_time="13:00",
+                slot_duration_minutes=15,
+                department=doctor.department,
+                location="OPD Block",
+                room=f"Room {index + 1}",
+                active=True,
+            ))
+
+
 def seed() -> None:
     if "--force" in sys.argv:
         from app.core.database import engine, Base
@@ -28,6 +47,8 @@ def seed() -> None:
     db = SessionLocal()
     try:
         if db.scalar(select(models.Patient).limit(1)) and "--force" not in sys.argv:
+            _ensure_doctor_schedules(db)
+            db.commit()
             print("Database already seeded. Use --force on a fresh DB to reseed.")
             return
 
