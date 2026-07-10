@@ -46,6 +46,8 @@ export const api = {
   verifyIdentity: (method: string, value: string) =>
     post<any>("/api/v1/identity/verify", { method, value }),
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),
+  appointmentSlots: (body: any) => post<any>("/api/v1/appointments/slots", body),
+  bookAppointment: (body: any) => post<any>("/api/v1/appointments/book", body),
   patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
   doctors: () => get<any[]>("/api/v1/doctors"),
   doctorEncounters: (doctor_id: string) => get<any[]>(`/api/v1/doctors/${doctor_id}/encounters`),

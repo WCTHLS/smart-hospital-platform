@@ -100,6 +100,21 @@ class Staff(Base):
     available: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class DoctorSchedule(Base):
+    __tablename__ = "doctor_schedule"
+
+    schedule_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    doctor_id: Mapped[str] = mapped_column(ForeignKey("staff.staff_id"))
+    day_of_week: Mapped[int] = mapped_column(Integer)  # 0 = Monday, 6 = Sunday
+    start_time: Mapped[str] = mapped_column(String(5))  # "09:00"
+    end_time: Mapped[str] = mapped_column(String(5))  # "13:00"
+    slot_duration_minutes: Mapped[int] = mapped_column(Integer, default=15)
+    department: Mapped[str | None] = mapped_column(String(60))
+    location: Mapped[str | None] = mapped_column(String(120))
+    room: Mapped[str | None] = mapped_column(String(20))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
 # ------------------------------------------------------------------------------- Encounter & Clinical
 class Encounter(Base):
     __tablename__ = "encounter"
@@ -117,6 +132,27 @@ class Encounter(Base):
     disposition: Mapped[str | None] = mapped_column(String(40))
 
     patient: Mapped["Patient"] = relationship(back_populates="encounters")
+
+
+class Appointment(Base):
+    __tablename__ = "appointment"
+
+    appointment_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    doctor_id: Mapped[str | None] = mapped_column(ForeignKey("staff.staff_id"))
+    department: Mapped[str | None] = mapped_column(String(60))
+    specialty: Mapped[str | None] = mapped_column(String(60))
+    reason: Mapped[str | None] = mapped_column(Text)
+    appointment_type: Mapped[str] = mapped_column(String(20), default="OPD")
+    scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    scheduled_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(24), default="BOOKED")
+    channel: Mapped[str | None] = mapped_column(String(20))
+    encounter_id: Mapped[str | None] = mapped_column(ForeignKey("encounter.encounter_id"))
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
 
 
 class Vitals(Base):

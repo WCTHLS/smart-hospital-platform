@@ -18,6 +18,16 @@ import { DeviceBar, Field, SectionTitle } from "../components/ui";
 
 type Msg = { who: "bot" | "me"; text: string };
 type Profile = { patient_id: string; first_name: string; last_name?: string; dob?: string };
+type AppointmentSlot = {
+  doctor_id: string;
+  doctor_name: string;
+  department?: string;
+  specialty: string;
+  location?: string;
+  room?: string;
+  scheduled_start: string;
+  scheduled_end: string;
+};
 type Step =
   | "mobile"
   | "otp"
@@ -29,6 +39,8 @@ type Step =
   | "register-extended"
   | "register-verify"
   | "register-reason"
+  | "appointment-date"
+  | "appointment-slot"
   | "done";
 
 type AllergyDraft = {
@@ -62,6 +74,14 @@ function errorText(e: unknown) {
   return e instanceof ApiError ? String(e.message) : "Something went wrong";
 }
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function timeLabel(value: string) {
+  return value.slice(11, 16);
+}
+
 export default function CheckIn() {
   const nav = useNavigate();
   const setJourney = useJourney((s) => s.set);
@@ -73,7 +93,12 @@ export default function CheckIn() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selected, setSelected] = useState<Profile | null>(null);
   const [patient, setPatient] = useState<any>(null);
+  const [encounterId, setEncounterId] = useState("");
   const [reason, setReason] = useState("Fever and cough for 3 days");
+  const [appointmentDate, setAppointmentDate] = useState(todayIso());
+  const [appointmentSpecialty, setAppointmentSpecialty] = useState("");
+  const [appointmentSlots, setAppointmentSlots] = useState<AppointmentSlot[]>([]);
+  const [appointment, setAppointment] = useState<any>(null);
   const [basic, setBasic] = useState({ first_name: "", last_name: "", dob: "" });
   const [extended, setExtended] = useState({
     email: "",
@@ -98,6 +123,8 @@ export default function CheckIn() {
       "register-extended",
       "register-verify",
       "register-reason",
+      "appointment-date",
+      "appointment-slot",
       "done",
     ];
     return Math.max(12, Math.round(((order.indexOf(step) + 1) / order.length) * 100));
@@ -203,11 +230,58 @@ export default function CheckIn() {
     try {
       const res = await api.checkin({ patient_id: patientId, mobile, channel: "KIOSK", reason });
       setPatient(res.patient);
+      setEncounterId(res.encounter_id);
       setJourney({
         patientId: res.patient.patient_id,
         patientName: res.patient.name,
         encounterId: res.encounter_id,
       });
+      setStep("appointment-date");
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function fetchAppointmentSlots() {
+    if (!encounterId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.appointmentSlots({
+        encounter_id: encounterId,
+        appointment_date: appointmentDate,
+        reason,
+      });
+      setAppointmentSpecialty(res.specialty);
+      setAppointmentSlots(res.slots ?? []);
+      setStep("appointment-slot");
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bookAppointment(slot: AppointmentSlot) {
+    const patientId = selected?.patient_id ?? patient?.patient_id;
+    if (!patientId || !encounterId) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.bookAppointment({
+        encounter_id: encounterId,
+        patient_id: patientId,
+        doctor_id: slot.doctor_id,
+        scheduled_start: slot.scheduled_start,
+        scheduled_end: slot.scheduled_end,
+        reason,
+        specialty: slot.specialty,
+        appointment_type: "OPD",
+        channel: "KIOSK",
+      });
+      setAppointment(res.appointment);
       setStep("done");
     } catch (e) {
       setError(errorText(e));
@@ -416,9 +490,61 @@ export default function CheckIn() {
             <div className="space-y-4">
               <StepHeader icon={<CheckCircle2 size={20} />} title="Check-in complete" />
               <div className="kv"><span>Patient</span><b>{patient?.name}</b></div>
-              <div className="kv"><span>Status</span><b style={{ color: "var(--mint)" }}>Ready for triage</b></div>
+              <div className="kv"><span>Status</span><b style={{ color: "var(--mint)" }}>Appointment booked</b></div>
+              {appointment && (
+                <div className="holo">
+                  <b>{appointment.doctor?.name}</b>
+                  <span className="mt-1 block text-[12px]" style={{ color: "var(--muted)" }}>
+                    {appointment.specialty} · {timeLabel(appointment.scheduled_start)} on {appointment.scheduled_start.slice(0, 10)}
+                  </span>
+                </div>
+              )}
               <button className="btn w-full" onClick={() => nav("/triage", { state: { symptom: reason } })}>
                 Proceed to triage
+              </button>
+            </div>
+          )}
+
+          {step === "appointment-date" && (
+            <div className="space-y-4">
+              <StepHeader icon={<ClipboardPlus size={20} />} title="Book appointment" />
+              <div className="holo">
+                The visit reason will be mapped to the right specialty before showing doctors.
+              </div>
+              <Field label="Appointment date">
+                <input className="input" type="date" min={todayIso()} value={appointmentDate} onChange={(e) => setAppointmentDate(e.target.value)} />
+              </Field>
+              <button className="btn g" disabled={busy || !appointmentDate} onClick={fetchAppointmentSlots}>
+                Show available doctors <CheckCircle2 size={16} />
+              </button>
+            </div>
+          )}
+
+          {step === "appointment-slot" && (
+            <div className="space-y-4">
+              <StepHeader icon={<UserRound size={20} />} title="Select doctor and time" />
+              <div className="kv"><span>Mapped specialty</span><b>{appointmentSpecialty}</b></div>
+              {!appointmentSlots.length && (
+                <div className="holo">No available slots for this specialty on the selected date.</div>
+              )}
+              <div className="grid gap-3 md:grid-cols-2">
+                {appointmentSlots.map((slot) => (
+                  <button
+                    key={`${slot.doctor_id}-${slot.scheduled_start}`}
+                    className="holo text-left"
+                    disabled={busy}
+                    onClick={() => bookAppointment(slot)}
+                  >
+                    <b>{slot.doctor_name}</b>
+                    <span className="mt-1 block text-[12px]" style={{ color: "var(--muted)" }}>
+                      {timeLabel(slot.scheduled_start)} - {timeLabel(slot.scheduled_end)}
+                      {slot.room ? ` · ${slot.room}` : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <button className="btn ghost" disabled={busy} onClick={() => setStep("appointment-date")}>
+                Change date
               </button>
             </div>
           )}
@@ -430,7 +556,7 @@ export default function CheckIn() {
               ["1", "Mobile OTP", "No patient details are shown before verification."],
               ["2", "Profile choice", "Only first name, last name, and DOB are listed."],
               ["3", "Consent", "Existing records are accessed only after consent."],
-              ["4", "Reason", "Current issue is captured before check-in closes."],
+              ["4", "Appointment", "Reason maps to specialty before triage."],
             ].map(([n, title, copy]) => (
               <div key={n} className="flex gap-3">
                 <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-bold" style={{ background: "var(--panel2)", border: "1px solid var(--line2)" }}>{n}</span>
