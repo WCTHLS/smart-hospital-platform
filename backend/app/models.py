@@ -123,6 +123,7 @@ class Encounter(Base):
     start_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     end_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     disposition: Mapped[str | None] = mapped_column(String(40))
+    notes: Mapped[str | None] = mapped_column(Text)
 
     patient: Mapped["Patient"] = relationship(back_populates="encounters")
 

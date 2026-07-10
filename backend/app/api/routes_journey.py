@@ -397,6 +397,7 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     return {
         "encounter_id": e.encounter_id, "status": e.status, "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
+        "notes": e.notes,
         "patient": _patient_brief(p),
         "triage": None if not triage else {
             "chief_complaint": triage.chief_complaint, "acuity": triage.acuity_level,

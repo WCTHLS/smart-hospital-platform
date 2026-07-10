@@ -20,10 +20,17 @@ const TABS = [
 export default function Copilot() {
   const nav = useNavigate();
   const journey = useJourney();
+  const qc = useQueryClient();
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("p360");
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(() => {
     return localStorage.getItem("selected_doctor_id") || "";
   });
+  const [unlockedDoctorId, setUnlockedDoctorId] = useState<string>(() => {
+    return sessionStorage.getItem("unlocked_doctor_id") || "";
+  });
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [verifyingPin, setVerifyingPin] = useState(false);
   const [queueTab, setQueueTab] = useState<"first" | "reconsult">("first");
 
   const [sel, setSel] = useState<string[]>([]);
@@ -56,12 +63,77 @@ export default function Copilot() {
     refetchInterval: 5000,
   });
 
-  const [pin, setPin] = useState("");
-  const [unlockedDoctorId, setUnlockedDoctorId] = useState<string>(() => {
-    return sessionStorage.getItem("unlocked_doctor_id") || "";
+  const [docAvailable, setDocAvailable] = useState<boolean>(true);
+
+  // Sync state when doctors or active doctor selection changes
+  const activeDoc = doctors?.find((d: any) => d.doctor_id === selectedDoctorId);
+  const isUnlocked = selectedDoctorId && selectedDoctorId === unlockedDoctorId;
+
+  // Initialize doctor availability local state
+  useQuery({
+    queryKey: ["active-doc-status", selectedDoctorId],
+    queryFn: async () => {
+      if (!selectedDoctorId) return null;
+      const doc = doctors?.find((d: any) => d.doctor_id === selectedDoctorId);
+      if (doc) {
+        setDocAvailable(doc.available);
+      }
+      return doc;
+    },
+    enabled: !!doctors && !!selectedDoctorId,
   });
-  const [pinError, setPinError] = useState("");
-  const [verifyingPin, setVerifyingPin] = useState(false);
+
+  const handleToggleAvailability = async () => {
+    if (!selectedDoctorId) return;
+    const nextVal = !docAvailable;
+    setDocAvailable(nextVal);
+    try {
+      await api.updateDoctorAvailability(selectedDoctorId, nextVal);
+      qc.invalidateQueries({ queryKey: ["doctors"] });
+    } catch (err) {
+      console.error(err);
+      setDocAvailable(!nextVal); // Revert on failure
+    }
+  };
+
+  const renderSessionToolbar = () => {
+    if (!activeDoc || !isUnlocked) return null;
+    return (
+      <Card className="flex flex-col md:flex-row md:items-center justify-between gap-3 !py-2.5 !px-4 relative overflow-hidden animate-in fade-in duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.04), transparent)" }}>
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-full bg-[var(--cyan)]/10 border border-[var(--cyan)]/25 flex items-center justify-center text-[var(--cyan)] font-extrabold text-[12px]">
+            {activeDoc.name.split(" ").slice(-1)[0][0]}
+          </div>
+          <div>
+            <span className="text-[13px] font-extrabold text-slate-100">{activeDoc.name}</span>
+            <span className="text-[11px] text-[var(--muted)] ml-2">{activeDoc.specialty} · {activeDoc.room} ({activeDoc.floor})</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {/* Availability Status Switch */}
+          <button
+            type="button"
+            onClick={handleToggleAvailability}
+            className={`btn text-[11px] !py-1 !px-2.5 font-bold inline-flex items-center gap-1.5 transition ${
+              docAvailable
+                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/20"
+                : "bg-red-500/10 text-red-400 border border-red-500/25 hover:bg-red-500/20"
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${docAvailable ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
+            {docAvailable ? "ONLINE / ACTIVE" : "OFF DUTY / AWAY"}
+          </button>
+
+          <button
+            onClick={handleLogoutDoctor}
+            className="btn ghost text-[11px] !py-1 !px-2.5 font-bold text-red-400 hover:text-red-300 inline-flex items-center gap-1"
+          >
+            🔒 Lock Session
+          </button>
+        </div>
+      </Card>
+    );
+  };
 
   const handleSelectDoctor = (id: string) => {
     setSelectedDoctorId(id);
@@ -117,43 +189,38 @@ export default function Copilot() {
     
     return (
       <div className="space-y-6">
-        {/* Header Profile Selection */}
-        <Card className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h2 className="grad-text text-xl font-extrabold flex items-center gap-2">
-              <Stethoscope size={22} className="text-[var(--cyan)]" /> Doctor Portal Login
-            </h2>
-            <p className="text-[13px] mt-1" style={{ color: "var(--muted)" }}>
-              Select your clinical profile to view your active patient queue and consultation schedules.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <User size={15} color="var(--dim)" />
-              <select
-                value={selectedDoctorId}
-                onChange={(e) => handleSelectDoctor(e.target.value)}
-                className="input !py-1.5 !px-3 !w-auto text-[13.5px] font-bold"
-                style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
-              >
-                <option value="">-- Choose Doctor Profile --</option>
-                {doctors?.map((doc: any) => (
-                  <option key={doc.doctor_id} value={doc.doctor_id}>
-                    {doc.name} ({doc.specialty})
-                  </option>
-                ))}
-              </select>
+        {!isUnlocked ? (
+          <Card className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <h2 className="grad-text text-xl font-extrabold flex items-center gap-2">
+                <Stethoscope size={22} className="text-[var(--cyan)]" /> Doctor Portal Login
+              </h2>
+              <p className="text-[13px] mt-1" style={{ color: "var(--muted)" }}>
+                Select your clinical profile to view your active patient queue and consultation schedules.
+              </p>
             </div>
-            {selectedDoctorId && selectedDoctorId === unlockedDoctorId && (
-              <button 
-                onClick={handleLogoutDoctor} 
-                className="btn ghost !py-1.5 !px-2.5 text-xs text-red-400 hover:text-red-300 font-bold"
-              >
-                🔒 Lock
-              </button>
-            )}
-          </div>
-        </Card>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <User size={15} color="var(--dim)" />
+                <select
+                  value={selectedDoctorId}
+                  onChange={(e) => handleSelectDoctor(e.target.value)}
+                  className="input !py-1.5 !px-3 !w-auto text-[13.5px] font-bold"
+                  style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+                >
+                  <option value="">-- Choose Doctor Profile --</option>
+                  {doctors?.map((doc: any) => (
+                    <option key={doc.doctor_id} value={doc.doctor_id}>
+                      {doc.name} ({doc.specialty})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </Card>
+        ) : (
+          renderSessionToolbar()
+        )}
 
         {/* PIN Login Form if locked */}
         {selectedDoctorId && selectedDoctorId !== unlockedDoctorId && (
@@ -345,6 +412,7 @@ export default function Copilot() {
 
   return (
     <div className="space-y-4">
+      {renderSessionToolbar()}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="grad-text text-2xl font-extrabold">{journey.patientName}</h1>
@@ -406,7 +474,7 @@ export default function Copilot() {
           </div>
 
           <div className={tab === "p360" ? "" : "hidden"} key={`360-${journey.patientId}`}>
-            <Patient360 patientId={journey.patientId} />
+            <Patient360 patientId={journey.patientId} encounterId={journey.encounterId} />
           </div>
           <div className={tab === "soap" ? "" : "hidden"} key={`soap-${journey.encounterId}`}>
             <Ambient encounterId={journey.encounterId} />
@@ -727,13 +795,45 @@ function HistoricalVisitDropdown({ encounter }: { encounter: any }) {
 }
 
 /* ------------------------------------------------------------------ Patient 360 */
-function Patient360({ patientId }: { patientId: string }) {
+function Patient360({ patientId, encounterId }: { patientId: string; encounterId: string | null }) {
   const qc = useQueryClient();
+  const [adviceNotes, setAdviceNotes] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [notesSuccess, setNotesSuccess] = useState(false);
+
   const { data, error, isLoading } = useQuery({
     queryKey: ["p360", patientId], queryFn: () => api.patient360(patientId), retry: false,
     staleTime: 300000,
     refetchOnWindowFocus: false,
   });
+
+  useQuery({
+    queryKey: ["active-encounter", encounterId],
+    queryFn: async () => {
+      if (!encounterId) return null;
+      const res = await api.encounter(encounterId);
+      if (res && res.notes) {
+        setAdviceNotes(res.notes);
+      }
+      return res;
+    },
+    enabled: !!encounterId,
+  });
+
+  const handleSaveNotes = async () => {
+    if (!encounterId) return;
+    setSavingNotes(true);
+    setNotesSuccess(false);
+    try {
+      await api.updateEncounterNotes(encounterId, adviceNotes);
+      setNotesSuccess(true);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save consultation notes.");
+    } finally {
+      setSavingNotes(false);
+    }
+  };
 
   if (isLoading) return <Card>Loading record…</Card>;
   if (error) {
@@ -749,6 +849,72 @@ function Patient360({ patientId }: { patientId: string }) {
   const flag = (f: string) => (f === "N" ? "green" : f === "H" || f === "L" ? "amber" : "red");
   return (
     <div className="space-y-4">
+      {/* Today's Consultation Notes & Advice */}
+      {encounterId && (
+        <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(139,92,246,0.06), transparent)" }}>
+          <div className="flex items-center justify-between">
+            <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#dce9ff" }}>
+              <FileText size={16} className="text-violet-400" /> Active Consultation Notes &amp; Advice
+            </h4>
+            {notesSuccess && (
+              <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
+                <CheckCircle2 size={12} /> Saved successfully
+              </span>
+            )}
+          </div>
+          <div className="space-y-2 text-xs">
+            {/* Quick Macro Chips */}
+            <div className="flex flex-wrap gap-1.5 pb-1.5 border-b border-white/5">
+              <span className="text-[10px] text-[var(--muted)] font-bold self-center mr-1">QUICK TEMPLATES:</span>
+              {[
+                { label: "🌡 Fever Care", text: "Fever Care:\n- Take Tab Paracetamol 650mg if temperature > 100°F (max 4 times/day).\n- Drink plenty of water and warm fluids.\n- Rest well; consume light, easy-to-digest meals." },
+                { label: "🤢 Acidity / GERD", text: "Acidity & GERD Care:\n- Take Antacid / Pantoprazole 40mg 30 minutes before breakfast.\n- Avoid spicy, oily, fatty, and caffeinated items.\n- Avoid lying down for 2 hours post-meals." },
+                { label: "🤕 Pain Relief", text: "Pain Management:\n- Rest the affected area; avoid strain.\n- Apply warm compress or cold pack as needed.\n- Take pain relievers strictly post-meals." },
+                { label: "🩺 Hypertension", text: "Hypertension / BP Advice:\n- Restrict daily dietary sodium/salt intake.\n- Avoid processed foods, pickles, and salty snacks.\n- Monitor Blood Pressure twice daily and record logs." }
+              ].map((macro, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setAdviceNotes((prev) => {
+                      const prefix = prev ? prev.trim() + "\n\n" : "";
+                      return prefix + macro.text;
+                    });
+                    setNotesSuccess(false);
+                  }}
+                  className="btn ghost !py-0.5 !px-2 text-[10px] border border-white/5 bg-white/[0.02] hover:bg-white/10 text-slate-300 hover:text-white"
+                >
+                  {macro.label}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              className="input w-full"
+              rows={3}
+              value={adviceNotes}
+              onChange={(e) => {
+                setAdviceNotes(e.target.value);
+                setNotesSuccess(false);
+              }}
+              placeholder="Enter active clinical findings, general advice, lifestyle instructions, or diagnosis summary for today's encounter..."
+              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+            />
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleSaveNotes}
+                disabled={savingNotes}
+                className="btn !py-1 !px-4 text-xs font-bold"
+                style={{ background: "linear-gradient(135deg, #8b5cf6, #6d28d9)", color: "white", border: "none" }}
+              >
+                {savingNotes ? "Saving..." : "Save Consultation Notes"}
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Latest Vitals Card at the Top */}
       <Card>
         <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Latest vitals</h4>

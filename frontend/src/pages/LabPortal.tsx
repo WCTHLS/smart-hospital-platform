@@ -38,6 +38,7 @@ export default function LabPortal() {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
+  const [deptFilter, setDeptFilter] = useState<"ALL" | "PATHOLOGY" | "RADIOLOGY" | "CARDIOLOGY">("ALL");
   
   // File Upload states
   const [file, setFile] = useState<File | null>(null);
@@ -139,8 +140,17 @@ export default function LabPortal() {
     }
   };
 
-  const pending = orders?.filter((o: any) => o.status === "CREATED") || [];
-  const completed = orders?.filter((o: any) => o.status === "RESULTED") || [];
+  const pending = orders?.filter((o: any) => {
+    const isPending = o.status === "CREATED";
+    const category = o.category || "PATHOLOGY";
+    return isPending && (deptFilter === "ALL" || category === deptFilter);
+  }) || [];
+
+  const completed = orders?.filter((o: any) => {
+    const isCompleted = o.status === "RESULTED";
+    const category = o.category || "PATHOLOGY";
+    return isCompleted && (deptFilter === "ALL" || category === deptFilter);
+  }) || [];
 
   return (
     <div className="space-y-6">
@@ -156,6 +166,31 @@ export default function LabPortal() {
         </div>
         <span className="live">LIVE REFRESH</span>
       </Card>
+
+      {/* Department Filter Bar */}
+      <div className="flex flex-wrap gap-2 p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit">
+        {[
+          { id: "ALL", label: "🏢 All Departments" },
+          { id: "PATHOLOGY", label: "🧪 Pathology (Blood/Urine)" },
+          { id: "RADIOLOGY", label: "🩻 Radiology (X-Ray/Imaging)" },
+          { id: "CARDIOLOGY", label: "❤️ Cardiology (ECG)" },
+        ].map((d) => (
+          <button
+            key={d.id}
+            onClick={() => {
+              setDeptFilter(d.id as any);
+              setSelectedOrder(null); // Clear selected if switching departments
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+              deptFilter === d.id
+                ? "bg-white/10 text-white"
+                : "text-[var(--muted)] hover:text-white"
+            }`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
         {/* Left Column: Queues */}

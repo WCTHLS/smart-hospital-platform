@@ -152,3 +152,11 @@ class DoctorScheduleRequest(BaseModel):
     start_time: str
     end_time: str
     slot_duration_minutes: int = 15
+
+
+class EncounterNotesAdviceRequest(BaseModel):
+    notes: str
+
+
+class DoctorAvailabilityRequest(BaseModel):
+    available: bool

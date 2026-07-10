@@ -26,6 +26,8 @@ from app.schemas import (
     LabOrderRequest,
     PrescriptionCreateRequest,
     LabResultSubmitRequest,
+    EncounterNotesAdviceRequest,
+    DoctorAvailabilityRequest,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["clinical"])
@@ -176,6 +178,15 @@ def publish_result(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
     return {"lab_order_id": lab_order_id, "test": order.test_name, **ai}
 
 
+def _lab_category(test_name: str | None) -> str:
+    name = (test_name or "").lower().strip()
+    if any(k in name for k in ["x-ray", "xray", "scan", "mri", "ultrasound", "usg", "imaging", "ct"]):
+        return "RADIOLOGY"
+    if any(k in name for k in ["ecg", "ekg", "eeg", "echo", "tmt"]):
+        return "CARDIOLOGY"
+    return "PATHOLOGY"
+
+
 @router.get("/lab-orders")
 def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
     # Select lab orders sorted by time
@@ -198,6 +209,7 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
             "notes": order.notes,
             "attachment_name": order.attachment_name,
             "attachment_uri": order.attachment_uri,
+            "category": _lab_category(order.test_name),
         })
     return out
 
@@ -291,6 +303,7 @@ def encounter_lab(encounter_id: str, db: Session = Depends(get_db)) -> dict:
             "notes": o.notes,
             "attachment_name": o.attachment_name,
             "attachment_uri": o.attachment_uri,
+            "category": _lab_category(o.test_name),
             "results": [{"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag,
                          "reference_low": r.reference_low, "reference_high": r.reference_high} for r in results],
         })
@@ -491,3 +504,31 @@ def pharmacy_stock(drug: str | None = None, db: Session = Depends(get_db)) -> li
              "available": s.quantity_available - s.quantity_reserved, "unit_price": s.unit_price,
              "formulary": s.formulary, "expiry": s.expiry_date.isoformat() if s.expiry_date else None}
             for s in rows]
+
+
+@router.post("/encounters/{encounter_id}/notes-advice")
+def update_encounter_notes_advice(
+    encounter_id: str,
+    body: EncounterNotesAdviceRequest,
+    db: Session = Depends(get_db)
+) -> dict:
+    e = db.get(models.Encounter, encounter_id)
+    if not e:
+        raise HTTPException(404, "Encounter not found")
+    e.notes = body.notes
+    db.commit()
+    return {"status": "success", "notes": e.notes}
+
+
+@router.put("/doctors/{doctor_id}/availability")
+def update_doctor_availability(
+    doctor_id: str,
+    body: DoctorAvailabilityRequest,
+    db: Session = Depends(get_db)
+) -> dict:
+    doc = db.get(models.Staff, doctor_id)
+    if not doc or doc.role != "DOCTOR":
+        raise HTTPException(404, "Doctor not found")
+    doc.available = body.available
+    db.commit()
+    return {"status": "success", "available": doc.available}
