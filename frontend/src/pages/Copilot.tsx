@@ -974,6 +974,28 @@ function Labs({ encounterId, sel, setSel, toggle }: LabsProps) {
                 </tbody>
               </table>
             )}
+
+            {o.status === "RESULTED" && (o.notes || o.attachment_uri) && (
+              <div className="mt-2.5 pt-2 border-t border-white/5 space-y-1.5 text-[12.5px] bg-white/[0.01] p-2.5 rounded-xl">
+                {o.notes && (
+                  <div style={{ color: "var(--muted)" }}>
+                    <b>Lab Findings:</b> <span className="text-slate-200">{o.notes}</span>
+                  </div>
+                )}
+                {o.attachment_uri && (
+                  <div>
+                    <a
+                      href={`${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-[var(--cyan)] hover:underline inline-flex items-center gap-1 font-semibold"
+                    >
+                      📄 View Uploaded Diagnostic Scan
+                    </a>
+                  </div>
+                )}
+              </div>
+            )}
           </Card>
         ))}
       </div>

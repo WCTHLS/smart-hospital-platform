@@ -113,6 +113,9 @@ class LabResultSubmitItem(BaseModel):
 
 class LabResultSubmitRequest(BaseModel):
     results: list[LabResultSubmitItem]
+    notes: str | None = None
+    attachment_name: str | None = None
+    attachment_uri: str | None = None
 
 
 # --------------------------------------------------------------------------------- Admin & Auth

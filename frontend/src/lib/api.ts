@@ -59,8 +59,8 @@ export const api = {
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
   labOrders: () => get<any>("/api/v1/lab-orders"),
-  submitLabResults: (lab_order_id: string, results: any[]) =>
-    post<any>(`/api/v1/lab-orders/${lab_order_id}/submit-results`, { results }),
+  submitLabResults: (lab_order_id: string, body: any) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/submit-results`, body),
   createRx: (body: any) => post<any>("/api/v1/prescriptions", body),
   approveRx: (rx_id: string, body: any) => post<any>(`/api/v1/prescriptions/${rx_id}/approve`, body),
   stock: (drug?: string) => get<any>(`/api/v1/pharmacy/stock${drug ? `?drug=${encodeURIComponent(drug)}` : ""}`),
