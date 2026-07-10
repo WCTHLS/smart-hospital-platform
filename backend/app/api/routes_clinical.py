@@ -8,9 +8,11 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+import os
+import shutil
 
 from app import models, services
 from app.ai import agents
@@ -192,7 +194,10 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
             "qr_code": order.qr_code,
             "ordered_ts": order.ordered_ts.isoformat() if order.ordered_ts else None,
             "patient_name": f"{fn} {ln}",
-            "encounter_id": order.encounter_id
+            "encounter_id": order.encounter_id,
+            "notes": order.notes,
+            "attachment_name": order.attachment_name,
+            "attachment_uri": order.attachment_uri,
         })
     return out
 
@@ -224,6 +229,12 @@ def submit_results(lab_order_id: str, body: LabResultSubmitRequest, db: Session 
                                 "reference_low": low, "reference_high": high})
                                 
     order.status = "RESULTED"
+    if body.notes is not None:
+        order.notes = body.notes
+    if body.attachment_name is not None:
+        order.attachment_name = body.attachment_name
+    if body.attachment_uri is not None:
+        order.attachment_uri = body.attachment_uri
     
     ai = agents.lab_intelligence_agent(results_payload)
     db.flush()
@@ -244,6 +255,30 @@ def submit_results(lab_order_id: str, body: LabResultSubmitRequest, db: Session 
     return {"lab_order_id": lab_order_id, "test": order.test_name, **ai}
 
 
+@router.post("/lab-orders/{lab_order_id}/upload")
+def upload_lab_attachment(
+    lab_order_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+) -> dict:
+    order = db.get(models.LabOrder, lab_order_id)
+    if not order:
+        raise HTTPException(404, "Lab order not found")
+        
+    upload_dir = "uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    file_ext = os.path.splitext(file.filename or "")[1]
+    safe_filename = f"lab_{lab_order_id}{file_ext}"
+    file_path = os.path.join(upload_dir, safe_filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    attachment_uri = f"/uploads/{safe_filename}"
+    return {"filename": file.filename, "uri": attachment_uri}
+
+
 @router.get("/encounters/{encounter_id}/lab")
 def encounter_lab(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     encounter = _encounter(db, encounter_id)
@@ -253,6 +288,9 @@ def encounter_lab(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == o.lab_order_id)).all()
         out.append({
             "lab_order_id": o.lab_order_id, "test": o.test_name, "status": o.status, "qr_code": o.qr_code,
+            "notes": o.notes,
+            "attachment_name": o.attachment_name,
+            "attachment_uri": o.attachment_uri,
             "results": [{"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag,
                          "reference_low": r.reference_low, "reference_high": r.reference_high} for r in results],
         })

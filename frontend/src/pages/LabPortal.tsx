@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Clipboard, FileCheck2, User, Clock, CheckCircle2 } from "lucide-react";
 import { api } from "../lib/api";
-import { Card, Tag, AgentBadge, Empty } from "../components/ui";
+import { Card, Tag, Empty } from "../components/ui";
 
 const ANALYTE_MAP: Record<string, { name: string; unit: string; defaultVal: number }[]> = {
   "CBC": [
@@ -37,6 +37,14 @@ export default function LabPortal() {
   const qc = useQueryClient();
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState("");
+  
+  // File Upload states
+  const [file, setFile] = useState<File | null>(null);
+  const [attachmentName, setAttachmentName] = useState("");
+  const [attachmentUri, setAttachmentUri] = useState("");
+  const [uploading, setUploading] = useState(false);
+
   const [busy, setBusy] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -49,6 +57,10 @@ export default function LabPortal() {
   const handleSelectOrder = (order: any) => {
     setSelectedOrder(order);
     setSuccessMsg(null);
+    setNotes("");
+    setFile(null);
+    setAttachmentName("");
+    setAttachmentUri("");
     const analytes = ANALYTE_MAP[order.test_name] || [];
     const initialInputs: Record<string, string> = {};
     analytes.forEach((a) => {
@@ -59,6 +71,37 @@ export default function LabPortal() {
 
   const handleInputChange = (analyte: string, value: string) => {
     setInputs((prev) => ({ ...prev, [analyte]: value }));
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (!selectedFile || !selectedOrder) return;
+    
+    setFile(selectedFile);
+    setAttachmentName(selectedFile.name);
+    setUploading(true);
+    
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+    
+    try {
+      const BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+      const res = await fetch(`${BASE}/api/v1/lab-orders/${selectedOrder.lab_order_id}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      setAttachmentUri(data.uri);
+    } catch (err) {
+      console.error(err);
+      alert("File upload failed. Please try again.");
+      setFile(null);
+      setAttachmentName("");
+      setAttachmentUri("");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -73,10 +116,20 @@ export default function LabPortal() {
     }));
 
     try {
-      await api.submitLabResults(selectedOrder.lab_order_id, payload);
+      await api.submitLabResults(selectedOrder.lab_order_id, {
+        results: payload,
+        notes: notes || null,
+        attachment_name: attachmentName || null,
+        attachment_uri: attachmentUri || null,
+      });
+      
       setSuccessMsg(`Results successfully submitted for ${selectedOrder.patient_name}'s ${selectedOrder.test_name}!`);
       setSelectedOrder(null);
       setInputs({});
+      setNotes("");
+      setFile(null);
+      setAttachmentName("");
+      setAttachmentUri("");
       refetch();
       qc.invalidateQueries({ queryKey: ["lab"] });
     } catch (err: any) {
@@ -104,7 +157,7 @@ export default function LabPortal() {
         <span className="live">LIVE REFRESH</span>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
+      <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
         {/* Left Column: Queues */}
         <div className="space-y-4">
           <Card>
@@ -160,6 +213,16 @@ export default function LabPortal() {
                       <div className="text-[11px] text-[var(--muted)]">
                         {o.test_name} · {o.qr_code}
                       </div>
+                      {o.attachment_uri && (
+                        <a
+                          href={`${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-[var(--cyan)] hover:underline inline-flex items-center gap-0.5 mt-1"
+                        >
+                          📄 View Uploaded Report
+                        </a>
+                      )}
                     </div>
                     <Tag tone="green">COMPLETED</Tag>
                   </div>
@@ -220,10 +283,46 @@ export default function LabPortal() {
                       No numerical inputs required for this order. Click submit to finalize results.
                     </div>
                   )}
+
+                  {/* Clinical Notes Field */}
+                  <div className="space-y-1 pt-2 border-t border-white/5">
+                    <label className="block font-bold text-slate-300">Clinical Findings / Notes</label>
+                    <textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="e.g. Lung fields appear clear, no active consolidation seen."
+                      className="input text-xs"
+                      rows={3}
+                      style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}
+                    />
+                  </div>
+
+                  {/* File Upload Selector */}
+                  <div className="space-y-1.5 pt-2">
+                    <label className="block font-bold text-slate-300">Upload Diagnostic Scan Attachment</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="file"
+                        id="lab-upload"
+                        onChange={handleFileChange}
+                        className="hidden"
+                        accept="image/*,application/pdf"
+                      />
+                      <label
+                        htmlFor="lab-upload"
+                        className="btn ghost !py-1 !px-3 text-xs inline-flex items-center gap-1.5 cursor-pointer hover:bg-white/10"
+                      >
+                        Choose File
+                      </label>
+                      <span className="text-[11px] text-[var(--muted)] overflow-hidden text-ellipsis whitespace-nowrap max-w-[220px]">
+                        {uploading ? "Uploading file..." : attachmentName || "No file uploaded"}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                <button type="submit" disabled={busy} className="btn w-full mt-4">
-                  {busy ? "Submitting..." : "Submit & Publish Results"}
+                <button type="submit" disabled={busy || uploading} className="btn w-full mt-4">
+                  {busy ? "Submitting..." : uploading ? "Waiting for upload..." : "Submit & Publish Results"}
                 </button>
               </form>
             ) : (

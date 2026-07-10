@@ -205,6 +205,11 @@ class LabOrder(Base):
     qr_code: Mapped[str | None] = mapped_column(String(64), unique=True)
     price: Mapped[float | None] = mapped_column(Float)
     ordered_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    
+    # Lab findings & attachments
+    notes: Mapped[str | None] = mapped_column(Text)
+    attachment_name: Mapped[str | None] = mapped_column(String(160))
+    attachment_uri: Mapped[str | None] = mapped_column(String(300))
 
 
 class LabResult(Base):
