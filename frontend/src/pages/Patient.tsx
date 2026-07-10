@@ -69,7 +69,7 @@ export default function Patient() {
       if (res.verified && res.patient) {
         const pId = res.patient.patient_id;
         const pName = res.patient.name;
-        
+
         await api.consent(pId);
 
         localStorage.setItem("portal_patient_id", pId);
@@ -114,8 +114,8 @@ export default function Patient() {
               </label>
               <div className="relative">
                 <Phone size={15} className="absolute left-3 top-3" color="var(--dim)" />
-                <input 
-                  type="tel" 
+                <input
+                  type="tel"
                   className="input pl-9"
                   placeholder="e.g. 9876500011"
                   value={mobile}
@@ -170,8 +170,8 @@ export default function Patient() {
             <div className="font-extrabold text-base" style={{ color: "#dce9ff" }}>{portalPatientName}</div>
             <Tag tone="green">ABHA Verified</Tag>
           </div>
-          <button 
-            onClick={handleSignOut} 
+          <button
+            onClick={handleSignOut}
             className="btn ghost w-full text-xs !py-1 px-3 flex items-center justify-center gap-1.5"
           >
             <LogOut size={13} /> Sign Out
@@ -180,7 +180,7 @@ export default function Patient() {
 
         <Card className="space-y-3">
           <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--dim)" }}>Your Visits</h4>
-          
+
           <div className="space-y-2">
             {p360?.encounters?.map((e: any) => {
               const isActive = e.encounter_id === showEncounterId;
@@ -228,17 +228,16 @@ export default function Patient() {
                     const done = i < stage;
                     const current = i === stage;
                     return (
-                      <div 
-                        key={i} 
-                        className={`p-2.5 rounded-xl border text-[11px] flex flex-col justify-between items-center transition ${
-                          current ? "border-[var(--cyan)] bg-[var(--cyan)]/5" : "border-transparent"
-                        }`}
+                      <div
+                        key={i}
+                        className={`p-2.5 rounded-xl border text-[11px] flex flex-col justify-between items-center transition ${current ? "border-[var(--cyan)] bg-[var(--cyan)]/5" : "border-transparent"
+                          }`}
                         style={{ background: current ? "rgba(52,225,232,0.05)" : "var(--panel)" }}
                       >
                         <span className="font-bold mb-1" style={{ color: current ? "white" : done ? "#bcd2ff" : "var(--dim)" }}>
                           {s.label}
                         </span>
-                        <div className="h-5 w-5 grid place-items-center rounded-full" 
+                        <div className="h-5 w-5 grid place-items-center rounded-full"
                           style={{ background: done || current ? "linear-gradient(150deg,var(--cyan),var(--violet))" : "var(--line)" }}>
                           {done ? <CheckCircle2 size={12} color="#04121a" /> : (
                             <span className="h-1.5 w-1.5 rounded-full" style={{ background: current ? "white" : "var(--dim)" }} />
@@ -311,13 +310,13 @@ export default function Patient() {
               <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#d7e5ff" }}>
                 <Stethoscope size={16} className="text-[var(--cyan)]" /> E-Prescription Slip
               </h4>
-              
+
               {p360?.active_medications?.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="border border-dashed p-4 rounded-2xl space-y-3 relative overflow-hidden" 
+                  <div className="border border-dashed p-4 rounded-2xl space-y-3 relative overflow-hidden"
                     style={{ borderColor: "var(--glass-border)", background: "rgba(255,255,255,0.01)" }}>
                     <div className="absolute -top-10 -right-10 w-24 h-24 bg-mint/5 rounded-full blur-2xl" />
-                    
+
                     <div className="flex justify-between items-center pb-2 border-b" style={{ borderColor: "var(--glass-border)" }}>
                       <div>
                         <div className="text-[11px] text-[var(--dim)] uppercase font-semibold">PRESCRIPTION ID</div>

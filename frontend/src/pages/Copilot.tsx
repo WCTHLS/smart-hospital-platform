@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ShieldAlert, FileText, FlaskConical, Pill, Receipt, CheckCircle2, Mic, Plus, Trash2, BadgeCheck,
-  Stethoscope, Clock, MapPin, User, ArrowRight, Activity, Users,
+  Stethoscope, Clock, MapPin, User, ArrowRight, Activity, Users, Clipboard, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { api, ApiError } from "../lib/api";
 import { useJourney } from "../lib/store";
@@ -24,6 +24,25 @@ export default function Copilot() {
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(() => {
     return localStorage.getItem("selected_doctor_id") || "";
   });
+  const [queueTab, setQueueTab] = useState<"first" | "reconsult">("first");
+
+  const [sel, setSel] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+
+  const toggleTest = (t: string) => setSel((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));
+
+  async function getSuggestions(encounterId: string) {
+    setLoadingSuggestions(true);
+    try {
+      const r = await api.suggestLabOrders(encounterId);
+      setSuggestions(r);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  }
 
   const { data: doctors } = useQuery({
     queryKey: ["doctors"],
@@ -43,13 +62,22 @@ export default function Copilot() {
   };
 
   const handleSelectPatient = (enc: any) => {
+    setSel([]);
+    setSuggestions([]);
     journey.set({
       patientId: enc.patient.patient_id,
       encounterId: enc.encounter_id,
       patientName: enc.patient.name,
       token: enc.token?.number || null,
       department: enc.visit_type || null,
+      chiefComplaint: enc.triage?.chief_complaint || null,
     });
+  };
+
+  const handleResetJourney = () => {
+    setSel([]);
+    setSuggestions([]);
+    journey.reset();
   };
 
   if (!journey.encounterId || !journey.patientId) {
@@ -93,77 +121,118 @@ export default function Copilot() {
               <span className="live">LIVE REFRESH</span>
             </div>
 
-            {queue && queue.length > 0 ? (
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {queue.map((enc: any) => {
-                  const acuity = enc.triage?.acuity || "4";
-                  const isRedFlag = enc.triage?.red_flag;
-                  const tagTone = acuity === "1" ? "red" : acuity === "2" ? "red" : acuity === "3" ? "amber" : "blue";
+            {/* Queue Tab Switcher */}
+            <div className="flex gap-2 p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit">
+              <button
+                onClick={() => setQueueTab("first")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  queueTab === "first"
+                    ? "bg-white/10 text-white"
+                    : "text-[var(--muted)] hover:text-white"
+                }`}
+              >
+                First Consultation ({queue?.filter((e: any) => !e.is_reconsult).length || 0})
+              </button>
+              <button
+                onClick={() => setQueueTab("reconsult")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                  queueTab === "reconsult"
+                    ? "bg-white/10 text-white"
+                    : "text-[var(--muted)] hover:text-white"
+                }`}
+              >
+                Report Review ({queue?.filter((e: any) => e.is_reconsult).length || 0})
+                {queue?.some((e: any) => e.is_reconsult) && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--cyan)] animate-pulse" />
+                )}
+              </button>
+            </div>
 
-                  return (
-                    <Card 
-                      key={enc.encounter_id} 
-                      className={`hover-border relative overflow-hidden flex flex-col justify-between h-full transition ${
-                        isRedFlag ? "border-red-500/30" : ""
-                      }`}
-                      style={{ border: isRedFlag ? "1px solid rgba(239, 68, 68, 0.4)" : "" }}
-                    >
-                      {/* Priority Aura */}
-                      {isRedFlag && (
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 rounded-full blur-2xl" />
-                      )}
+            {(() => {
+              const filteredQueue = queue?.filter((enc: any) => 
+                queueTab === "reconsult" ? enc.is_reconsult : !enc.is_reconsult
+              ) || [];
 
-                      <div className="space-y-2">
-                        {/* Token & Priority Badge */}
-                        <div className="flex justify-between items-start">
-                          <span className="text-[12px] font-bold uppercase tracking-wider" style={{ color: "var(--dim)" }}>
-                            Token: <b className="text-white text-base">{enc.token?.number || "—"}</b>
-                          </span>
-                          <Tag tone={tagTone}>
-                            ESI {acuity} {isRedFlag ? "· RED FLAG" : ""}
-                          </Tag>
-                        </div>
+              if (filteredQueue.length === 0) {
+                return (
+                  <Empty>
+                    {queueTab === "reconsult" 
+                      ? "No patients waiting for report review." 
+                      : "No patients waiting in your queue."}
+                  </Empty>
+                );
+              }
 
-                        {/* Patient Name */}
-                        <div>
-                          <h4 className="text-base font-extrabold" style={{ color: "#dce9ff" }}>
-                            {enc.patient?.name}
-                          </h4>
-                          <p className="text-[12px]" style={{ color: "var(--muted)" }}>
-                            {enc.patient?.age} yrs · {enc.patient?.gender} · {enc.patient?.mobile}
-                          </p>
-                        </div>
+              return (
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {filteredQueue.map((enc: any) => {
+                    const acuity = enc.triage?.acuity || "4";
+                    const isRedFlag = enc.triage?.red_flag;
+                    const tagTone = acuity === "1" ? "red" : acuity === "2" ? "red" : acuity === "3" ? "amber" : "blue";
 
-                        {/* Chief Complaint */}
-                        <div className="holo p-2 text-[12px] whitespace-pre-line" style={{ color: "#bcd2ff" }}>
-                          <b>Chief Complaint:</b><br />
-                          {enc.triage?.chief_complaint || "Routine consultation."}
-                        </div>
-
-                        {/* Room/Location info */}
-                        {enc.token?.room && (
-                          <div className="flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--dim)" }}>
-                            <MapPin size={12} color="var(--cyan)" />
-                            <span>{enc.token.room} ({enc.token.floor})</span>
-                            {enc.token.eta_minutes != null && <span className="ml-auto">Est: ~{enc.token.eta_minutes}m</span>}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Action Button */}
-                      <button 
-                        onClick={() => handleSelectPatient(enc)}
-                        className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
+                    return (
+                      <Card 
+                        key={enc.encounter_id} 
+                        className={`hover-border relative overflow-hidden flex flex-col justify-between h-full transition ${
+                          isRedFlag ? "border-red-500/30" : ""
+                        }`}
+                        style={{ border: isRedFlag ? "1px solid rgba(239, 68, 68, 0.4)" : "" }}
                       >
-                        Consult Patient <ArrowRight size={14} />
-                      </button>
-                    </Card>
-                  );
-                })}
-              </div>
-            ) : (
-              <Empty>No patients currently waiting in your queue. Sit back, new check-ins will appear live.</Empty>
-            )}
+                        {/* Priority Aura */}
+                        {isRedFlag && (
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 rounded-full blur-2xl" />
+                        )}
+
+                        <div className="space-y-2">
+                          {/* Token & Priority Badge */}
+                          <div className="flex justify-between items-start">
+                            <span className="text-[12px] font-bold uppercase tracking-wider" style={{ color: "var(--dim)" }}>
+                              Token: <b className="text-white text-base">{enc.token?.number || "—"}</b>
+                            </span>
+                            <Tag tone={tagTone}>
+                              ESI {acuity} {isRedFlag ? "· RED FLAG" : ""}
+                            </Tag>
+                          </div>
+
+                          {/* Patient Name */}
+                          <div>
+                            <h4 className="text-base font-extrabold" style={{ color: "#dce9ff" }}>
+                              {enc.patient?.name}
+                            </h4>
+                            <p className="text-[12px]" style={{ color: "var(--muted)" }}>
+                              {enc.patient?.age} yrs · {enc.patient?.gender} · {enc.patient?.mobile}
+                            </p>
+                          </div>
+
+                          {/* Chief Complaint */}
+                          <div className="holo p-2 text-[12px] whitespace-pre-line" style={{ color: "#bcd2ff" }}>
+                            <b>Chief Complaint:</b><br />
+                            {enc.triage?.chief_complaint || "Routine consultation."}
+                          </div>
+
+                          {/* Room/Location info */}
+                          {enc.token?.room && (
+                            <div className="flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--dim)" }}>
+                              <MapPin size={12} color="var(--cyan)" />
+                              <span>{enc.token.room} ({enc.token.floor})</span>
+                              {enc.token.eta_minutes != null && <span className="ml-auto">Est: ~{enc.token.eta_minutes}m</span>}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Action Button */}
+                        <button 
+                          onClick={() => handleSelectPatient(enc)}
+                          className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
+                        >
+                          Consult Patient <ArrowRight size={14} />
+                        </button>
+                      </Card>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         ) : (
           <Card className="text-center py-10">
@@ -178,6 +247,8 @@ export default function Copilot() {
     );
   }
 
+  const showSidepane = true;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -187,12 +258,34 @@ export default function Copilot() {
             <Tag tone="green">ABHA verified</Tag>
             {journey.department && <Tag tone="blue">{journey.department}</Tag>}
             {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
+            {journey.chiefComplaint && (
+              <span className="text-slate-300 ml-2">
+                Reason for Visit: <b className="text-[var(--cyan)]">{journey.chiefComplaint}</b>
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={async () => {
+              if (confirm("Are you sure you want to complete the consultation and discharge this patient?")) {
+                try {
+                  await api.discharge(journey.encounterId!);
+                  handleResetJourney();
+                  refetchQueue();
+                } catch (err: any) {
+                  alert(err?.message || "Failed to discharge patient.");
+                }
+              }
+            }}
+            className="btn text-[12.5px] !py-1.5 !px-3 font-bold"
+            style={{ background: "linear-gradient(135deg, #10b981, #059669)", border: "none", color: "white" }}
+          >
+            ✓ Complete &amp; Discharge
+          </button>
           <button 
             className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold" 
-            onClick={() => journey.reset()}
+            onClick={handleResetJourney}
           >
             ← Back to Patient Queue
           </button>
@@ -200,26 +293,341 @@ export default function Copilot() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex flex-wrap gap-2">
-        {TABS.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold transition"
-            style={{
-              color: tab === t.id ? "#eafcff" : "var(--muted)",
-              background: tab === t.id ? "linear-gradient(90deg, rgba(52,225,232,.18), rgba(167,139,250,.18))" : "var(--panel)",
-              border: `1px solid ${tab === t.id ? "var(--line2)" : "var(--glass-border)"}`,
-            }}>
-            <t.icon size={15} /> {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Outer Grid Layout (Workflow + Copilot Pane) */}
+      <div className={showSidepane ? "grid gap-4 lg:grid-cols-[1fr_380px]" : "space-y-4"}>
+        <div className="space-y-4">
+          {/* Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {TABS.map((t) => (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold transition"
+                style={{
+                  color: tab === t.id ? "#eafcff" : "var(--muted)",
+                  background: tab === t.id ? "linear-gradient(90deg, rgba(52,225,232,.18), rgba(167,139,250,.18))" : "var(--panel)",
+                  border: `1px solid ${tab === t.id ? "var(--line2)" : "var(--glass-border)"}`,
+                }}>
+                <t.icon size={15} /> {t.label}
+              </button>
+            ))}
+          </div>
 
-      {tab === "p360" && <Patient360 patientId={journey.patientId} />}
-      {tab === "soap" && <Ambient encounterId={journey.encounterId} />}
-      {tab === "labs" && <Labs encounterId={journey.encounterId} />}
-      {tab === "rx" && <Rx encounterId={journey.encounterId} />}
-      {tab === "bill" && <Billing encounterId={journey.encounterId} />}
+          <div className={tab === "p360" ? "" : "hidden"} key={`360-${journey.patientId}`}>
+            <Patient360 patientId={journey.patientId} />
+          </div>
+          <div className={tab === "soap" ? "" : "hidden"} key={`soap-${journey.encounterId}`}>
+            <Ambient encounterId={journey.encounterId} />
+          </div>
+          <div className={tab === "labs" ? "" : "hidden"} key={`labs-${journey.encounterId}`}>
+            <Labs encounterId={journey.encounterId!} sel={sel} setSel={setSel} toggle={toggleTest} />
+          </div>
+          <div className={tab === "rx" ? "" : "hidden"} key={`rx-${journey.encounterId}`}>
+            <Rx encounterId={journey.encounterId} refetchQueue={refetchQueue} />
+          </div>
+          <div className={tab === "bill" ? "" : "hidden"} key={`bill-${journey.encounterId}`}>
+            <Billing encounterId={journey.encounterId} />
+          </div>
+        </div>
+
+        {showSidepane && (
+          <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
+            <CopilotSidepane 
+              patientId={journey.patientId} 
+              tab={tab}
+              encounterId={journey.encounterId}
+              sel={sel}
+              toggle={toggleTest}
+              suggestions={suggestions}
+              loadingSuggestions={loadingSuggestions}
+              onGetSuggestions={() => getSuggestions(journey.encounterId!)}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface SidepaneProps {
+  patientId: string;
+  tab: string;
+  encounterId: string | null;
+  sel: string[];
+  toggle: (t: string) => void;
+  suggestions: any[];
+  loadingSuggestions: boolean;
+  onGetSuggestions: () => void;
+}
+
+/* ------------------------------------------------------------------ Copilot Sidepane */
+function CopilotSidepane({
+  patientId,
+  tab,
+  encounterId,
+  sel,
+  toggle,
+  suggestions,
+  loadingSuggestions,
+  onGetSuggestions,
+}: SidepaneProps) {
+  const qc = useQueryClient();
+  const [generating, setGenerating] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["p360", patientId],
+    queryFn: () => api.patient360(patientId),
+    staleTime: 300000,
+    refetchOnWindowFocus: false,
+  });
+
+  if (isLoading) return <Card className="text-center py-6 text-xs text-[var(--dim)]">Loading Copilot context...</Card>;
+  if (!data) return null;
+
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      await api.generateSummary(patientId);
+      qc.invalidateQueries({ queryKey: ["p360", patientId] });
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  const summaryText = data.ai_summary?.result?.summary;
+
+  return (
+    <div className="space-y-3">
+      {tab === "labs" ? (
+        /* AI Suggested Orders Banner in place of Clinical Summary */
+        <Card className="border border-dashed border-[var(--cyan)]/25 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.08), transparent)" }}>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
+              <Activity size={13} /> AI Suggested Orders
+            </div>
+            <AgentBadge label="AI" />
+          </div>
+          {suggestions.length === 0 ? (
+            <div className="space-y-2">
+              <p className="text-[12px] leading-relaxed" style={{ color: "var(--muted)" }}>Click below to query Gemini AI for clinically indicated diagnostics.</p>
+              <button 
+                onClick={onGetSuggestions} 
+                disabled={loadingSuggestions} 
+                className="btn w-full !py-1 text-xs font-bold"
+                style={{ background: "rgba(52,225,232,0.08)", border: "1px solid rgba(52,225,232,0.25)", color: "var(--cyan)" }}
+              >
+                {loadingSuggestions ? "Consulting AI..." : "Get AI Suggestions"}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2 text-[12.5px]">
+              {suggestions.map((s: any, idx: number) => {
+                const isSelected = sel.includes(s.test);
+                return (
+                  <div key={idx} className="p-2.5 bg-white/[0.02] border border-white/5 rounded-xl flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-200">{s.test}</span>
+                      <button
+                        onClick={() => toggle(s.test)}
+                        className={`text-[11px] font-bold px-2 py-0.5 rounded transition ${
+                          isSelected
+                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            : "bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10"
+                        }`}
+                      >
+                        {isSelected ? "Selected" : "Add to Order"}
+                      </button>
+                    </div>
+                    <div className="text-[11.5px] text-[var(--muted)] leading-relaxed">
+                      {s.reason}
+                    </div>
+                  </div>
+                );
+              })}
+              <button 
+                onClick={onGetSuggestions} 
+                disabled={loadingSuggestions} 
+                className="text-[11px] text-[var(--cyan)] hover:underline block mt-2 text-right w-full"
+              >
+                {loadingSuggestions ? "Refreshing..." : "↻ Refresh Suggestions"}
+              </button>
+            </div>
+          )}
+        </Card>
+      ) : (
+        /* AI Summary Banner */
+        <Card className="relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.08), transparent)" }}>
+          <div className="flex items-center justify-between gap-1.5 mb-2">
+            <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
+              <Activity size={13} /> AI Clinical Summary
+            </div>
+            {summaryText && (
+              <button 
+                onClick={handleGenerate} 
+                disabled={generating} 
+                className="text-[9px] text-[var(--cyan)] hover:text-cyan-300 font-bold uppercase tracking-wider transition disabled:opacity-50"
+              >
+                {generating ? "Updating..." : "↻ Refresh"}
+              </button>
+            )}
+          </div>
+          
+          {summaryText ? (
+            <p className="text-[11.5px] leading-relaxed text-[#d2e2ff] whitespace-pre-line">
+              {summaryText}
+            </p>
+          ) : (
+            <div className="text-center py-1">
+              <p className="text-[11px] text-[var(--muted)] mb-2">History summary has not been generated yet.</p>
+              <button 
+                onClick={handleGenerate} 
+                disabled={generating} 
+                className="btn text-[11px] !py-1 !px-2.5 w-full justify-center"
+              >
+                {generating ? "Generating..." : "Generate AI Summary"}
+              </button>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Allergies & Alerts */}
+      <Card className="space-y-2">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Allergies & Alerts</div>
+        {data.allergies.length ? data.allergies.map((a: any) => (
+          <div key={a.substance} className="inline-block mr-1.5"><Tag tone="red">⚠ {a.substance}</Tag></div>
+        )) : <div className="text-[11px] text-[var(--muted)]">No known allergies</div>}
+      </Card>
+
+      {/* Used/Active Medications */}
+      <Card className="space-y-2">
+        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)] mb-1">Active Medications</div>
+        {data.active_medications.length ? (
+          <ul className="space-y-1 text-[11.5px]" style={{ color: "var(--muted)" }}>
+            {data.active_medications.map((m: string, i: number) => <li key={i}>• {m}</li>)}
+          </ul>
+        ) : <div className="text-[11px] text-[var(--muted)]">None recorded</div>}
+      </Card>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ Historical Visit Dropdown */
+function HistoricalVisitDropdown({ encounter }: { encounter: any }) {
+  const [open, setOpen] = useState(false);
+
+  // Fetch full details of selected encounter dynamically
+  const { data: details, isLoading } = useQuery({
+    queryKey: ["encounter-details", encounter.encounter_id],
+    queryFn: () => api.encounter(encounter.encounter_id),
+    enabled: open,
+  });
+
+  return (
+    <div className="border rounded-xl transition" style={{ borderColor: "var(--glass-border)", background: open ? "rgba(255,255,255,0.015)" : "transparent" }}>
+      <button 
+        onClick={() => setOpen(!open)}
+        className="w-full text-left p-2 flex items-center justify-between text-xs font-semibold hover:bg-white/5 rounded-xl transition"
+      >
+        <div className="truncate">
+          <span className="text-white font-bold">{encounter.date}</span>
+          <span className="text-[var(--dim)] ml-1.5">· {encounter.department}</span>
+        </div>
+        <span className="text-[var(--cyan)] font-bold text-[13px] ml-2">
+          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </span>
+      </button>
+
+      {open && (
+        <div className="p-3 border-t border-[var(--glass-border)] space-y-3 text-[11px] leading-relaxed">
+          {isLoading ? (
+            <div className="text-center py-2 text-[var(--dim)]">Retrieving raw EMR records...</div>
+          ) : details ? (
+            <>
+              {/* Vitals */}
+              {details.vitals ? (
+                <div>
+                  <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-1">Vitals:</div>
+                  <div className="grid grid-cols-3 gap-1 text-[10.5px]">
+                    <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>BP</small><br /><b>{details.vitals.bp}</b></div>
+                    <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{details.vitals.spo2}%</b></div>
+                    <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{details.vitals.temperature}°F</b></div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-0.5">Vitals:</div>
+                  <span className="text-[var(--muted)]">No vitals captured.</span>
+                </div>
+              )}
+
+              {/* SOAP Note Text */}
+              {details.note ? (
+                <div>
+                  <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-1">Clinical Note (SOAP):</div>
+                  <div className="p-2 rounded bg-white/5 border border-white/5 text-[10.5px] whitespace-pre-line text-slate-300">
+                    {details.note.final_text}
+                  </div>
+                  {details.note.icd10_codes?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {details.note.icd10_codes.map((icd: any) => (
+                        <span key={icd.code} className="text-[9.5px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                          {icd.code}: {icd.label}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-0.5">Clinical Note (SOAP):</div>
+                  <span className="text-[var(--muted)]">Not documented or pending.</span>
+                </div>
+              )}
+
+              {/* Prescription Items */}
+              {details.prescription && details.prescription.items?.length > 0 ? (
+                <div>
+                  <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-1">Prescribed Medications:</div>
+                  <ul className="list-disc list-inside text-[var(--muted)] space-y-0.5 text-[10.5px]">
+                    {details.prescription.items.map((item: any, idx: number) => (
+                      <li key={idx}>
+                        <span className="text-slate-300 font-medium">{item.drug_name}</span> ({item.dose}) — <span className="italic">{item.frequency}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div>
+                  <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-0.5">Prescribed Medications:</div>
+                  <span className="text-[var(--muted)]">No medications prescribed.</span>
+                </div>
+              )}
+
+              {/* Lab Results */}
+              {details.labs?.length > 0 ? (
+                <div>
+                  <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-1">Lab Results:</div>
+                  <div className="space-y-1">
+                    {details.labs.map((o: any) => (
+                      <div key={o.lab_order_id} className="p-1.5 border border-white/5 rounded bg-white/5">
+                        <div className="font-semibold text-slate-300 text-[10.5px]">{o.test}</div>
+                        {o.results?.map((r: any, idx: number) => (
+                          <div key={idx} className="flex justify-between items-center text-[10px] mt-0.5 text-[var(--muted)]">
+                            <span>• {r.analyte}</span>
+                            <span className={r.flag !== "N" ? "text-amber-400 font-bold" : ""}>
+                              {r.value} {r.unit} {r.flag !== "N" ? `(${r.flag})` : ""}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="text-center text-red-400">Failed to load visit details.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -229,6 +637,8 @@ function Patient360({ patientId }: { patientId: string }) {
   const qc = useQueryClient();
   const { data, error, isLoading } = useQuery({
     queryKey: ["p360", patientId], queryFn: () => api.patient360(patientId), retry: false,
+    staleTime: 300000,
+    refetchOnWindowFocus: false,
   });
 
   if (isLoading) return <Card>Loading record…</Card>;
@@ -244,66 +654,59 @@ function Patient360({ patientId }: { patientId: string }) {
   }
   const flag = (f: string) => (f === "N" ? "green" : f === "H" || f === "L" ? "amber" : "red");
   return (
-    <div className="space-y-3">
-      {/* AI History Summary */}
-      {data.ai_summary?.result?.summary && (
-        <Card className="relative overflow-hidden" style={{ background: "radial-gradient(600px 180px at 0% 0%, rgba(52,225,232,0.1), transparent)" }}>
-          <div className="absolute top-3 right-3">
-            <AgentBadge label="Patient 360 AI" />
+    <div className="space-y-4">
+      {/* Latest Vitals Card at the Top */}
+      <Card>
+        <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Latest vitals</h4>
+        {data.latest_vitals ? (
+          <div className="grid grid-cols-4 gap-3 text-[13px]">
+            <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Blood Pressure</small><br /><b className="text-[15px]">{data.latest_vitals.bp}</b></div>
+            <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b className="text-[15px]">{data.latest_vitals.spo2}%</b></div>
+            <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Heart Rate</small><br /><b className="text-[15px]">{data.latest_vitals.heart_rate} bpm</b></div>
+            <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Temperature</small><br /><b className="text-[15px]">{data.latest_vitals.temperature}°F</b></div>
           </div>
-          <h4 className="font-extrabold mb-2 flex items-center gap-2" style={{ color: "var(--cyan)" }}>
-            <Activity size={16} /> Clinical History Summary
-          </h4>
-          <div className="text-[13px] leading-relaxed whitespace-pre-line" style={{ color: "#d2e2ff" }}>
-            {data.ai_summary.result.summary}
-          </div>
-        </Card>
-      )}
+        ) : <Empty>No vitals captured yet for this patient.</Empty>}
+      </Card>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        <Card>
-          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Allergies</h4>
-          {data.allergies.length ? data.allergies.map((a: any) => (
-            <div key={a.substance} className="mb-1"><Tag tone="red">⚠ {a.substance}{a.severity ? ` · ${a.severity}` : ""}</Tag></div>
-          )) : <Empty>No known allergies</Empty>}
+      {/* Side-by-Side balanced layout for wider displays */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* Column 1: Recent Results */}
+        <Card className="flex flex-col h-full">
+          <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Recent results</h4>
+          <div className="flex-1 overflow-auto">
+            {data.recent_results.length ? (
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr style={{ color: "var(--dim)" }} className="border-b border-[var(--glass-border)]">
+                    <th className="text-left pb-2">Analyte</th>
+                    <th className="text-left pb-2">Value</th>
+                    <th className="text-left pb-2">Flag</th>
+                    <th className="text-left pb-2">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {data.recent_results.map((r: any, i: number) => (
+                    <tr key={i} className="hover:bg-white/5 transition-colors">
+                      <td className="py-2.5 font-medium text-slate-300">{r.analyte}</td>
+                      <td className="py-2.5">{r.value} {r.unit}</td>
+                      <td className="py-2.5"><Tag tone={flag(r.flag)}>{r.flag}</Tag></td>
+                      <td className="py-2.5" style={{ color: "var(--dim)" }}>{r.date}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <Empty>No results</Empty>}
+          </div>
         </Card>
-        <Card>
-          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Active medications</h4>
-          {data.active_medications.length ? (
-            <ul className="space-y-1 text-[13px]" style={{ color: "var(--muted)" }}>
-              {data.active_medications.map((m: string, i: number) => <li key={i}>• {m}</li>)}
-            </ul>
-          ) : <Empty>None recorded</Empty>}
-        </Card>
-        <Card>
-          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Latest vitals</h4>
-          {data.latest_vitals ? (
-            <div className="grid grid-cols-2 gap-2 text-[13px]">
-              <div className="holo text-center"><small style={{ color: "var(--dim)" }}>BP</small><br /><b>{data.latest_vitals.bp}</b></div>
-              <div className="holo text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{data.latest_vitals.spo2}%</b></div>
-              <div className="holo text-center"><small style={{ color: "var(--dim)" }}>HR</small><br /><b>{data.latest_vitals.heart_rate}</b></div>
-              <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{data.latest_vitals.temperature}°F</b></div>
-            </div>
-          ) : <Empty>No vitals yet</Empty>}
-        </Card>
-        <Card className="md:col-span-2">
-          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Recent results</h4>
-          {data.recent_results.length ? (
-            <table className="w-full text-[13px]">
-              <thead><tr style={{ color: "var(--dim)" }}><th className="text-left">Analyte</th><th className="text-left">Value</th><th className="text-left">Flag</th><th className="text-left">Date</th></tr></thead>
-              <tbody>
-                {data.recent_results.map((r: any, i: number) => (
-                  <tr key={i}><td>{r.analyte}</td><td>{r.value} {r.unit}</td><td><Tag tone={flag(r.flag)}>{r.flag}</Tag></td><td style={{ color: "var(--dim)" }}>{r.date}</td></tr>
-                ))}
-              </tbody>
-            </table>
-          ) : <Empty>No results</Empty>}
-        </Card>
-        <Card>
-          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Recent visits</h4>
-          {data.encounters.map((e: any) => (
-            <div key={e.encounter_id} className="kv"><span>{e.date}</span><b>{e.department || "—"}</b><Tag tone="blue">{e.status}</Tag></div>
-          ))}
+
+        {/* Column 2: Previous visit records (Raw history) */}
+        <Card className="flex flex-col h-full">
+          <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Previous visit records (Raw history)</h4>
+          <div className="space-y-2 flex-1 overflow-y-auto">
+            {data.encounters.map((e: any) => (
+              <HistoricalVisitDropdown key={e.encounter_id} encounter={e} />
+            ))}
+          </div>
         </Card>
       </div>
     </div>
@@ -378,14 +781,32 @@ function Ambient({ encounterId }: { encounterId: string }) {
 
 /* ------------------------------------------------------------------ Labs */
 const TEST_MENU = ["CBC", "CRP", "HbA1c", "Lipid Profile", "TSH", "RFT", "Chest X-ray"];
-function Labs({ encounterId }: { encounterId: string }) {
+interface LabsProps {
+  encounterId: string;
+  sel: string[];
+  setSel: React.Dispatch<React.SetStateAction<string[]>>;
+  toggle: (t: string) => void;
+}
+
+function Labs({ encounterId, sel, setSel, toggle }: LabsProps) {
   const qc = useQueryClient();
-  const [sel, setSel] = useState<string[]>(["CBC", "CRP"]);
   const [busy, setBusy] = useState(false);
   const [ai, setAi] = useState<Record<string, any>>({});
+  const [customTest, setCustomTest] = useState("");
+  const [menu, setMenu] = useState(TEST_MENU);
   const { data } = useQuery({ queryKey: ["lab", encounterId], queryFn: () => api.encounterLab(encounterId) });
 
-  const toggle = (t: string) => setSel((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));
+  const handleAddCustom = () => {
+    const val = customTest.trim();
+    if (!val) return;
+    if (!menu.includes(val)) {
+      setMenu([...menu, val]);
+    }
+    if (!sel.includes(val)) {
+      setSel((s) => [...s, val]);
+    }
+    setCustomTest("");
+  };
 
   async function order() {
     setBusy(true);
@@ -401,18 +822,39 @@ function Labs({ encounterId }: { encounterId: string }) {
 
   return (
     <div className="grid gap-3 lg:grid-cols-[300px_1fr]">
-      <Card>
-        <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Order tests (CPOE)</h4>
-        <div className="flex flex-wrap gap-2">
-          {TEST_MENU.map((t) => (
-            <button key={t} onClick={() => toggle(t)} className="chip" style={{ borderColor: sel.includes(t) ? "var(--lit)" : "var(--line2)" }}>
-              {sel.includes(t) ? "✓ " : ""}{t}
+      <div className="space-y-3">
+        <Card>
+          <h4 className="mb-2 font-bold" style={{ color: "#d7e5ff" }}>Order tests (CPOE)</h4>
+          <div className="flex flex-wrap gap-2">
+            {menu.map((t) => (
+              <button key={t} onClick={() => toggle(t)} className="chip" style={{ borderColor: sel.includes(t) ? "var(--lit)" : "var(--line2)" }}>
+                {sel.includes(t) ? "✓ " : ""}{t}
+              </button>
+            ))}
+          </div>
+          
+          <div className="mt-3 flex gap-2">
+            <input 
+              type="text" 
+              value={customTest} 
+              onChange={(e) => setCustomTest(e.target.value)} 
+              placeholder="Other test (e.g. Urinalysis)" 
+              className="input !py-1 text-xs"
+              style={{ flex: 1 }}
+            />
+            <button 
+              type="button" 
+              onClick={handleAddCustom} 
+              className="btn ghost !py-1 !px-3 text-xs"
+            >
+              + Add
             </button>
-          ))}
-        </div>
-        <button className="btn mt-3 w-full" disabled={busy || !sel.length} onClick={order}>Order selected</button>
-        <p className="mt-2 text-[11.5px]" style={{ color: "var(--dim)" }}>Auto-creates order + bill + patient QR. Lab Intelligence checks duplicates.</p>
-      </Card>
+          </div>
+
+          <button className="btn mt-3 w-full" disabled={busy || !sel.length} onClick={order}>Order selected</button>
+          <p className="mt-2 text-[11.5px]" style={{ color: "var(--dim)" }}>Auto-creates order + bill + patient QR. Lab Intelligence checks duplicates.</p>
+        </Card>
+      </div>
 
       <div className="space-y-3">
         {!data?.orders?.length ? <Empty>No lab orders yet.</Empty> : data.orders.map((o: any) => (
@@ -447,12 +889,14 @@ function Labs({ encounterId }: { encounterId: string }) {
 
 /* ------------------------------------------------------------------ Prescription + CDS */
 type Item = { drug_name: string; dose: string; frequency: string };
-function Rx({ encounterId }: { encounterId: string }) {
+function Rx({ encounterId, refetchQueue }: { encounterId: string; refetchQueue?: () => void }) {
+  const journey = useJourney();
   const [items, setItems] = useState<Item[]>([{ drug_name: "Amoxicillin 500mg", dose: "500 mg", frequency: "1-0-1" }]);
   const [cds, setCds] = useState<any>(null);
   const [rxId, setRxId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [accept, setAccept] = useState(false);
+  const [override, setOverride] = useState(false);
   const [done, setDone] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -490,10 +934,13 @@ function Rx({ encounterId }: { encounterId: string }) {
     if (!rxId) return;
     setBusy(true); setErr(null);
     try {
-      const r = await api.approveRx(rxId, { approved_by: "Dr. Mehta", accept_substitutions: accept });
+      const r = await api.approveRx(rxId, { approved_by: "Dr. Mehta", accept_substitutions: accept, override_warnings: override });
       setDone(r);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) { setErr("Blocked by CDS — resolve the allergy conflict or accept a substitution."); setCds((e.detail as any)?.cds?.result || cds); }
+      if (e instanceof ApiError && e.status === 409) {
+        setErr("Blocked by CDS — resolve the allergy conflict, accept a substitution, or override warning.");
+        setCds((e.detail as any)?.cds?.result || cds);
+      }
     } finally { setBusy(false); }
   }
 
@@ -513,7 +960,7 @@ function Rx({ encounterId }: { encounterId: string }) {
         {items.map((it, i) => {
           // Perform live stock matching
           const searchVal = it.drug_name.toLowerCase().trim();
-          const matched = stock?.find(s => {
+          const matched = stock?.find((s: any) => {
             const nameLower = s.drug_name.toLowerCase();
             return nameLower === searchVal || nameLower.includes(searchVal) || searchVal.includes(nameLower);
           });
@@ -569,25 +1016,58 @@ function Rx({ encounterId }: { encounterId: string }) {
             {cds.suggestions?.length > 0 && (
               <div className="holo mt-2 text-[12.5px] space-y-1.5">
                 <div className="font-semibold text-white"><AgentBadge label="AI" /> Suggested alternatives (click to apply):</div>
-                {cds.suggestions.map((s: any, i: number) => (
-                  <button
-                    key={i}
-                    onClick={() => applySuggestion(s.for, s.suggestion)}
-                    className="block text-left w-full hover:bg-white/5 p-1 rounded transition text-[var(--cyan)] border border-dashed border-[var(--cyan)]/20 px-2 py-1 mt-1"
-                  >
-                    • Use <b>{s.suggestion}</b> for {s.for} — <span className="text-[11.5px] text-[var(--muted)]">{s.reason}</span>
-                  </button>
-                ))}
+                {cds.suggestions.map((s: any, i: number) => {
+                  const isErr = s.suggestion === "AI responses did not give any response";
+                  return isErr ? (
+                    <div key={i} className="text-left w-full p-2.5 rounded text-rose-400 border border-rose-500/20 bg-rose-950/10 mt-1 font-semibold">
+                      ⚠ {s.suggestion} — <span className="text-[11.5px] text-[var(--muted)]">{s.reason}</span>
+                    </div>
+                  ) : (
+                    <button
+                      key={i}
+                      onClick={() => applySuggestion(s.for, s.suggestion)}
+                      className="block text-left w-full hover:bg-white/5 p-1 rounded transition text-[var(--cyan)] border border-dashed border-[var(--cyan)]/20 px-2 py-1 mt-1"
+                    >
+                      • Use <b>{s.suggestion}</b> for {s.for} — <span className="text-[11.5px] text-[var(--muted)]">{s.reason}</span>
+                    </button>
+                  );
+                })}
               </div>
             )}
-            <label className="mt-2 flex items-center gap-2 text-[12.5px]" style={{ color: "var(--muted)" }}>
-              <input type="checkbox" checked={accept} onChange={(e) => setAccept(e.target.checked)} /> Accept AI substitutions
-            </label>
+            <div className="flex flex-col gap-2 mt-2">
+              <label className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--muted)" }}>
+                <input type="checkbox" checked={accept} onChange={(e) => { setAccept(e.target.checked); if (e.target.checked) setOverride(false); }} /> Accept AI substitutions
+              </label>
+              {cds.block && (
+                <label className="flex items-center gap-2 text-[12.5px] text-rose-400 font-semibold cursor-pointer">
+                  <input type="checkbox" checked={override} onChange={(e) => { setOverride(e.target.checked); if (e.target.checked) setAccept(false); }} /> Override allergy conflict warning (sign anyway)
+                </label>
+              )}
+            </div>
             {err && <div className="alertbox mt-2">{err}</div>}
             {done ? (
-              <div className="mt-2 flex items-center gap-2" style={{ color: "var(--mint)" }}><CheckCircle2 size={16} /> Approved &amp; e-signed. Pharmacy stock reserved.</div>
+              <div className="space-y-3 mt-3">
+                <div className="flex items-center gap-2" style={{ color: "var(--mint)" }}><CheckCircle2 size={16} /> Approved &amp; e-signed. Pharmacy stock reserved.</div>
+                <button
+                  onClick={async () => {
+                    if (confirm("Are you sure you want to complete the consultation and discharge this patient?")) {
+                      try {
+                        await api.discharge(encounterId);
+                        journey.reset();
+                        if (refetchQueue) refetchQueue();
+                      } catch (err: any) {
+                        alert(err?.message || "Failed to discharge patient.");
+                      }
+                    }
+                  }}
+                  className="btn w-full text-[13px] font-bold"
+                  style={{ background: "linear-gradient(135deg, #10b981, #059669)", border: "none", color: "white" }}
+                >
+                  ✓ Complete Consultation &amp; Discharge
+                </button>
+              </div>
             ) : (
-              <button className="btn g mt-3 w-full" disabled={busy || (cds.block && !accept)} onClick={approve}>
+              <button className="btn g mt-3 w-full" disabled={busy || (cds.block && !accept && !override)} onClick={approve}>
                 <BadgeCheck size={16} /> Approve &amp; e-sign
               </button>
             )}
