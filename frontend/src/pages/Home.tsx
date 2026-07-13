@@ -38,7 +38,7 @@ export default function Home() {
             clinician approves every note, order and prescription. ABDM-ready. Consent-first. Auditable.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <button className="btn" onClick={() => nav("/checkin")}>
+            <button className="btn" onClick={() => nav("/patient/checkin")}>
               Start a patient journey <ArrowRight size={16} />
             </button>
             <button className="btn ghost" onClick={() => nav("/command")}>Open Command Center</button>

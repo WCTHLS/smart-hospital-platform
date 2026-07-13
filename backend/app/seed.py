@@ -37,6 +37,43 @@ def _ensure_doctor_schedules(db) -> None:
             ))
 
 
+def _add_encounter_with_appointment(
+    db,
+    *,
+    patient: models.Patient,
+    doctor: models.Staff,
+    reason: str,
+    appointment_status: str,
+    **encounter_values,
+) -> models.Encounter:
+    """Seed both sides of the encounter/appointment link introduced in the journey flow."""
+    scheduled_start = encounter_values.get("arrival_ts") or _utcnow()
+    appointment = models.Appointment(
+        patient_id=patient.patient_id,
+        doctor_id=doctor.staff_id,
+        department=encounter_values.get("department") or doctor.department,
+        specialty=encounter_values.get("department") or doctor.specialty,
+        reason=reason,
+        appointment_type=encounter_values.get("visit_type", "OPD"),
+        scheduled_start=scheduled_start,
+        scheduled_end=scheduled_start + timedelta(minutes=15),
+        status=appointment_status,
+        channel=encounter_values.get("channel"),
+    )
+    db.add(appointment)
+    db.flush()
+    encounter = models.Encounter(
+        patient_id=patient.patient_id,
+        appointment_id=appointment.appointment_id,
+        doctor_id=doctor.staff_id,
+        **encounter_values,
+    )
+    db.add(encounter)
+    db.flush()
+    appointment.encounter_id = encounter.encounter_id
+    return encounter
+
+
 def seed() -> None:
     if "--force" in sys.argv:
         from app.core.database import engine, Base
@@ -87,6 +124,20 @@ def seed() -> None:
             db.add(staff)
             doctor_by_name[name] = staff
 
+        db.add(models.Staff(
+            hpr_id="HPR-2001",
+            name="Priya Sharma",
+            role="NURSE",
+            department="Triage",
+            specialty="Triage Nursing",
+            available=True,
+            experience_years=6,
+            room="Triage Room 1",
+            floor="Ground Floor",
+            access_pin="1234",
+            opd_fee=0.0,
+        ))
+
         # ---------------------------------------------------------------- Pharmacy stock
         stock = [
             # name, salt, class, available, price, formulary
@@ -132,11 +183,12 @@ def seed() -> None:
         db.add(consent)
 
         # Past encounter with approved note + labs + active meds (history for Patient 360)
-        past = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Endocrinology",
-                                channel="APP", status="DISCHARGED",
-                                arrival_ts=now - timedelta(days=60), end_ts=now - timedelta(days=60))
-        db.add(past)
-        db.flush()
+        past = _add_encounter_with_appointment(
+            db, patient=rimjhim, doctor=doctor_by_name["Dr. Ananya Mehta"],
+            reason="Routine diabetes review", appointment_status="COMPLETED",
+            visit_type="OPD", department="Endocrinology", channel="APP", status="DISCHARGED",
+            arrival_ts=now - timedelta(days=60), end_ts=now - timedelta(days=60),
+        )
         db.add(models.Vitals(encounter_id=past.encounter_id, bp_systolic=130, bp_diastolic=84, spo2=98, heart_rate=78, temperature=98.6, bmi=24.2, captured_ts=now - timedelta(days=60)))
         note = models.ClinicalNote(
             encounter_id=past.encounter_id, note_type="SOAP",
@@ -168,11 +220,12 @@ def seed() -> None:
                                 abnormal_flag="H", resulted_ts=now - timedelta(days=60)))
 
         # Past Encounter 2 (30 days ago) - Cardiology for Palpitations & Lipid Profile
-        past2 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Cardiology",
-                                 channel="APP", status="DISCHARGED",
-                                 arrival_ts=now - timedelta(days=30), end_ts=now - timedelta(days=30))
-        db.add(past2)
-        db.flush()
+        past2 = _add_encounter_with_appointment(
+            db, patient=rimjhim, doctor=doctor_by_name["Dr. Vikram Rao"],
+            reason="Palpitations and lipid profile", appointment_status="COMPLETED",
+            visit_type="OPD", department="Cardiology", channel="APP", status="DISCHARGED",
+            arrival_ts=now - timedelta(days=30), end_ts=now - timedelta(days=30),
+        )
         db.add(models.Vitals(encounter_id=past2.encounter_id, bp_systolic=132, bp_diastolic=82, spo2=97, heart_rate=92, temperature=98.8, bmi=24.5, captured_ts=now - timedelta(days=30)))
         note2 = models.ClinicalNote(
             encounter_id=past2.encounter_id, note_type="SOAP",
@@ -204,11 +257,12 @@ def seed() -> None:
                                 abnormal_flag="H", resulted_ts=now - timedelta(days=30)))
 
         # Past Encounter 3 (15 days ago) - Dermatology for Rash
-        past3 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Dermatology",
-                                 channel="WALKIN", status="DISCHARGED",
-                                 arrival_ts=now - timedelta(days=15), end_ts=now - timedelta(days=15))
-        db.add(past3)
-        db.flush()
+        past3 = _add_encounter_with_appointment(
+            db, patient=rimjhim, doctor=doctor_by_name["Dr. Arjun Shah"],
+            reason="Itchy rash on arms", appointment_status="COMPLETED",
+            visit_type="OPD", department="Dermatology", channel="WALKIN", status="DISCHARGED",
+            arrival_ts=now - timedelta(days=15), end_ts=now - timedelta(days=15),
+        )
         db.add(models.Vitals(encounter_id=past3.encounter_id, bp_systolic=120, bp_diastolic=80, spo2=99, heart_rate=72, temperature=98.4, bmi=24.4, captured_ts=now - timedelta(days=15)))
         note3 = models.ClinicalNote(
             encounter_id=past3.encounter_id, note_type="SOAP",
@@ -227,11 +281,12 @@ def seed() -> None:
                                        route="PO", frequency="0-0-1", duration_days=10, quantity=10))
 
         # Past Encounter 4 (10 days ago) - Gastroenterology for Gastritis
-        past4 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Gastroenterology",
-                                 channel="WALKIN", status="DISCHARGED",
-                                 arrival_ts=now - timedelta(days=10), end_ts=now - timedelta(days=10))
-        db.add(past4)
-        db.flush()
+        past4 = _add_encounter_with_appointment(
+            db, patient=rimjhim, doctor=doctor_by_name["Dr. Ananya Mehta"],
+            reason="Acute gastritis", appointment_status="COMPLETED",
+            visit_type="OPD", department="Gastroenterology", channel="WALKIN", status="DISCHARGED",
+            arrival_ts=now - timedelta(days=10), end_ts=now - timedelta(days=10),
+        )
         db.add(models.Vitals(encounter_id=past4.encounter_id, bp_systolic=118, bp_diastolic=78, spo2=98, heart_rate=80, temperature=99.1, bmi=24.1, captured_ts=now - timedelta(days=10)))
         note4 = models.ClinicalNote(
             encounter_id=past4.encounter_id, note_type="SOAP",
@@ -256,11 +311,12 @@ def seed() -> None:
         ))
 
         # Past Encounter 5 (5 days ago) - Pulmonology for Asthma
-        past5 = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="Pulmonology",
-                                 channel="APP", status="DISCHARGED",
-                                 arrival_ts=now - timedelta(days=5), end_ts=now - timedelta(days=5))
-        db.add(past5)
-        db.flush()
+        past5 = _add_encounter_with_appointment(
+            db, patient=rimjhim, doctor=doctor_by_name["Dr. Priya Iyer"],
+            reason="Cough and wheezing", appointment_status="COMPLETED",
+            visit_type="OPD", department="Pulmonology", channel="APP", status="DISCHARGED",
+            arrival_ts=now - timedelta(days=5), end_ts=now - timedelta(days=5),
+        )
         db.add(models.Vitals(encounter_id=past5.encounter_id, bp_systolic=122, bp_diastolic=80, spo2=96, heart_rate=84, temperature=98.7, bmi=24.3, captured_ts=now - timedelta(days=5)))
         note5 = models.ClinicalNote(
             encounter_id=past5.encounter_id, note_type="SOAP",
@@ -309,8 +365,9 @@ def seed() -> None:
             status="SUBMITTED", submitted_ts=now - timedelta(days=29),
         ))
 
-        # ------------------------------------------------------------ Upcoming appointment (Appointment table)
-        appt_start = (now + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+        # Today's unlinked booking is shown after profile confirmation and is
+        # linked to a new encounter only when the patient taps Check in.
+        appt_start = now.replace(hour=10, minute=0, second=0, microsecond=0)
         db.add(models.Appointment(
             patient_id=rimjhim.patient_id, doctor_id=doctor_by_name["Dr. Ananya Mehta"].staff_id,
             department="General Medicine", specialty="General Medicine",
@@ -330,11 +387,12 @@ def seed() -> None:
                                audit_metadata={"encounter_id": past.encounter_id}, event_ts=now - timedelta(days=60)))
 
         # Seed active waiting encounter for Rimjhim Sharma (Token A-045, General Medicine)
-        active_enc = models.Encounter(patient_id=rimjhim.patient_id, visit_type="OPD", department="General Medicine",
-                                      channel="WALKIN", status="TRIAGED",
-                                      arrival_ts=now - timedelta(minutes=10))
-        db.add(active_enc)
-        db.flush()
+        active_enc = _add_encounter_with_appointment(
+            db, patient=rimjhim, doctor=doctor_by_name["Dr. Ananya Mehta"],
+            reason="Follow-up diabetes and persistent fatigue", appointment_status="CHECKED_IN",
+            visit_type="OPD", department="General Medicine", channel="WALKIN", status="TRIAGED",
+            arrival_ts=now - timedelta(minutes=10),
+        )
         db.add(models.Vitals(encounter_id=active_enc.encounter_id, bp_systolic=128, bp_diastolic=82, spo2=97, heart_rate=76, temperature=98.6, bmi=24.4, captured_ts=now - timedelta(minutes=10)))
         db.add(models.Triage(encounter_id=active_enc.encounter_id, chief_complaint="Follow-up diabetes and persistent fatigue",
                              acuity_level="3", specialty="General Medicine", red_flag=False))
@@ -353,10 +411,12 @@ def seed() -> None:
                                dob=date(2026 - age, 6, 1), mrn=f"MRN-2003{i}0", mobile=f"98765111{i}0")
             db.add(p)
             db.flush()
-            enc = models.Encounter(patient_id=p.patient_id, visit_type="OPD", department=dept,
-                                   channel="WALKIN", status="TRIAGED")
-            db.add(enc)
-            db.flush()
+            seeded_doctor = next(doctor for doctor in doctor_by_name.values() if doctor.specialty == dept)
+            enc = _add_encounter_with_appointment(
+                db, patient=p, doctor=seeded_doctor, reason="See intake",
+                appointment_status="CHECKED_IN", visit_type="OPD", department=dept,
+                channel="WALKIN", status="TRIAGED",
+            )
             db.add(models.Triage(encounter_id=enc.encounter_id, chief_complaint="See intake",
                                  acuity_level=acuity, specialty=dept, red_flag=(acuity == "2")))
             db.add(models.Token(encounter_id=enc.encounter_id, token_number=f"A-{100 + i:03d}",
