@@ -1,9 +1,10 @@
 """Pydantic request/response schemas (API boundary)."""
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --------------------------------------------------------------------------------- Journey
@@ -15,6 +16,7 @@ class CheckInRequest(BaseModel):
     mrn: str | None = None
     first_name: str | None = None
     reason: str | None = None
+    appointment_id: str | None = None
 
 
 class MobileProfilesRequest(BaseModel):
@@ -32,11 +34,26 @@ class AllergyIn(BaseModel):
     severity: str | None = None
     reaction: str | None = None
 
+    @field_validator("severity")
+    @classmethod
+    def validate_severity(cls, value: str | None) -> str | None:
+        if value is not None and value not in {"MILD", "MODERATE", "SEVERE"}:
+            raise ValueError("severity must be MILD, MODERATE or SEVERE")
+        return value
+
 
 class DocumentIn(BaseModel):
     doc_type: str
     title: str | None = None
     uri: str | None = None
+
+    @field_validator("doc_type")
+    @classmethod
+    def validate_doc_type(cls, value: str) -> str:
+        allowed = {"LAB_REPORT", "DISCHARGE", "SCAN", "AUDIO"}
+        if value not in allowed:
+            raise ValueError(f"doc_type must be one of {', '.join(sorted(allowed))}")
+        return value
 
 
 class PatientBasicRegistrationRequest(BaseModel):
@@ -57,6 +74,27 @@ class PatientRegistrationRequest(BaseModel):
     address: str
     allergies: list[AllergyIn] = Field(default_factory=list)
     documents: list[DocumentIn] = Field(default_factory=list)
+
+    @field_validator("dob")
+    @classmethod
+    def validate_dob(cls, value: date) -> date:
+        if value > date.today():
+            raise ValueError("date of birth cannot be in the future")
+        return value
+
+    @field_validator("mobile")
+    @classmethod
+    def validate_mobile(cls, value: str) -> str:
+        if len(value) != 10 or not value.isdigit():
+            raise ValueError("mobile number must contain exactly 10 digits")
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value.strip()):
+            raise ValueError("enter a valid email address")
+        return value.strip()
 
 
 class PatientProfileUpdateRequest(BaseModel):
@@ -95,13 +133,14 @@ class TriageRequest(BaseModel):
 
 
 class AppointmentSlotsRequest(BaseModel):
-    encounter_id: str
+    encounter_id: str | None = None
+    patient_id: str | None = None
     appointment_date: date
     reason: str
 
 
 class BookAppointmentRequest(BaseModel):
-    encounter_id: str
+    encounter_id: str | None = None
     patient_id: str
     doctor_id: str
     scheduled_start: datetime
@@ -200,6 +239,11 @@ class DoctorRegisterRequest(BaseModel):
 
 class DoctorVerifyPinRequest(BaseModel):
     doctor_id: str
+    access_pin: str
+
+
+class TriageStaffVerifyPinRequest(BaseModel):
+    staff_id: str
     access_pin: str
 
 

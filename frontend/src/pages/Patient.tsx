@@ -1,9 +1,10 @@
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { CheckCircle2, MapPin, Clock, Bell, FileText, LogOut, Phone, ShieldCheck, Stethoscope, Clipboard, Receipt, Activity } from "lucide-react";
+import { CheckCircle2, MapPin, Clock, Bell, FileText, LogOut, Stethoscope, Clipboard, Receipt, Activity } from "lucide-react";
 import { api } from "../lib/api";
 import { useJourney } from "../lib/store";
+import { clearPortalPatient, getPortalPatient } from "../lib/patientAuth";
 import { useRealtime } from "../lib/realtime";
 import { Card, DeviceBar, Tag, AgentBadge } from "../components/ui";
 import { useState } from "react";
@@ -40,18 +41,10 @@ export default function Patient() {
   const journey = useJourney();
   const events = useRealtime((s) => s.events);
 
-  const [mobile, setMobile] = useState("");
-  const [loginError, setLoginError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [selectedEncounterId, setSelectedEncounterId] = useState<string | null>(null);
-
-  // Read patient login status from local storage
-  const [portalPatientId, setPortalPatientId] = useState<string | null>(() => {
-    return localStorage.getItem("portal_patient_id") || journey.patientId;
-  });
-  const [portalPatientName, setPortalPatientName] = useState<string | null>(() => {
-    return localStorage.getItem("portal_patient_name") || journey.patientName;
-  });
+  const portalSession = getPortalPatient()!;
+  const portalPatientId = portalSession.patient_id;
+  const portalPatientName = portalSession.name;
 
   // Query patient records if logged in
   const { data: p360, refetch: refetchP360 } = useQuery({
@@ -60,85 +53,11 @@ export default function Patient() {
     enabled: !!portalPatientId,
   });
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError(null);
-    setLoading(true);
-    try {
-      const res = await api.verifyIdentity("OTP", mobile.trim());
-      if (res.verified && res.patient) {
-        const pId = res.patient.patient_id;
-        const pName = res.patient.name;
-
-        await api.consent(pId);
-
-        localStorage.setItem("portal_patient_id", pId);
-        localStorage.setItem("portal_patient_name", pName);
-        setPortalPatientId(pId);
-        setPortalPatientName(pName);
-      }
-    } catch (err: any) {
-      setLoginError("No patient record found for this mobile number. Please check-in at the desk first.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSignOut = () => {
-    localStorage.removeItem("portal_patient_id");
-    localStorage.removeItem("portal_patient_name");
-    setPortalPatientId(null);
-    setPortalPatientName(null);
-    setSelectedEncounterId(null);
+    clearPortalPatient();
+    journey.reset();
+    nav("/patient/login?redirect=/patient", { replace: true });
   };
-
-  if (!journey.encounterId) {
-    return (
-      <div className="max-w-md mx-auto my-12">
-        <Card className="space-y-6">
-          <div className="text-center space-y-2">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl mx-auto"
-              style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))", boxShadow: "0 0 20px rgba(52,225,232,.3)" }}>
-              <ShieldCheck size={24} color="#04121a" />
-            </div>
-            <h2 className="grad-text text-2xl font-extrabold">Patient Portal</h2>
-            <p className="text-[13px]" style={{ color: "var(--muted)" }}>
-              Enter your mobile number to view active prescriptions, check-in status, and medical history.
-            </p>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-[12.5px] font-semibold mb-1.5" style={{ color: "#dce9ff" }}>
-                Registered Mobile Number
-              </label>
-              <div className="relative">
-                <Phone size={15} className="absolute left-3 top-3" color="var(--dim)" />
-                <input
-                  type="tel"
-                  className="input pl-9"
-                  placeholder="e.g. 9876500011"
-                  value={mobile}
-                  onChange={(e) => setMobile(e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
-            {loginError && (
-              <div className="alertbox text-xs py-2 text-rose-300 border-rose-500/20 bg-rose-950/20">
-                {loginError}
-              </div>
-            )}
-
-            <button type="submit" disabled={loading} className="btn w-full">
-              {loading ? "Authenticating..." : "Sign In & View Records"}
-            </button>
-          </form>
-        </Card>
-      </div>
-    );
-  }
 
   const activeEnc = p360?.encounters?.find((e: any) => e.status !== "DISCHARGED");
   const showEncounterId = selectedEncounterId || activeEnc?.encounter_id;
@@ -147,6 +66,11 @@ export default function Patient() {
     queryKey: ["portal-encounter", showEncounterId],
     queryFn: () => api.encounter(showEncounterId!),
     enabled: !!showEncounterId,
+  });
+
+  const { data: todayAppointmentData } = useQuery({
+    queryKey: ["portal-today-appointments", portalPatientId],
+    queryFn: () => api.todayAppointments(portalPatientId),
   });
 
   const { data: labDetails } = useQuery({
@@ -160,6 +84,10 @@ export default function Patient() {
   for (const e of mine) stage = Math.max(stage, TOPIC_STAGE[e.topic] ?? -1);
 
   const token = encDetails?.token;
+  const today = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+  const todayEncounters = p360?.encounters?.filter((encounter: any) => encounter.date === today) ?? [];
+  const pastEncounters = p360?.encounters?.filter((encounter: any) => encounter.date !== today) ?? [];
+  const todayAppointments = todayAppointmentData?.appointments ?? [];
 
   return (
     <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
@@ -179,10 +107,23 @@ export default function Patient() {
         </Card>
 
         <Card className="space-y-3">
-          <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--dim)" }}>Your Visits</h4>
-
-          <div className="space-y-2">
-            {p360?.encounters?.map((e: any) => {
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--dim)" }}>Today's visits</h4>
+            <button className="btn ghost sm shrink-0" onClick={() => nav("/patient/appointments/book?redirect=/patient")}>Book appointment</button>
+          </div>
+          {!todayAppointments.length && !todayEncounters.length && <div className="holo text-xs">No visits scheduled for today.</div>}
+          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+            {todayAppointments.map((appointment: any) => <div className="rounded-xl border p-2.5 text-xs" style={{ borderColor: "var(--glass-border)" }} key={appointment.appointment_id}>
+              <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0 flex-1">
+              <div className="truncate font-bold text-white">{appointment.doctor?.name ?? "Assigned doctor"}</div>
+              <div className="mt-1" style={{ color: "var(--muted)" }}>{appointment.specialty} · {appointment.scheduled_start.slice(11, 16)}</div>
+              <div className="mt-1" style={{ color: "var(--muted)" }}>Reason: {appointment.reason || "Not provided"}</div>
+              </div>
+              <button className="btn g shrink-0 text-xs" onClick={() => nav(`/patient/checkin?appointment=${appointment.appointment_id}`)}>Check in</button>
+              </div>
+            </div>)}
+            {todayEncounters.map((e: any) => {
               const isActive = e.encounter_id === showEncounterId;
               return (
                 <button
@@ -199,8 +140,29 @@ export default function Patient() {
                     <Tag tone={e.status === "DISCHARGED" ? "green" : "blue"}>{e.status}</Tag>
                   </div>
                   <div style={{ color: "var(--muted)" }}>{e.department} department</div>
+                  <div className="mt-1" style={{ color: "var(--muted)" }}>Reason: {e.reason || "Not provided"}</div>
                 </button>
               );
+            })}
+          </div>
+        </Card>
+
+        <Card className="space-y-3">
+          <h4 className="font-bold text-xs uppercase tracking-wider" style={{ color: "var(--dim)" }}>Past visits</h4>
+          {!pastEncounters.length && <div className="holo text-xs">No past visits available.</div>}
+          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+            {pastEncounters.map((e: any) => {
+              const isActive = e.encounter_id === showEncounterId;
+              return <button
+                key={e.encounter_id}
+                onClick={() => setSelectedEncounterId(e.encounter_id)}
+                className="block w-full rounded-xl border p-2.5 text-left text-xs transition hover:bg-white/5"
+                style={{ borderColor: isActive ? "var(--line2)" : "var(--glass-border)", background: isActive ? "rgba(52,225,232,0.05)" : "rgba(255,255,255,0.01)" }}
+              >
+                <div className="mb-1 flex items-center justify-between"><span className="font-bold text-white">{e.date}</span><Tag tone="green">{e.status}</Tag></div>
+                <div style={{ color: "var(--muted)" }}>{e.department} department</div>
+                <div className="mt-1" style={{ color: "var(--muted)" }}>Reason: {e.reason || "Not provided"}</div>
+              </button>;
             })}
           </div>
         </Card>

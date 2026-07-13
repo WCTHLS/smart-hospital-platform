@@ -79,6 +79,39 @@ def verify_doctor_pin(body: schemas.DoctorVerifyPinRequest, db: Session = Depend
     return {"verified": True, "doctor_id": doc.staff_id, "name": doc.name}
 
 
+@router.get("/triage/staff")
+def list_triage_staff(db: Session = Depends(get_db)) -> list[dict]:
+    staff = db.scalars(
+        select(models.Staff)
+        .where(models.Staff.role == "NURSE")
+        .where(models.Staff.department == "Triage")
+        .where(models.Staff.available.is_(True))
+        .order_by(models.Staff.name.asc())
+    ).all()
+    return [{
+        "staff_id": member.staff_id,
+        "hpr_id": member.hpr_id,
+        "name": member.name,
+        "department": member.department,
+        "specialty": member.specialty,
+        "experience_years": member.experience_years or 0,
+        "room": member.room,
+        "floor": member.floor,
+    } for member in staff]
+
+
+@router.post("/triage/verify-pin")
+def verify_triage_pin(body: schemas.TriageStaffVerifyPinRequest, db: Session = Depends(get_db)) -> dict:
+    member = db.get(models.Staff, body.staff_id)
+    if not member or member.role != "NURSE" or member.department != "Triage":
+        raise HTTPException(404, "Triage clinical profile not found")
+    if not member.available:
+        raise HTTPException(403, "Triage clinical profile is unavailable")
+    if body.access_pin != member.access_pin:
+        raise HTTPException(401, "Invalid access PIN code")
+    return {"verified": True, "staff_id": member.staff_id, "name": member.name}
+
+
 @router.put("/admin/doctors/{doctor_id}")
 def update_doctor(doctor_id: str, body: schemas.DoctorUpdateRequest, db: Session = Depends(get_db)) -> dict:
     doc = db.get(models.Staff, doctor_id)

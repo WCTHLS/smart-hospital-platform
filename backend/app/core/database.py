@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
@@ -41,3 +41,15 @@ def init_db() -> None:
     from app import models  # noqa: F401  (side-effect: register mappers)
 
     Base.metadata.create_all(bind=engine)
+
+    # This project intentionally has no migration framework. Keep existing demo
+    # databases compatible when a new nullable encounter link is introduced.
+    if "appointment_id" not in {column["name"] for column in inspect(engine).get_columns("encounter")}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE encounter ADD COLUMN appointment_id VARCHAR(36)"))
+
+    # Uploaded patient documents are stored as data URLs and can exceed the old
+    # VARCHAR(300) limit. SQLite TEXT affinity is dynamic; Postgres needs this DDL.
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE document ALTER COLUMN uri TYPE TEXT"))

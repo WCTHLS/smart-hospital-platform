@@ -5,6 +5,7 @@ Maps to services: Identity & Consent, Registration/EMPI, Patient 360, Intake & T
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -112,6 +113,15 @@ def _combine_local_day(day: date, hhmm: str) -> datetime:
     return datetime.combine(day, _parse_hhmm(hhmm), tzinfo=timezone.utc)
 
 
+def _hospital_today() -> date:
+    return datetime.now(ZoneInfo("Asia/Kolkata")).date()
+
+
+def _appointment_local_date(value: datetime) -> date:
+    aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return aware.astimezone(ZoneInfo("Asia/Kolkata")).date()
+
+
 def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | None) -> dict:
     return {
         "appointment_id": appointment.appointment_id,
@@ -122,6 +132,8 @@ def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | N
             "name": doctor.name,
             "department": doctor.department,
             "specialty": doctor.specialty,
+            "room": doctor.room,
+            "floor": doctor.floor,
         },
         "department": appointment.department,
         "specialty": appointment.specialty,
@@ -182,11 +194,37 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         db.add(patient)
         db.flush()
 
+    appointment = None
+    if body.appointment_id:
+        appointment = db.get(models.Appointment, body.appointment_id)
+        if not appointment or appointment.patient_id != patient.patient_id:
+            raise HTTPException(404, "Appointment not found for this patient")
+        if appointment.status != "BOOKED":
+            raise HTTPException(409, f"Appointment cannot be checked in from {appointment.status} status")
+        if _appointment_local_date(appointment.scheduled_start) != _hospital_today():
+            raise HTTPException(400, "Only today's appointment can be checked in")
+
     encounter = models.Encounter(
-        patient_id=patient.patient_id, channel=body.channel, status="CHECKED_IN"
+        patient_id=patient.patient_id,
+        appointment_id=appointment.appointment_id if appointment else None,
+        doctor_id=appointment.doctor_id if appointment else None,
+        department=appointment.department if appointment else None,
+        channel=body.channel,
+        status="CHECKED_IN",
     )
     db.add(encounter)
     db.flush()
+    if appointment:
+        appointment.encounter_id = encounter.encounter_id
+        appointment.status = "CHECKED_IN"
+
+    triage_staff = db.scalar(
+        select(models.Staff)
+        .where(models.Staff.role == "NURSE")
+        .where(models.Staff.department == "Triage")
+        .where(models.Staff.available.is_(True))
+        .order_by(models.Staff.name)
+    )
 
     audit(db, actor_id=patient.patient_id, actor_role="PATIENT", action="CHECK_IN",
           entity_type="encounter", entity_id=encounter.encounter_id, metadata={"channel": body.channel})
@@ -196,9 +234,14 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
     return {
         "patient": _patient_brief(patient),
         "encounter_id": encounter.encounter_id,
+        "appointment_id": encounter.appointment_id,
         "status": encounter.status,
         "new_patient": created,
         "reason": body.reason,
+        "triage_location": {
+            "room": triage_staff.room if triage_staff else "Triage Room",
+            "floor": triage_staff.floor if triage_staff else "Ground Floor",
+        },
     }
 
 
@@ -312,9 +355,34 @@ def verify_identity(body: IdentityVerifyRequest, db: Session = Depends(get_db)) 
 
 
 # --------------------------------------------------------------------------------- Appointment booking
+@router.get("/patients/{patient_id}/appointments/today")
+def today_appointments(patient_id: str, db: Session = Depends(get_db)) -> dict:
+    _get_patient(db, patient_id)
+    today = _hospital_today()
+    hospital_tz = ZoneInfo("Asia/Kolkata")
+    day_start = datetime.combine(today, time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
+    day_end = (datetime.combine(today, time.min, tzinfo=hospital_tz) + timedelta(days=1)).astimezone(timezone.utc)
+    appointments = db.scalars(
+        select(models.Appointment)
+        .where(models.Appointment.patient_id == patient_id)
+        .where(models.Appointment.status == "BOOKED")
+        .where(models.Appointment.scheduled_start >= day_start)
+        .where(models.Appointment.scheduled_start < day_end)
+        .order_by(models.Appointment.scheduled_start)
+    ).all()
+    return {
+        "appointments": [
+            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id))
+            for appointment in appointments
+        ]
+    }
+
+
 @router.post("/appointments/slots")
 def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_db)) -> dict:
-    encounter = _get_encounter(db, body.encounter_id)
+    encounter = _get_encounter(db, body.encounter_id) if body.encounter_id else None
+    if body.patient_id:
+        _get_patient(db, body.patient_id)
     specialty = route_specialty(body.reason)
     schedules = db.scalars(
         select(models.DoctorSchedule)
@@ -371,7 +439,7 @@ def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_d
             slot_start = slot_end
 
     return {
-        "encounter_id": encounter.encounter_id,
+        "encounter_id": encounter.encounter_id if encounter else None,
         "specialty": specialty,
         "appointment_date": body.appointment_date.isoformat(),
         "slots": slots,
@@ -380,8 +448,8 @@ def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_d
 
 @router.post("/appointments/book")
 def book_appointment(body: BookAppointmentRequest, db: Session = Depends(get_db)) -> dict:
-    encounter = _get_encounter(db, body.encounter_id)
-    if encounter.patient_id != body.patient_id:
+    encounter = _get_encounter(db, body.encounter_id) if body.encounter_id else None
+    if encounter and encounter.patient_id != body.patient_id:
         raise HTTPException(400, "Encounter does not belong to this patient")
     doctor = db.get(models.Staff, body.doctor_id)
     if not doctor or doctor.role != "DOCTOR":
@@ -407,23 +475,39 @@ def book_appointment(body: BookAppointmentRequest, db: Session = Depends(get_db)
         scheduled_end=body.scheduled_end,
         status="BOOKED",
         channel=body.channel,
-        encounter_id=body.encounter_id,
+        encounter_id=encounter.encounter_id if encounter else None,
     )
     db.add(appointment)
-    encounter.doctor_id = doctor.staff_id
-    encounter.department = body.specialty
-    encounter.status = "APPOINTMENT_BOOKED"
+    db.flush()
+    if encounter:
+        encounter.appointment_id = appointment.appointment_id
+        encounter.doctor_id = doctor.staff_id
+        encounter.department = body.specialty
     audit(db, actor_id=body.patient_id, actor_role="PATIENT", action="APPOINTMENT_BOOKED",
           entity_type="appointment", entity_id=appointment.appointment_id,
           metadata={"encounter_id": body.encounter_id, "specialty": body.specialty})
     db.commit()
     bus.publish(Topics.APPOINTMENT_BOOKED, {
         "appointment_id": appointment.appointment_id,
-        "encounter_id": encounter.encounter_id,
+        "encounter_id": encounter.encounter_id if encounter else None,
         "doctor_id": doctor.staff_id,
         "specialty": body.specialty,
     })
     return {"appointment": _appointment_brief(appointment, doctor)}
+
+
+@router.post("/appointments/{appointment_id}/cancel")
+def cancel_appointment(appointment_id: str, db: Session = Depends(get_db)) -> dict:
+    appointment = db.get(models.Appointment, appointment_id)
+    if not appointment:
+        raise HTTPException(404, "Appointment not found")
+    if appointment.status != "BOOKED":
+        raise HTTPException(409, f"Appointment cannot be cancelled from {appointment.status} status")
+    appointment.status = "CANCELLED"
+    audit(db, actor_id=appointment.patient_id, actor_role="PATIENT", action="APPOINTMENT_CANCELLED",
+          entity_type="appointment", entity_id=appointment.appointment_id)
+    db.commit()
+    return {"appointment_id": appointment.appointment_id, "status": appointment.status}
 
 
 # --------------------------------------------------------------------------------- Consent
@@ -456,6 +540,15 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         .order_by(models.Encounter.arrival_ts.desc()).limit(5)
     ).all()
     enc_ids = [e.encounter_id for e in encounters]
+    appointment_ids = [e.appointment_id for e in encounters if e.appointment_id]
+    encounter_appointments = {
+        appointment.appointment_id: appointment
+        for appointment in db.scalars(
+            select(models.Appointment).where(
+                models.Appointment.appointment_id.in_(appointment_ids or [""])
+            )
+        ).all()
+    }
 
     latest_vitals = None
     if enc_ids:
@@ -522,7 +615,9 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         ],
         "encounters": [
             {"encounter_id": e.encounter_id, "date": e.arrival_ts.date().isoformat(),
-             "department": e.department, "status": e.status}
+             "department": e.department, "status": e.status,
+             "reason": encounter_appointments[e.appointment_id].reason
+             if e.appointment_id in encounter_appointments else None}
             for e in encounters
         ],
         "consent_id": consent_id,
@@ -705,7 +800,8 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         })
 
     return {
-        "encounter_id": e.encounter_id, "status": e.status, "department": e.department,
+        "encounter_id": e.encounter_id, "appointment_id": e.appointment_id,
+        "status": e.status, "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
         "patient": _patient_brief(p),
         "triage": None if not triage else {
@@ -747,6 +843,48 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
         "floor": d.floor or "Floor 1",
         "opd_fee": d.opd_fee or 500.0,
     } for d in doctors]
+
+
+@router.get("/triage/encounters")
+def list_pending_triage_encounters(db: Session = Depends(get_db)) -> list[dict]:
+    """Today's hospital-wide checked-in queue for encounters not yet triaged."""
+    hospital_tz = ZoneInfo("Asia/Kolkata")
+    today = datetime.now(hospital_tz).date()
+    day_start = datetime.combine(today, time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
+    day_end = (datetime.combine(today, time.min, tzinfo=hospital_tz) + timedelta(days=1)).astimezone(timezone.utc)
+    has_triage = select(models.Triage.triage_id).where(
+        models.Triage.encounter_id == models.Encounter.encounter_id
+    ).exists()
+    encounters = db.scalars(
+        select(models.Encounter)
+        .where(models.Encounter.arrival_ts >= day_start)
+        .where(models.Encounter.arrival_ts < day_end)
+        .where(models.Encounter.status == "CHECKED_IN")
+        .where(~has_triage)
+        .order_by(models.Encounter.arrival_ts.asc())
+    ).all()
+
+    out = []
+    for encounter in encounters:
+        patient = db.get(models.Patient, encounter.patient_id)
+        out.append({
+            "encounter_id": encounter.encounter_id,
+            "appointment_id": encounter.appointment_id,
+            "status": encounter.status,
+            "visit_type": encounter.visit_type,
+            "department": encounter.department,
+            "channel": encounter.channel,
+            "arrival": encounter.arrival_ts.isoformat(),
+            "patient": {
+                "patient_id": patient.patient_id,
+                "name": patient.full_name,
+                "age": patient.age,
+                "gender": patient.gender,
+                "mobile": patient.mobile,
+                "mrn": patient.mrn,
+            } if patient else None,
+        })
+    return out
 
 
 @router.get("/doctors/{doctor_id}/encounters")

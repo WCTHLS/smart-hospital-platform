@@ -12,7 +12,7 @@ import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
 
 const NAV = [
   { to: "/", label: "Home", icon: Activity, end: true },
-  { to: "/checkin", label: "Check-in", icon: MessageSquareHeart, roles: ["patient"] },
+  { to: "/patient/checkin", label: "Check-in", icon: MessageSquareHeart, roles: ["patient"] },
   { to: "/triage", label: "Triage Desk", icon: HeartPulse, roles: ["nurse"] },
   { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, roles: ["doctor"] },
   { to: "/lab", label: "Lab Workspace", icon: FlaskConical, roles: ["lab"] },
@@ -84,7 +84,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       journey.setRole("nurse");
     } else if ((path === "/command" || path === "/admin") && activeRole !== "admin") {
       journey.setRole("admin");
-    } else if ((path === "/checkin" || path === "/patient") && activeRole !== "patient") {
+    } else if (path.startsWith("/patient") && activeRole !== "patient") {
       journey.setRole("patient");
     }
   }, [loc.pathname, activeRole, journey]);
@@ -92,7 +92,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const handleRoleChange = (newRole: Role) => {
     journey.reset();
     journey.setRole(newRole);
-    if (newRole === "patient") nav("/checkin");
+    if (newRole === "patient") nav("/patient");
     else if (newRole === "nurse") nav("/triage");
     else if (newRole === "doctor") nav("/copilot");
     else if (newRole === "admin") nav("/command");
