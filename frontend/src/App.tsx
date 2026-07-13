@@ -3,7 +3,7 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import Home from "./pages/Home";
 import PatientCheckIn from "./features/patient/PatientCheckIn";
-import PatientTriage from "./features/patient/PatientTriage";
+import TriageWorkspace from "./features/triage/TriageWorkspace";
 import DoctorWorkspace from "./features/doctor/DoctorWorkspace";
 import LabWorkspace from "./features/lab/LabWorkspace";
 import PatientDashboard from "./features/patient/PatientDashboard";
@@ -24,7 +24,7 @@ export default function App() {
         <Layout>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/triage" element={<PatientTriage />} />
+            <Route path="/triage" element={<TriageWorkspace />} />
             <Route path="/copilot" element={<DoctorWorkspace />} />
             <Route path="/lab" element={<LabWorkspace />} />
             <Route path="/patient/login" element={<PatientLogin />} />
