@@ -56,6 +56,7 @@ export const api = {
     put<any>(`/api/v1/doctors/${doctor_id}/availability`, { available }),
   triage: (encounter_id: string, body: any) =>
     post<any>(`/api/v1/encounters/${encounter_id}/triage`, body),
+  triageQueue: () => get<any>("/api/v1/triage/queue"),
   encounter: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}`),
   updateEncounterNotes: (encounter_id: string, notes: string) =>
     post<any>(`/api/v1/encounters/${encounter_id}/notes-advice`, { notes }),
@@ -68,6 +69,8 @@ export const api = {
     post<any>("/api/v1/lab-orders", { encounter_id, tests }),
   publishResult: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/publish-result`),
+  confirmLabOrder: (lab_order_id: string) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/confirm`),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
   labOrders: () => get<any>("/api/v1/lab-orders"),

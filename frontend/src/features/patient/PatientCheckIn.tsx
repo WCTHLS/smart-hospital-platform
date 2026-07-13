@@ -13,9 +13,9 @@ import {
   UserRound,
   ArrowLeft,
 } from "lucide-react";
-import { api, ApiError } from "../lib/api";
-import { useJourney } from "../lib/store";
-import { DeviceBar, Field, SectionTitle } from "../components/ui";
+import { api, ApiError } from "../../lib/api";
+import { useJourney } from "../../lib/store";
+import { DeviceBar, Field, SectionTitle } from "../../components/ui";
 
 type Msg = { who: "bot" | "me"; text: string };
 type Profile = {

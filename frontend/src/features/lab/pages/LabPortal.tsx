@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Clipboard, FileCheck2, User, Clock, CheckCircle2 } from "lucide-react";
-import { api } from "../lib/api";
-import { Card, Tag, Empty } from "../components/ui";
+import { api } from "../../../lib/api";
+import { Card, Tag, Empty } from "../../../components/ui";
 
 const ANALYTE_MAP: Record<string, { name: string; unit: string; defaultVal: number }[]> = {
   "CBC": [
@@ -141,7 +141,7 @@ export default function LabPortal() {
   };
 
   const pending = orders?.filter((o: any) => {
-    const isPending = o.status === "CREATED";
+    const isPending = o.status === "CONFIRMED";
     const category = o.category || "PATHOLOGY";
     return isPending && (deptFilter === "ALL" || category === deptFilter);
   }) || [];
@@ -289,6 +289,15 @@ export default function LabPortal() {
                   <div className="text-slate-200">Name: <b>{selectedOrder.patient_name}</b></div>
                   <div style={{ color: "var(--muted)" }}>Test Ordered: <b>{selectedOrder.test_name}</b></div>
                   <div style={{ color: "var(--muted)" }}>Order Reference: <b>{selectedOrder.qr_code}</b></div>
+                </div>
+
+                <div className="p-3 border border-emerald-500/20 bg-emerald-500/5 rounded-xl text-xs space-y-1 text-emerald-400">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <CheckCircle2 size={13} className="text-emerald-400" /> Patient Verified in Lab Room
+                  </div>
+                  <div className="text-slate-300">
+                    Verify name, mobile number, and token before collecting sample or running diagnostics.
+                  </div>
                 </div>
 
                 <div className="space-y-3">

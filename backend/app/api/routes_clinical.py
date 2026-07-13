@@ -532,3 +532,13 @@ def update_doctor_availability(
     doc.available = body.available
     db.commit()
     return {"status": "success", "available": doc.available}
+
+
+@router.post("/lab-orders/{lab_order_id}/confirm")
+def confirm_lab_order(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
+    order = db.get(models.LabOrder, lab_order_id)
+    if not order:
+        raise HTTPException(404, "Lab order not found")
+    order.status = "CONFIRMED"
+    db.commit()
+    return {"status": "success", "lab_order_id": lab_order_id}

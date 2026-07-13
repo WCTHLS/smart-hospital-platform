@@ -2,13 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import Home from "./pages/Home";
-import CheckIn from "./pages/CheckIn";
-import Triage from "./pages/Triage";
-import Copilot from "./pages/Copilot";
-import LabPortal from "./pages/LabPortal";
-import Patient from "./pages/Patient";
-import Command from "./pages/Command";
-import AdminPortal from "./pages/AdminPortal";
+import PatientCheckIn from "./features/patient/PatientCheckIn";
+import PatientTriage from "./features/patient/PatientTriage";
+import DoctorWorkspace from "./features/doctor/DoctorWorkspace";
+import LabWorkspace from "./features/lab/LabWorkspace";
+import PatientDashboard from "./features/patient/PatientDashboard";
+import CommandCenter from "./features/admin/CommandCenter";
+import AdminPortal from "./features/admin/AdminPortal";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -21,12 +21,12 @@ export default function App() {
         <Layout>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/checkin" element={<CheckIn />} />
-            <Route path="/triage" element={<Triage />} />
-            <Route path="/copilot" element={<Copilot />} />
-            <Route path="/lab" element={<LabPortal />} />
-            <Route path="/patient" element={<Patient />} />
-            <Route path="/command" element={<Command />} />
+            <Route path="/checkin" element={<PatientCheckIn />} />
+            <Route path="/triage" element={<PatientTriage />} />
+            <Route path="/copilot" element={<DoctorWorkspace />} />
+            <Route path="/lab" element={<LabWorkspace />} />
+            <Route path="/patient" element={<PatientDashboard />} />
+            <Route path="/command" element={<CommandCenter />} />
             <Route path="/admin" element={<AdminPortal />} />
           </Routes>
         </Layout>
