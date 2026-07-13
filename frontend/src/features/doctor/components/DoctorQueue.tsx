@@ -303,9 +303,11 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                           <span className="text-[12px] font-bold uppercase tracking-wider text-[var(--dim)]">
                             Token: <b className="text-white text-base">{enc.token?.number || "—"}</b>
                           </span>
-                          <Tag tone={tagTone}>
-                            ESI {acuity} {isRedFlag ? "· RED FLAG" : ""}
-                          </Tag>
+                          {isRedFlag && (
+                            <Tag tone="red">
+                              RED FLAG
+                            </Tag>
+                          )}
                         </div>
 
                         <div>

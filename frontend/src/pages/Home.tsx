@@ -9,7 +9,7 @@ import { Card, Metric, AgentBadge } from "../components/ui";
 
 const AGENTS = [
   { icon: MessageSquareHeart, name: "Intake", desc: "Conversational symptom capture + red-flag detection" },
-  { icon: HeartPulse, name: "Triage", desc: "ESI acuity, specialty & doctor match, queueing" },
+  { icon: HeartPulse, name: "Triage", desc: "Urgency assessment, specialty & doctor match, queueing" },
   { icon: FileText, name: "Ambient Docs", desc: "Transcribe consult → draft SOAP + ICD-10" },
   { icon: FlaskConical, name: "Lab Intelligence", desc: "Duplicate check, structure results, flag abnormal" },
   { icon: Pill, name: "Rx CDS", desc: "Allergy / interaction / dose / formulary / stock" },
@@ -38,7 +38,7 @@ export default function Home() {
             clinician approves every note, order and prescription. ABDM-ready. Consent-first. Auditable.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <button className="btn" onClick={() => nav("/checkin")}>
+            <button className="btn" onClick={() => nav("/patient/checkin")}>
               Start a patient journey <ArrowRight size={16} />
             </button>
             <button className="btn ghost" onClick={() => nav("/command")}>Open Command Center</button>

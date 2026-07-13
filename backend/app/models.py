@@ -114,6 +114,9 @@ class Encounter(Base):
 
     encounter_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    # Stored on the encounter for direct lookup. The reciprocal
+    # Appointment.encounter_id owns the physical FK so DROP/CREATE has no cycle.
+    appointment_id: Mapped[str | None] = mapped_column(String(36), unique=True)
     visit_type: Mapped[str] = mapped_column(String(20), default="OPD")  # OPD / FOLLOWUP
     department: Mapped[str | None] = mapped_column(String(60))
     doctor_id: Mapped[str | None] = mapped_column(String(36))
@@ -140,7 +143,7 @@ class Appointment(Base):
     appointment_type: Mapped[str] = mapped_column(String(20), default="OPD")
     scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     scheduled_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    status: Mapped[str] = mapped_column(String(24), default="BOOKED")
+    status: Mapped[str] = mapped_column(String(24), default="BOOKED") #CANCELLED, RESCHEDULED, CHECKED_IN, COMPLETED
     channel: Mapped[str | None] = mapped_column(String(20))
     encounter_id: Mapped[str | None] = mapped_column(ForeignKey("encounter.encounter_id"))
     created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -377,7 +380,8 @@ class Document(Base):
     encounter_id: Mapped[str | None] = mapped_column(String(36))
     doc_type: Mapped[str] = mapped_column(String(40))  # LAB_REPORT / DISCHARGE / SCAN / AUDIO
     title: Mapped[str | None] = mapped_column(String(160))
-    uri: Mapped[str | None] = mapped_column(String(300))
+    # Data URL containing the uploaded file bytes for this demo implementation.
+    uri: Mapped[str | None] = mapped_column(Text)
     created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 

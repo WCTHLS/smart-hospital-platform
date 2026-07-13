@@ -46,14 +46,21 @@ export const api = {
   verifyIdentity: (method: string, value: string) =>
     post<any>("/api/v1/identity/verify", { method, value }),
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),
+  todayAppointments: (patient_id: string) =>
+    get<any>(`/api/v1/patients/${patient_id}/appointments/today`),
   appointmentSlots: (body: any) => post<any>("/api/v1/appointments/slots", body),
   bookAppointment: (body: any) => post<any>("/api/v1/appointments/book", body),
+  cancelAppointment: (appointment_id: string) => post<any>(`/api/v1/appointments/${appointment_id}/cancel`),
   patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
   doctors: () => get<any[]>("/api/v1/doctors"),
   doctorEncounters: (doctor_id: string) => get<any[]>(`/api/v1/doctors/${doctor_id}/encounters`),
   updateDoctorAvailability: (doctor_id: string, available: boolean) =>
     put<any>(`/api/v1/doctors/${doctor_id}/availability`, { available }),
+  triageStaff: () => get<any[]>("/api/v1/triage/staff"),
+  verifyTriagePin: (staff_id: string, access_pin: string) =>
+    post<any>("/api/v1/triage/verify-pin", { staff_id, access_pin }),
+  pendingTriageEncounters: () => get<any[]>("/api/v1/triage/encounters"),
   triage: (encounter_id: string, body: any) =>
     post<any>(`/api/v1/encounters/${encounter_id}/triage`, body),
   triageQueue: () => get<any>("/api/v1/triage/queue"),
