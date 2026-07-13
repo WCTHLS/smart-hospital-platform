@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, LockKeyhole, Phone, Plus, ShieldCheck, UserPlus } from "lucide-react";
-import { api, ApiError } from "../lib/api";
-import { getPortalPatient, savePortalPatient } from "../lib/patientAuth";
-import { useJourney } from "../lib/store";
-import { Card, Field } from "../components/ui";
+import { api, ApiError } from "../../lib/api";
+import { getPortalPatient, savePortalPatient } from "../../lib/patientAuth";
+import { useJourney } from "../../lib/store";
+import { Card, Field } from "../../components/ui";
 
 type LoginStep = "mobile" | "otp" | "profiles" | "register" | "medical";
 type AllergyDraft = { substance: string; drug_class: string; severity: string; reaction: string };

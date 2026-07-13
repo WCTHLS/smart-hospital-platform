@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, ClipboardPlus, Plus } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError } from "../lib/api";
-import { getPortalPatient } from "../lib/patientAuth";
-import { useJourney } from "../lib/store";
-import { SectionTitle } from "../components/ui";
+import { api, ApiError } from "../../lib/api";
+import { getPortalPatient } from "../../lib/patientAuth";
+import { useJourney } from "../../lib/store";
+import { SectionTitle } from "../../components/ui";
 
 type Step = "appointments" | "details" | "done";
 

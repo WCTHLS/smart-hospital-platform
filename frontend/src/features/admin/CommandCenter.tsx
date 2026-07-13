@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Activity, AlertTriangle, PackageX, Radio, ScrollText } from "lucide-react";
-import { api } from "../lib/api";
-import { useRealtime } from "../lib/realtime";
-import { Card, Metric, Tag, Empty } from "../components/ui";
+import { api } from "../../lib/api";
+import { useRealtime } from "../../lib/realtime";
+import { Card, Metric, Tag, Empty } from "../../components/ui";
 
 const alertTone: Record<string, string> = { SLA: "red", STOCK: "amber", FLOW: "blue", COMPLIANCE: "violet" };
 

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical, Clipboard, FileCheck2, User, Clock, CheckCircle2 } from "lucide-react";
-import { api } from "../lib/api";
-import { Card, Tag, Empty } from "../components/ui";
+import { api } from "../../../lib/api";
+import { Card, Tag, Empty } from "../../../components/ui";
 
 const ANALYTE_MAP: Record<string, { name: string; unit: string; defaultVal: number }[]> = {
   "CBC": [
@@ -38,6 +38,7 @@ export default function LabPortal() {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState("");
+  const [deptFilter, setDeptFilter] = useState<"ALL" | "PATHOLOGY" | "RADIOLOGY" | "CARDIOLOGY">("ALL");
   
   // File Upload states
   const [file, setFile] = useState<File | null>(null);
@@ -139,8 +140,17 @@ export default function LabPortal() {
     }
   };
 
-  const pending = orders?.filter((o: any) => o.status === "CREATED") || [];
-  const completed = orders?.filter((o: any) => o.status === "RESULTED") || [];
+  const pending = orders?.filter((o: any) => {
+    const isPending = o.status === "CONFIRMED";
+    const category = o.category || "PATHOLOGY";
+    return isPending && (deptFilter === "ALL" || category === deptFilter);
+  }) || [];
+
+  const completed = orders?.filter((o: any) => {
+    const isCompleted = o.status === "RESULTED";
+    const category = o.category || "PATHOLOGY";
+    return isCompleted && (deptFilter === "ALL" || category === deptFilter);
+  }) || [];
 
   return (
     <div className="space-y-6">
@@ -156,6 +166,31 @@ export default function LabPortal() {
         </div>
         <span className="live">LIVE REFRESH</span>
       </Card>
+
+      {/* Department Filter Bar */}
+      <div className="flex flex-wrap gap-2 p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit">
+        {[
+          { id: "ALL", label: "🏢 All Departments" },
+          { id: "PATHOLOGY", label: "🧪 Pathology (Blood/Urine)" },
+          { id: "RADIOLOGY", label: "🩻 Radiology (X-Ray/Imaging)" },
+          { id: "CARDIOLOGY", label: "❤️ Cardiology (ECG)" },
+        ].map((d) => (
+          <button
+            key={d.id}
+            onClick={() => {
+              setDeptFilter(d.id as any);
+              setSelectedOrder(null); // Clear selected if switching departments
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+              deptFilter === d.id
+                ? "bg-white/10 text-white"
+                : "text-[var(--muted)] hover:text-white"
+            }`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
         {/* Left Column: Queues */}
@@ -254,6 +289,15 @@ export default function LabPortal() {
                   <div className="text-slate-200">Name: <b>{selectedOrder.patient_name}</b></div>
                   <div style={{ color: "var(--muted)" }}>Test Ordered: <b>{selectedOrder.test_name}</b></div>
                   <div style={{ color: "var(--muted)" }}>Order Reference: <b>{selectedOrder.qr_code}</b></div>
+                </div>
+
+                <div className="p-3 border border-emerald-500/20 bg-emerald-500/5 rounded-xl text-xs space-y-1 text-emerald-400">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <CheckCircle2 size={13} className="text-emerald-400" /> Patient Verified in Lab Room
+                  </div>
+                  <div className="text-slate-300">
+                    Verify name, mobile number, and token before collecting sample or running diagnostics.
+                  </div>
                 </div>
 
                 <div className="space-y-3">

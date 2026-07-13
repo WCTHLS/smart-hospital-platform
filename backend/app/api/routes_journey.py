@@ -803,6 +803,7 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         "encounter_id": e.encounter_id, "appointment_id": e.appointment_id,
         "status": e.status, "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
+        "notes": e.notes,
         "patient": _patient_brief(p),
         "triage": None if not triage else {
             "chief_complaint": triage.chief_complaint, "acuity": triage.acuity_level,
@@ -943,6 +944,35 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
                 "acuity": triage.acuity_level if triage else None,
                 "red_flag": triage.red_flag if triage else False,
             } if triage else None,
+        })
+    return out
+
+
+@router.get("/triage/queue")
+def list_triage_queue(db: Session = Depends(get_db)) -> list[dict]:
+    """Retrieve all active encounters that have checked in but are not yet triaged."""
+    stmt = (
+        select(models.Encounter)
+        .where(models.Encounter.status == "CHECKED_IN")
+        .order_by(models.Encounter.arrival_ts.desc())
+    )
+    encounters = db.scalars(stmt).all()
+    out = []
+    for e in encounters:
+        p = db.get(models.Patient, e.patient_id)
+        out.append({
+            "encounter_id": e.encounter_id,
+            "status": e.status,
+            "visit_type": e.visit_type,
+            "arrival": e.arrival_ts.isoformat(),
+            "patient": {
+                "patient_id": p.patient_id,
+                "name": p.full_name,
+                "age": p.age,
+                "gender": p.gender,
+                "mobile": p.mobile,
+                "mrn": p.mrn,
+            } if p else None,
         })
     return out
 

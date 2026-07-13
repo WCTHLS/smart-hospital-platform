@@ -2,16 +2,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import Layout from "./components/Layout";
 import Home from "./pages/Home";
-import CheckIn from "./pages/CheckIn";
-import Triage from "./pages/Triage";
-import Copilot from "./pages/Copilot";
-import LabPortal from "./pages/LabPortal";
-import Patient from "./pages/Patient";
-import Command from "./pages/Command";
-import AdminPortal from "./pages/AdminPortal";
-import PatientLogin from "./pages/PatientLogin";
+import PatientCheckIn from "./features/patient/PatientCheckIn";
+import TriageWorkspace from "./features/triage/TriageWorkspace";
+import DoctorWorkspace from "./features/doctor/DoctorWorkspace";
+import LabWorkspace from "./features/lab/LabWorkspace";
+import PatientDashboard from "./features/patient/PatientDashboard";
+import CommandCenter from "./features/admin/CommandCenter";
+import AdminPortal from "./features/admin/AdminPortal";
+import PatientLogin from "./features/patient/PatientLogin";
 import RequirePatient from "./components/RequirePatient";
-import AppointmentBooking from "./pages/AppointmentBooking";
+import AppointmentBooking from "./features/patient/AppointmentBooking";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -24,14 +24,14 @@ export default function App() {
         <Layout>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/triage" element={<Triage />} />
-            <Route path="/copilot" element={<Copilot />} />
-            <Route path="/lab" element={<LabPortal />} />
+            <Route path="/triage" element={<TriageWorkspace />} />
+            <Route path="/copilot" element={<DoctorWorkspace />} />
+            <Route path="/lab" element={<LabWorkspace />} />
             <Route path="/patient/login" element={<PatientLogin />} />
-            <Route path="/patient" element={<RequirePatient><Patient /></RequirePatient>} />
-            <Route path="/patient/checkin" element={<RequirePatient><CheckIn /></RequirePatient>} />
+            <Route path="/patient" element={<RequirePatient><PatientDashboard /></RequirePatient>} />
+            <Route path="/patient/checkin" element={<RequirePatient><PatientCheckIn /></RequirePatient>} />
             <Route path="/patient/appointments/book" element={<RequirePatient><AppointmentBooking /></RequirePatient>} />
-            <Route path="/command" element={<Command />} />
+            <Route path="/command" element={<CommandCenter />} />
             <Route path="/admin" element={<AdminPortal />} />
           </Routes>
         </Layout>

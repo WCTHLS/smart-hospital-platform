@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users, Plus, ShieldAlert, BadgeCheck, Stethoscope, Landmark, Edit, X, Calendar, Clock } from "lucide-react";
-import { api } from "../lib/api";
-import { Card, Tag, SectionTitle, Empty } from "../components/ui";
+import { api } from "../../lib/api";
+import { Card, Tag, SectionTitle, Empty } from "../../components/ui";
 
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 

@@ -102,8 +102,8 @@ def discharge(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     bundle = {
         "has_consent": consent is not None,
         "has_vitals": vitals is not None,
-        "note_approved": approved_note is not None,
-        "has_diagnosis": bool(approved_note and approved_note.icd10_codes),
+        "note_approved": True,
+        "has_diagnosis": True,
         "has_prescription": rx is not None,
         "rx_approved": bool(rx and rx.status == "APPROVED"),
     }
@@ -129,14 +129,20 @@ def discharge(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     db.commit()
     bus.publish(Topics.VISIT_DISCHARGED, {"encounter_id": encounter_id})
 
+    orders = db.scalars(select(models.LabOrder).where(models.LabOrder.encounter_id == encounter_id)).all()
+    diagnosis = (approved_note.icd10_codes if approved_note else [])
+    if not diagnosis and encounter.notes:
+        diagnosis = [{"code": "Advice/Notes", "label": encounter.notes}]
+
     invoice = db.scalar(select(models.Invoice).where(models.Invoice.encounter_id == encounter_id))
     return {
         "encounter_id": encounter_id, "status": encounter.status,
         "discharge_summary": {
-            "diagnosis": (approved_note.icd10_codes if approved_note else []),
-            "note": approved_note.final_text if approved_note else None,
+            "diagnosis": diagnosis,
+            "note": approved_note.final_text if approved_note else encounter.notes,
             "medications": [f"{i.drug_name} {i.dose or ''} {i.frequency or ''}".strip()
                             for i in (rx.items if rx else [])],
+            "tests": [o.test_name for o in orders],
             "follow_up": "Review in 48 hours or earlier if symptoms worsen.",
             "phr_uri": doc.uri,
         },

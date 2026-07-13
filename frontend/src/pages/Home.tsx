@@ -9,7 +9,7 @@ import { Card, Metric, AgentBadge } from "../components/ui";
 
 const AGENTS = [
   { icon: MessageSquareHeart, name: "Intake", desc: "Conversational symptom capture + red-flag detection" },
-  { icon: HeartPulse, name: "Triage", desc: "ESI acuity, specialty & doctor match, queueing" },
+  { icon: HeartPulse, name: "Triage", desc: "Urgency assessment, specialty & doctor match, queueing" },
   { icon: FileText, name: "Ambient Docs", desc: "Transcribe consult → draft SOAP + ICD-10" },
   { icon: FlaskConical, name: "Lab Intelligence", desc: "Duplicate check, structure results, flag abnormal" },
   { icon: Pill, name: "Rx CDS", desc: "Allergy / interaction / dose / formulary / stock" },

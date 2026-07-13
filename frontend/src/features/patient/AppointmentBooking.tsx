@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, CreditCard, UserRound } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, ApiError } from "../lib/api";
-import { getPortalPatient } from "../lib/patientAuth";
-import { Field, SectionTitle } from "../components/ui";
+import { api, ApiError } from "../../lib/api";
+import { getPortalPatient } from "../../lib/patientAuth";
+import { Field, SectionTitle } from "../../components/ui";
 
 type Slot = {
   doctor_id: string;

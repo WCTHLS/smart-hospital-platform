@@ -55,13 +55,18 @@ export const api = {
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
   doctors: () => get<any[]>("/api/v1/doctors"),
   doctorEncounters: (doctor_id: string) => get<any[]>(`/api/v1/doctors/${doctor_id}/encounters`),
+  updateDoctorAvailability: (doctor_id: string, available: boolean) =>
+    put<any>(`/api/v1/doctors/${doctor_id}/availability`, { available }),
   triageStaff: () => get<any[]>("/api/v1/triage/staff"),
   verifyTriagePin: (staff_id: string, access_pin: string) =>
     post<any>("/api/v1/triage/verify-pin", { staff_id, access_pin }),
   pendingTriageEncounters: () => get<any[]>("/api/v1/triage/encounters"),
   triage: (encounter_id: string, body: any) =>
     post<any>(`/api/v1/encounters/${encounter_id}/triage`, body),
+  triageQueue: () => get<any>("/api/v1/triage/queue"),
   encounter: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}`),
+  updateEncounterNotes: (encounter_id: string, notes: string) =>
+    post<any>(`/api/v1/encounters/${encounter_id}/notes-advice`, { notes }),
 
   // clinical
   ambient: (encounter_id: string, transcript: string) =>
@@ -71,6 +76,8 @@ export const api = {
     post<any>("/api/v1/lab-orders", { encounter_id, tests }),
   publishResult: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/publish-result`),
+  confirmLabOrder: (lab_order_id: string) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/confirm`),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
   labOrders: () => get<any>("/api/v1/lab-orders"),
