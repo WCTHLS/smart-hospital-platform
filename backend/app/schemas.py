@@ -106,6 +106,20 @@ class PatientProfileUpdateRequest(BaseModel):
     documents: list[DocumentIn] = Field(default_factory=list)
 
 
+class PatientPhotoUpdateRequest(BaseModel):
+    profile_photo: str
+
+    @field_validator("profile_photo")
+    @classmethod
+    def validate_profile_photo(cls, value: str) -> str:
+        allowed = ("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")
+        if not value.startswith(allowed):
+            raise ValueError("profile photo must be a JPEG, PNG or WebP image")
+        if len(value) > 2_800_000:
+            raise ValueError("profile photo must be 2 MB or smaller")
+        return value
+
+
 class ConsentRequest(BaseModel):
     patient_id: str
     purpose: str = "CARE_MGMT"

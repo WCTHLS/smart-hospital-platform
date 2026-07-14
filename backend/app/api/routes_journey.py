@@ -25,6 +25,7 @@ from app.schemas import (
     IdentityVerifyRequest,
     MobileProfilesRequest,
     PatientBasicRegistrationRequest,
+    PatientPhotoUpdateRequest,
     PatientProfileUpdateRequest,
     PatientRegistrationRequest,
     TriageRequest,
@@ -56,6 +57,7 @@ def _patient_brief(p: models.Patient) -> dict:
         "mrn": p.mrn,
         "blood_group": p.blood_group,
         "mobile": p.mobile,
+        "profile_photo": p.profile_photo,
     }
 
 
@@ -72,6 +74,7 @@ def _patient_match(p: models.Patient) -> dict:
         "address": p.address,
         "abha_number": p.abha_number,
         "mrn": p.mrn,
+        "profile_photo": p.profile_photo,
     }
 
 
@@ -323,6 +326,26 @@ def update_patient_profile(
         actor_id=patient.patient_id,
         actor_role="PATIENT",
         action="PATIENT_PROFILE_COMPLETED",
+        entity_type="patient",
+        entity_id=patient.patient_id,
+    )
+    db.commit()
+    return {"patient": _patient_brief(patient)}
+
+
+@router.put("/patients/{patient_id}/profile-photo")
+def update_patient_profile_photo(
+    patient_id: str,
+    body: PatientPhotoUpdateRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    patient = _get_patient(db, patient_id)
+    patient.profile_photo = body.profile_photo
+    audit(
+        db,
+        actor_id=patient.patient_id,
+        actor_role="PATIENT",
+        action="PATIENT_PROFILE_PHOTO_UPDATED",
         entity_type="patient",
         entity_id=patient.patient_id,
     )

@@ -190,11 +190,16 @@ export default function PatientLogin() {
             <b>{profile.first_name} {profile.last_name}</b>
             <span className="mt-1 block text-xs" style={{ color: "var(--muted)" }}>DOB: {profile.dob ?? "Not available"}</span>
           </button>)}
+          <button className="btn ghost w-full" disabled={busy} onClick={() => setStep("register")}>
+            <UserPlus size={16} /> Register new patient
+          </button>
         </div>}
 
         {step === "register" && <div className="space-y-4">
           <div className="holo text-sm">
-            No patient profile was found for {mobile}. Register a new patient to continue.
+            {profiles.length
+              ? `Register another patient with mobile number ${mobile}.`
+              : `No patient profile was found for ${mobile}. Register a new patient to continue.`}
           </div>
           <div className="flex items-center gap-2 font-bold"><UserPlus size={18} /> New patient registration</div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -208,7 +213,9 @@ export default function PatientLogin() {
             <Field label="Address"><input className="input" value={registration.address} onChange={(e) => setRegistration({ ...registration, address: e.target.value })} /></Field>
           </div>
           <div className="flex items-center justify-between gap-3">
-            <button className="btn-link" disabled={busy} onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
+            <button className="btn-link" disabled={busy} onClick={() => setStep(profiles.length ? "profiles" : "mobile")}>
+              <ArrowLeft size={14} /> {profiles.length ? "Back to profiles" : "Change number"}
+            </button>
             <button
               className="btn g"
               disabled={busy || !demographicsValid}

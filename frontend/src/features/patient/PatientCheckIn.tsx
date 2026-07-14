@@ -6,7 +6,7 @@ import { getPortalPatient } from "../../lib/patientAuth";
 import { useJourney } from "../../lib/store";
 import { SectionTitle } from "../../components/ui";
 
-type Step = "appointments" | "details" | "done";
+type Step = "appointments" | "details";
 
 function errorText(error: unknown) {
   return error instanceof ApiError ? error.message : "Something went wrong";
@@ -26,9 +26,6 @@ export default function CheckIn() {
   const [step, setStep] = useState<Step>("appointments");
   const [appointments, setAppointments] = useState<any[]>([]);
   const [appointment, setAppointment] = useState<any>(null);
-  const [encounterId, setEncounterId] = useState("");
-  const [triageLocation, setTriageLocation] = useState({ room: "Triage Room", floor: "Ground Floor" });
-  const [showSuccess, setShowSuccess] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
 
@@ -60,12 +57,8 @@ export default function CheckIn() {
         channel: "PORTAL",
         reason: appointment.reason,
       });
-      setAppointment({ ...appointment, status: "CHECKED_IN" });
-      setEncounterId(result.encounter_id);
-      setTriageLocation(result.triage_location ?? triageLocation);
       setJourney({ patientId: result.patient.patient_id, patientName: result.patient.name, encounterId: result.encounter_id });
-      setStep("done");
-      setShowSuccess(true);
+      nav("/patient", { replace: true });
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -101,19 +94,16 @@ export default function CheckIn() {
           </div>
         </div>}
 
-        {(step === "details" || step === "done") && appointment && <div className="space-y-4">
-          <StepHeader icon={<CheckCircle2 size={20} />} title={step === "done" ? "Check-in complete" : "Appointment details"} />
-          {step === "done" && <div className="kv"><span>Status</span><b style={{ color: "var(--mint)" }}>Checked in</b></div>}
+        {step === "details" && appointment && <div className="space-y-4">
+          <StepHeader icon={<CheckCircle2 size={20} />} title="Appointment details" />
           <div className="grid gap-x-6 md:grid-cols-2">
-            <Detail label="Doctor" value={appointment.doctor?.name} /><Detail label="Speciality" value={appointment.specialty} /><Detail label="Reason for visit" value={appointment.reason} /><Detail label="Date" value={appointment.scheduled_start?.slice(0, 10)} /><Detail label="Time" value={timeLabel(appointment.scheduled_start)} /><Detail label="Room / floor" value={[appointment.doctor?.room, appointment.doctor?.floor].filter(Boolean).join(" / ")} /><Detail label="Payment" value="Paid" />{encounterId && <Detail label="Encounter ID" value={encounterId} />}
+            <Detail label="Doctor" value={appointment.doctor?.name} /><Detail label="Speciality" value={appointment.specialty} /><Detail label="Reason for visit" value={appointment.reason} /><Detail label="Date" value={appointment.scheduled_start?.slice(0, 10)} /><Detail label="Time" value={timeLabel(appointment.scheduled_start)} /><Detail label="Room / floor" value={[appointment.doctor?.room, appointment.doctor?.floor].filter(Boolean).join(" / ")} /><Detail label="Payment" value="Paid" />
           </div>
-          {step === "details" && <div className="actions-row between"><button className="btn-link" onClick={() => setStep("appointments")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy} onClick={completeCheckIn}>Complete check-in <CheckCircle2 size={16} /></button></div>}
+          <div className="actions-row between"><button className="btn-link" onClick={() => setStep("appointments")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy} onClick={completeCheckIn}>Complete check-in <CheckCircle2 size={16} /></button></div>
         </div>}
       </section>
-      <aside className="card h-fit space-y-3"><Stage number={1} title="Today's appointment" active={step === "appointments"} done={step !== "appointments"} /><Stage number={2} title="Complete check-in" active={step !== "appointments"} done={step === "done"} /></aside>
+      <aside className="card h-fit space-y-3"><Stage number={1} title="Today's appointment" active={step === "appointments"} done={step !== "appointments"} /><Stage number={2} title="Complete check-in" active={step !== "appointments"} done={false} /></aside>
     </div>
-
-    {showSuccess && <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true"><div className="card w-full max-w-sm text-center"><CheckCircle2 className="mx-auto mb-3" size={44} color="var(--mint)" /><h3 className="text-lg font-extrabold">Check-in completed successfully</h3><p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>Please visit {triageLocation.room}, {triageLocation.floor}, to complete the triage.</p><button className="btn g mt-4" onClick={() => setShowSuccess(false)}>Close</button></div></div>}
   </div>;
 }
 

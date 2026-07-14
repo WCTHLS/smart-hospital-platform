@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { LogOut, Clipboard, Activity, FileText } from "lucide-react";
+import { LogOut, Clipboard, Camera, UserRound } from "lucide-react";
 import { api } from "../../lib/api";
 import { useJourney } from "../../lib/store";
 import { useRealtime } from "../../lib/realtime";
-import { getPortalPatient, clearPortalPatient } from "../../lib/patientAuth";
+import { getPortalPatient, savePortalPatient, clearPortalPatient } from "../../lib/patientAuth";
 import { Card, Tag, Empty } from "../../components/ui";
 
 import StageTracker from "./components/StageTracker";
@@ -42,10 +42,42 @@ export default function PatientDashboard() {
   const events = useRealtime((s) => s.events);
 
   const [selectedEncounterId, setSelectedEncounterId] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState("");
 
   const portalSession = getPortalPatient()!;
   const portalPatientId = portalSession.patient_id;
   const portalPatientName = portalSession.name;
+
+  async function handlePhotoUpload(file?: File) {
+    if (!file) return;
+    setPhotoError("");
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setPhotoError("Choose a JPEG, PNG or WebP image.");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setPhotoError("Profile photo must be 2 MB or smaller.");
+      return;
+    }
+
+    setPhotoUploading(true);
+    try {
+      const profilePhoto = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const result = await api.updatePatientProfilePhoto(portalPatientId, profilePhoto);
+      savePortalPatient({ ...portalSession, profile_photo: result.patient.profile_photo });
+      await refetchP360();
+    } catch {
+      setPhotoError("Unable to upload the profile photo. Please try again.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
 
   // Query patient records
   const { data: p360, refetch: refetchP360 } = useQuery({
@@ -97,10 +129,35 @@ export default function PatientDashboard() {
       {/* Sidebar - Visits List */}
       <div className="space-y-4">
         <Card className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5">
+              {(p360?.patient?.profile_photo || portalSession.profile_photo)
+                ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
+                : <UserRound size={30} className="text-[var(--dim)]" />}
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Patient profile</div>
+              <div className="truncate font-extrabold text-base text-slate-100">{portalPatientName}</div>
+              <Tag tone="green">ABHA Verified</Tag>
+            </div>
+          </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Logged In Patient</div>
-            <div className="font-extrabold text-base text-slate-100">{portalPatientName}</div>
-            <Tag tone="green">ABHA Verified</Tag>
+            <input
+              id="patient-profile-photo"
+              className="hidden"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={photoUploading}
+              onChange={(event) => {
+                void handlePhotoUpload(event.target.files?.[0]);
+                event.target.value = "";
+              }}
+            />
+            <label htmlFor="patient-profile-photo" className="btn ghost w-full cursor-pointer text-xs !py-1.5">
+              <Camera size={14} /> {photoUploading ? "Uploading..." : "Upload profile photo"}
+            </label>
+            {photoError && <div className="mt-2 text-xs text-rose-300">{photoError}</div>}
+            <div className="mt-2 text-[10px] text-[var(--dim)]">JPEG, PNG or WebP · Maximum 2 MB</div>
           </div>
           <button
             onClick={handleSignOut}

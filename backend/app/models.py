@@ -40,6 +40,7 @@ class Patient(Base):
     email: Mapped[str | None] = mapped_column(String(120))
     blood_group: Mapped[str | None] = mapped_column(String(5))
     address: Mapped[str | None] = mapped_column(String(240))
+    profile_photo: Mapped[str | None] = mapped_column(Text)
     summary: Mapped[str | None] = mapped_column(String(2000))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
