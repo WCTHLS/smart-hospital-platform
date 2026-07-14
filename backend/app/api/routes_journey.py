@@ -24,12 +24,15 @@ from app.schemas import (
     BookAppointmentRequest,
     IdentityVerifyRequest,
     MobileProfilesRequest,
+    OtpSendRequest,
+    OtpVerifyRequest,
     PatientBasicRegistrationRequest,
     PatientPhotoUpdateRequest,
     PatientProfileUpdateRequest,
     PatientRegistrationRequest,
     TriageRequest,
 )
+from app.twilio_verify import check_otp, send_otp
 
 router = APIRouter(prefix="/api/v1", tags=["journey"])
 
@@ -354,9 +357,14 @@ def update_patient_profile_photo(
 
 
 # --------------------------------------------------------------------------------- Identity
+@router.post("/identity/otp/send")
+def send_mobile_otp(body: OtpSendRequest) -> dict:
+    return {**send_otp(body.mobile), "mobile": body.mobile}
+
+
 @router.post("/identity/otp/verify")
-def verify_mobile_otp(body: MobileProfilesRequest) -> dict:
-    return {"verified": True, "mobile": body.mobile}
+def verify_mobile_otp(body: OtpVerifyRequest) -> dict:
+    return {**check_otp(body.mobile, body.code), "mobile": body.mobile}
 
 
 @router.post("/identity/verify")

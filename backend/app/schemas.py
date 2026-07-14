@@ -23,6 +23,30 @@ class MobileProfilesRequest(BaseModel):
     mobile: str
 
 
+class OtpSendRequest(BaseModel):
+    mobile: str
+
+    @field_validator("mobile")
+    @classmethod
+    def validate_mobile(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) != 10 or not value.isdigit():
+            raise ValueError("mobile number must contain exactly 10 digits")
+        return value
+
+
+class OtpVerifyRequest(OtpSendRequest):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        value = value.strip()
+        if not value.isdigit() or not 1 <= len(value) <= 10:
+            raise ValueError("OTP must contain 1 to 10 digits")
+        return value
+
+
 class IdentityVerifyRequest(BaseModel):
     method: str = Field(description="ABHA / OTP / MRN")
     value: str

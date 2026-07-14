@@ -52,11 +52,25 @@ export default function PatientLogin() {
 
   if (getPortalPatient()) return <Navigate to={redirect} replace />;
 
+  async function sendOtp() {
+    setBusy(true);
+    setError("");
+    try {
+      await api.sendOtp(mobile.trim());
+      setOtp("");
+      setStep("otp");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Unable to send OTP");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function verifyOtp() {
     setBusy(true);
     setError("");
     try {
-      await api.verifyOtp(mobile.trim());
+      await api.verifyOtp(mobile.trim(), otp);
       const result = await api.mobileProfiles(mobile.trim());
       const matches = result.profiles ?? [];
       setProfiles(matches);
@@ -171,15 +185,18 @@ export default function PatientLogin() {
             <Phone size={15} className="absolute left-3 top-3" color="var(--dim)" />
             <input className="input pl-9" inputMode="numeric" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="9876500011" />
           </div>
-          <button className="btn w-full" disabled={!/^\d{10}$/.test(mobile)} onClick={() => setStep("otp")}>Send OTP</button>
+          <button className="btn w-full" disabled={busy || !/^\d{10}$/.test(mobile)} onClick={sendOtp}>{busy ? "Sending..." : "Send OTP"}</button>
         </div>}
 
         {step === "otp" && <div className="space-y-4">
           <div className="flex items-center gap-2"><LockKeyhole size={16} /> OTP sent to {mobile}</div>
-          <input className="input" inputMode="numeric" maxLength={4} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="Enter 4 digit OTP" />
+          <input className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="Enter OTP" />
           <div className="flex items-center justify-between gap-3">
-            <button className="btn-link" onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
-            <button className="btn g" disabled={busy || otp.length !== 4} onClick={verifyOtp}>{busy ? "Verifying..." : "Verify OTP"}</button>
+            <button className="btn-link" disabled={busy} onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
+            <div className="flex items-center gap-2">
+              <button className="btn ghost sm" disabled={busy} onClick={sendOtp}>Resend OTP</button>
+              <button className="btn g" disabled={busy || otp.length < 1} onClick={verifyOtp}>{busy ? "Verifying..." : "Verify OTP"}</button>
+            </div>
           </div>
         </div>}
 

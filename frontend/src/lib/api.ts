@@ -44,7 +44,8 @@ export const api = {
     put<any>(`/api/v1/patients/${patient_id}/profile`, body),
   updatePatientProfilePhoto: (patient_id: string, profile_photo: string) =>
     put<any>(`/api/v1/patients/${patient_id}/profile-photo`, { profile_photo }),
-  verifyOtp: (mobile: string) => post<any>("/api/v1/identity/otp/verify", { mobile }),
+  sendOtp: (mobile: string) => post<any>("/api/v1/identity/otp/send", { mobile }),
+  verifyOtp: (mobile: string, code: string) => post<any>("/api/v1/identity/otp/verify", { mobile, code }),
   verifyIdentity: (method: string, value: string) =>
     post<any>("/api/v1/identity/verify", { method, value }),
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),

@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # Security
     jwt_secret: str = "dev-secret-change-me"
 
+    # Twilio Verify (SMS OTP)
+    twilio_verify_enabled: bool = False
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_verify_service_sid: str = ""
+    twilio_country_code: str = "+91"
+    twilio_test_mobile_numbers: str = ""
+
     # CORS
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
@@ -47,6 +55,14 @@ class Settings(BaseSettings):
             parsed = json.loads(value)
             return [str(origin).strip() for origin in parsed if str(origin).strip()]
         return [origin.strip() for origin in value.split(",") if origin.strip()]
+
+    @property
+    def twilio_verify_configured(self) -> bool:
+        return all((
+            self.twilio_account_sid.strip(),
+            self.twilio_auth_token.strip(),
+            self.twilio_verify_service_sid.strip(),
+        ))
 
 
 settings = Settings()
