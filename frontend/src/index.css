@@ -26,6 +26,62 @@
   --glow-c: 0 0 18px rgba(52, 225, 232, 0.35);
 }
 
+@media (max-width: 640px) {
+  .patient-page .card,
+  .checkin-page .card {
+    padding: 0.875rem;
+    border-radius: 0.875rem;
+  }
+
+  .patient-page .actions-row,
+  .checkin-page .actions-row {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .patient-page .actions-row .btn,
+  .checkin-page .actions-row .btn {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .patient-page .actions-row .btn-link,
+  .checkin-page .actions-row .btn-link {
+    justify-content: center;
+    width: 100%;
+    min-height: 2.5rem;
+  }
+
+  .patient-page .kv,
+  .checkin-page .kv {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .patient-page .kv b,
+  .checkin-page .kv b {
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+
+  .patient-page input,
+  .patient-page select,
+  .patient-page textarea,
+  .checkin-page input,
+  .checkin-page select,
+  .checkin-page textarea {
+    font-size: 16px;
+  }
+}
+
+.token-highlight {
+  border-color: rgba(52, 225, 232, 0.75);
+  background: radial-gradient(circle at 50% 20%, rgba(52, 225, 232, 0.2), transparent 48%),
+    linear-gradient(135deg, rgba(52, 225, 232, 0.12), rgba(139, 92, 246, 0.14));
+  box-shadow: 0 0 0 1px rgba(52, 225, 232, 0.16), 0 0 30px rgba(52, 225, 232, 0.24), var(--shadow);
+}
+
 * {
   box-sizing: border-box;
 }

@@ -90,6 +90,8 @@ def list_triage_staff(db: Session = Depends(get_db)) -> list[dict]:
     ).all()
     return [{
         "staff_id": member.staff_id,
+        "role": member.role,
+        "available": member.available,
         "hpr_id": member.hpr_id,
         "name": member.name,
         "department": member.department,

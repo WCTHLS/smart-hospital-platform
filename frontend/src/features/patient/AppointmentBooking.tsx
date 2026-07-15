@@ -14,7 +14,25 @@ type Slot = {
   room?: string;
   scheduled_start: string;
   scheduled_end: string;
+  opd_fee?: number;
 };
+
+type RazorpaySuccess = {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+};
+
+type RazorpayCheckout = {
+  open: () => void;
+  on: (event: "payment.failed", callback: (response: any) => void) => void;
+};
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: Record<string, any>) => RazorpayCheckout;
+  }
+}
 
 type Step = "reason" | "date" | "slots" | "payment" | "details";
 
@@ -49,6 +67,7 @@ export default function AppointmentBooking() {
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [appointment, setAppointment] = useState<any>(null);
   const [showPaymentDone, setShowPaymentDone] = useState(false);
+  const [checkoutEmail, setCheckoutEmail] = useState(session.email || "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -82,7 +101,16 @@ export default function AppointmentBooking() {
     setBusy(true);
     setError("");
     try {
-      const result = await api.bookAppointment({
+      const amount = Math.round(Number(selectedSlot.opd_fee) * 100);
+      if (!Number.isFinite(amount) || amount < 100) {
+        throw new Error("A valid consultation fee is not configured for this doctor.");
+      }
+      const Razorpay = window.Razorpay;
+      if (!Razorpay) {
+        throw new Error("Razorpay Checkout is not available. Refresh the page and try again.");
+      }
+
+      const order = await api.createRazorpayOrder({
         patient_id: session.patient_id,
         doctor_id: selectedSlot.doctor_id,
         scheduled_start: selectedSlot.scheduled_start,
@@ -91,11 +119,53 @@ export default function AppointmentBooking() {
         specialty: selectedSlot.specialty,
         appointment_type: "OPD",
         channel: "PORTAL",
+        checkout_email: checkoutEmail.trim(),
       });
+      const payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
+        let settled = false;
+        const checkout = new Razorpay({
+          // Returned by the same server that created the order, preventing key/order mismatch.
+          key: order.key_id,
+          amount: order.amount,
+          currency: order.currency,
+          name: "Aarogya AI",
+          description: `${selectedSlot.specialty} consultation with ${selectedSlot.doctor_name}`,
+          order_id: order.order_id,
+          prefill: order.prefill,
+          readonly: {
+            name: true,
+            email: Boolean(order.prefill?.email),
+            contact: Boolean(order.prefill?.contact),
+          },
+          retry: { enabled: true },
+          theme: { color: "#34e1e8" },
+          modal: {
+            confirm_close: true,
+            ondismiss: () => {
+              if (!settled) reject(new Error("Payment was cancelled. Your appointment has not been booked."));
+            },
+          },
+          handler: (response: RazorpaySuccess) => {
+            settled = true;
+            resolve(response);
+          },
+        });
+        checkout.on("payment.failed", (response: any) => {
+          settled = true;
+          const failure = response?.error;
+          const context = [failure?.code, failure?.reason, failure?.step].filter(Boolean).join(" · ");
+          reject(new Error(
+            `${failure?.description || "Payment failed. Please try again."}${context ? ` (${context})` : ""}`
+          ));
+        });
+        checkout.open();
+      });
+
+      const result = await api.verifyRazorpayPayment(payment);
       setAppointment(result.appointment);
       setShowPaymentDone(true);
     } catch (e) {
-      setError(errorText(e));
+      setError(e instanceof Error ? e.message : errorText(e));
     } finally {
       setBusy(false);
     }
@@ -114,7 +184,7 @@ export default function AppointmentBooking() {
     }
   }
 
-  return <div className="space-y-5">
+  return <div className="patient-page space-y-4 sm:space-y-5">
     <SectionTitle sub={`Logged in as ${session.name}`}>Book appointment</SectionTitle>
     <section className="card mx-auto max-w-3xl space-y-5">
       {error && <div className="alertbox">{error}</div>}
@@ -155,8 +225,9 @@ export default function AppointmentBooking() {
 
       {step === "payment" && selectedSlot && <>
         <h3 className="text-lg font-extrabold">Payment</h3>
-        <div className="holo space-y-2"><Detail label="Doctor" value={selectedSlot.doctor_name} /><Detail label="Speciality" value={selectedSlot.specialty} /><Detail label="Date" value={selectedSlot.scheduled_start.slice(0, 10)} /><Detail label="Time" value={timeLabel(selectedSlot.scheduled_start)} /></div>
-        <div className="actions-row between"><button className="btn-link" disabled={busy} onClick={() => setStep("slots")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy} onClick={payAndBook}><CreditCard size={16} /> {busy ? "Processing..." : "Pay"}</button></div>
+        <div className="holo space-y-2"><Detail label="Doctor" value={selectedSlot.doctor_name} /><Detail label="Speciality" value={selectedSlot.specialty} /><Detail label="Date" value={selectedSlot.scheduled_start.slice(0, 10)} /><Detail label="Time" value={timeLabel(selectedSlot.scheduled_start)} /><Detail label="Consultation fee" value={selectedSlot.opd_fee != null ? `₹${Number(selectedSlot.opd_fee).toFixed(2)}` : "Not configured"} /></div>
+        <Field label="Billing email"><input className="input" type="email" autoComplete="email" value={checkoutEmail} onChange={(event) => setCheckoutEmail(event.target.value)} placeholder="patient@example.com" /></Field>
+        <div className="actions-row between"><button className="btn-link" disabled={busy} onClick={() => setStep("slots")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy || selectedSlot.opd_fee == null || !/^\S+@\S+\.\S+$/.test(checkoutEmail.trim())} onClick={payAndBook}><CreditCard size={16} /> {busy ? "Opening checkout..." : `Pay ₹${Number(selectedSlot.opd_fee || 0).toFixed(2)}`}</button></div>
       </>}
 
       {step === "details" && appointment && <>

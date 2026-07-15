@@ -24,11 +24,15 @@ from app.schemas import (
     BookAppointmentRequest,
     IdentityVerifyRequest,
     MobileProfilesRequest,
+    OtpSendRequest,
+    OtpVerifyRequest,
     PatientBasicRegistrationRequest,
+    PatientPhotoUpdateRequest,
     PatientProfileUpdateRequest,
     PatientRegistrationRequest,
     TriageRequest,
 )
+from app.twilio_verify import check_otp, send_otp
 
 router = APIRouter(prefix="/api/v1", tags=["journey"])
 
@@ -56,6 +60,7 @@ def _patient_brief(p: models.Patient) -> dict:
         "mrn": p.mrn,
         "blood_group": p.blood_group,
         "mobile": p.mobile,
+        "profile_photo": p.profile_photo,
     }
 
 
@@ -72,6 +77,7 @@ def _patient_match(p: models.Patient) -> dict:
         "address": p.address,
         "abha_number": p.abha_number,
         "mrn": p.mrn,
+        "profile_photo": p.profile_photo,
     }
 
 
@@ -142,6 +148,7 @@ def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | N
         "scheduled_end": appointment.scheduled_end.isoformat(),
         "status": appointment.status,
         "channel": appointment.channel,
+        "opd_fee": doctor.opd_fee if doctor else None,
     }
 
 
@@ -330,10 +337,35 @@ def update_patient_profile(
     return {"patient": _patient_brief(patient)}
 
 
+@router.put("/patients/{patient_id}/profile-photo")
+def update_patient_profile_photo(
+    patient_id: str,
+    body: PatientPhotoUpdateRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    patient = _get_patient(db, patient_id)
+    patient.profile_photo = body.profile_photo
+    audit(
+        db,
+        actor_id=patient.patient_id,
+        actor_role="PATIENT",
+        action="PATIENT_PROFILE_PHOTO_UPDATED",
+        entity_type="patient",
+        entity_id=patient.patient_id,
+    )
+    db.commit()
+    return {"patient": _patient_brief(patient)}
+
+
 # --------------------------------------------------------------------------------- Identity
+@router.post("/identity/otp/send")
+def send_mobile_otp(body: OtpSendRequest) -> dict:
+    return {**send_otp(body.mobile), "mobile": body.mobile}
+
+
 @router.post("/identity/otp/verify")
-def verify_mobile_otp(body: MobileProfilesRequest) -> dict:
-    return {"verified": True, "mobile": body.mobile}
+def verify_mobile_otp(body: OtpVerifyRequest) -> dict:
+    return {**check_otp(body.mobile, body.code), "mobile": body.mobile}
 
 
 @router.post("/identity/verify")
@@ -368,6 +400,27 @@ def today_appointments(patient_id: str, db: Session = Depends(get_db)) -> dict:
         .where(models.Appointment.status == "BOOKED")
         .where(models.Appointment.scheduled_start >= day_start)
         .where(models.Appointment.scheduled_start < day_end)
+        .order_by(models.Appointment.scheduled_start)
+    ).all()
+    return {
+        "appointments": [
+            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id))
+            for appointment in appointments
+        ]
+    }
+
+
+@router.get("/patients/{patient_id}/appointments/upcoming")
+def upcoming_appointments(patient_id: str, db: Session = Depends(get_db)) -> dict:
+    """Return booked appointments scheduled today or later in hospital time."""
+    _get_patient(db, patient_id)
+    hospital_tz = ZoneInfo("Asia/Kolkata")
+    day_start = datetime.combine(_hospital_today(), time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
+    appointments = db.scalars(
+        select(models.Appointment)
+        .where(models.Appointment.patient_id == patient_id)
+        .where(models.Appointment.status == "BOOKED")
+        .where(models.Appointment.scheduled_start >= day_start)
         .order_by(models.Appointment.scheduled_start)
     ).all()
     return {
@@ -433,6 +486,7 @@ def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_d
                     "specialty": doctor.specialty,
                     "location": schedule.location,
                     "room": schedule.room,
+                    "opd_fee": doctor.opd_fee,
                     "scheduled_start": slot_start.isoformat(),
                     "scheduled_end": slot_end.isoformat(),
                 })
@@ -764,10 +818,16 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
 def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     e = _get_encounter(db, encounter_id)
     p = _get_patient(db, e.patient_id)
+    appointment = db.get(models.Appointment, e.appointment_id) if e.appointment_id else None
+    appointment_doctor = db.get(models.Staff, appointment.doctor_id) if appointment and appointment.doctor_id else None
     triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id)
                        .order_by(models.Triage.created_ts.desc()))
     token = db.scalar(select(models.Token).where(models.Token.encounter_id == encounter_id)
                       .order_by(models.Token.issued_ts.desc()))
+    recommended_doctor = (
+        db.get(models.Staff, triage.recommended_doctor_id)
+        if triage and triage.recommended_doctor_id else None
+    )
 
     # Fetch vitals
     vitals = db.scalar(select(models.Vitals).where(models.Vitals.encounter_id == encounter_id)
@@ -793,6 +853,7 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
             "lab_order_id": lo.lab_order_id,
             "test": lo.test_name,
             "status": lo.status,
+            "price": lo.price,
             "results": [
                 {"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag}
                 for r in results
@@ -805,9 +866,18 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
         "notes": e.notes,
         "patient": _patient_brief(p),
+        "appointment": _appointment_brief(appointment, appointment_doctor) if appointment else None,
         "triage": None if not triage else {
             "chief_complaint": triage.chief_complaint, "acuity": triage.acuity_level,
-            "specialty": triage.specialty, "red_flag": triage.red_flag},
+            "specialty": triage.specialty, "red_flag": triage.red_flag,
+            "recommended_doctor": None if not recommended_doctor else {
+                "doctor_id": recommended_doctor.staff_id,
+                "name": recommended_doctor.name,
+                "specialty": recommended_doctor.specialty,
+                "room": recommended_doctor.room,
+                "floor": recommended_doctor.floor,
+                "opd_fee": recommended_doctor.opd_fee,
+            }},
         "token": None if not token else {"number": token.token_number, "room": token.room,
                                          "floor": token.floor, "eta_minutes": token.eta_minutes},
         "vitals": None if not vitals else {
@@ -816,12 +886,16 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         },
         "note": None if not note else {
             "note_id": note.note_id, "note_type": note.note_type, "final_text": note.final_text,
-            "icd10_codes": note.icd10_codes
+            "icd10_codes": note.icd10_codes, "status": note.status,
+            "approved_ts": note.approved_ts.isoformat() if note.approved_ts else None,
         },
         "prescription": None if not rx else {
             "rx_id": rx.rx_id, "status": rx.status,
+            "approved_ts": rx.approved_ts.isoformat() if rx.approved_ts else None,
             "items": [
-                {"drug_name": i.drug_name, "dose": i.dose, "frequency": i.frequency, "duration_days": i.duration_days}
+                {"drug_name": i.drug_name, "dose": i.dose, "route": i.route,
+                 "frequency": i.frequency, "duration_days": i.duration_days,
+                 "quantity": i.quantity}
                 for i in rx_items
             ]
         },

@@ -2,19 +2,185 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
+import re
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+import razorpay
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import models, services
 from app.ai import agents
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.events import Topics, bus
 from app.core.security import audit
-from app.schemas import ClaimRequest, PayRequest
+from app.schemas import ClaimRequest, PayRequest, RazorpayOrderRequest, RazorpayVerifyRequest
 
 router = APIRouter(prefix="/api/v1", tags=["billing"])
+logger = logging.getLogger("aarogya.razorpay")
+
+
+def _razorpay_client() -> razorpay.Client:
+    if not settings.razorpay_configured:
+        raise HTTPException(503, "Razorpay is not configured")
+    return razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret))
+
+
+@router.post("/payments/razorpay/create-order")
+def create_razorpay_order(body: RazorpayOrderRequest, db: Session = Depends(get_db)) -> dict:
+    required = (body.patient_id, body.doctor_id, body.scheduled_start, body.scheduled_end, body.reason, body.specialty)
+    if not all(required):
+        raise HTTPException(400, "patient, doctor, slot, reason and specialty are required")
+    patient = db.get(models.Patient, body.patient_id)
+    doctor = db.get(models.Staff, body.doctor_id)
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+    if not doctor or doctor.role != "DOCTOR":
+        raise HTTPException(404, "Doctor not found")
+    amount = round(float(doctor.opd_fee or 0) * 100)
+    if amount < 100:
+        raise HTTPException(400, "Doctor consultation fee must be at least 100 paise")
+    if body.scheduled_end <= body.scheduled_start:
+        raise HTTPException(400, "Invalid appointment slot")
+    checkout_email = (patient.email or body.checkout_email or "").strip()
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", checkout_email):
+        raise HTTPException(400, "A valid customer email is required for payment")
+    existing = db.scalar(
+        select(models.Appointment)
+        .where(models.Appointment.doctor_id == body.doctor_id)
+        .where(models.Appointment.scheduled_start == body.scheduled_start)
+        .where(models.Appointment.status.in_(["BOOKED", "CHECKED_IN"]))
+    )
+    if existing:
+        raise HTTPException(409, "This appointment slot is no longer available")
+    receipt = f"appt_{uuid.uuid4().hex[:24]}"
+
+    try:
+        order = _razorpay_client().order.create(data={
+            "amount": amount,
+            "currency": "INR",
+            "receipt": receipt,
+            "notes": {"patient_id": body.patient_id, "doctor_id": body.doctor_id},
+        })
+    except razorpay.errors.BadRequestError as exc:
+        message = str(exc)
+        status = 401 if "auth" in message.lower() or "key" in message.lower() else 500
+        logger.warning("Razorpay order creation rejected: %s", message)
+        raise HTTPException(status, "Razorpay authentication failed" if status == 401 else "Razorpay rejected the order") from exc
+    except Exception as exc:
+        logger.exception("Razorpay order creation failed")
+        raise HTTPException(500, "Unable to create Razorpay order") from exc
+
+    payment_order = models.RazorpayOrder(
+        order_id=order["id"], patient_id=body.patient_id, doctor_id=body.doctor_id,
+        amount_paise=order["amount"], currency=order["currency"], receipt=receipt,
+        scheduled_start=body.scheduled_start, scheduled_end=body.scheduled_end,
+        reason=body.reason.strip(), specialty=body.specialty,
+        appointment_type=body.appointment_type, channel=body.channel,
+    )
+    db.add(payment_order)
+    db.commit()
+    return {
+        "order_id": order["id"], "amount": order["amount"], "currency": order["currency"],
+        "key_id": settings.razorpay_key_id,
+        "prefill": {
+            "name": patient.full_name,
+            "email": checkout_email,
+            "contact": f"+91{patient.mobile}" if patient.mobile and len(patient.mobile) == 10 else patient.mobile,
+        },
+    }
+
+
+@router.post("/payments/razorpay/verify-payment")
+def verify_razorpay_payment(body: RazorpayVerifyRequest, db: Session = Depends(get_db)) -> dict:
+    values = (body.razorpay_payment_id, body.razorpay_order_id, body.razorpay_signature)
+    if not all(value and value.strip() for value in values):
+        raise HTTPException(400, "razorpay_payment_id, razorpay_order_id and razorpay_signature are required")
+    payment_order = db.get(models.RazorpayOrder, body.razorpay_order_id)
+    if not payment_order:
+        raise HTTPException(400, "Razorpay order was not created by this server")
+    if payment_order.status == "PAID" and payment_order.appointment_id:
+        appointment = db.get(models.Appointment, payment_order.appointment_id)
+        doctor = db.get(models.Staff, payment_order.doctor_id)
+        return {"success": True, "payment_id": payment_order.payment_id, "order_id": payment_order.order_id,
+                "appointment": _appointment_payment_dict(appointment, doctor)}
+
+    client = _razorpay_client()
+    try:
+        # Use the order id retrieved from our database, not an untrusted callback value.
+        client.utility.verify_payment_signature({
+            "razorpay_payment_id": body.razorpay_payment_id,
+            "razorpay_order_id": payment_order.order_id,
+            "razorpay_signature": body.razorpay_signature,
+        })
+    except razorpay.errors.SignatureVerificationError as exc:
+        raise HTTPException(400, "Payment signature verification failed") from exc
+    except Exception as exc:
+        logger.exception("Razorpay signature verification failed unexpectedly")
+        raise HTTPException(500, "Unable to verify Razorpay payment") from exc
+    try:
+        payment = client.payment.fetch(body.razorpay_payment_id)
+        if payment.get("order_id") != payment_order.order_id:
+            raise HTTPException(400, "Payment does not belong to this order")
+        if payment.get("amount") != payment_order.amount_paise or payment.get("currency") != payment_order.currency:
+            raise HTTPException(400, "Payment amount or currency does not match the server order")
+        if payment.get("status") == "authorized":
+            payment = client.payment.capture(body.razorpay_payment_id, payment_order.amount_paise, {"currency": payment_order.currency})
+        if payment.get("status") != "captured":
+            raise HTTPException(409, f"Payment is {payment.get('status', 'not captured')}")
+    except HTTPException:
+        raise
+    except razorpay.errors.BadRequestError as exc:
+        logger.warning("Razorpay payment status verification failed: %s", exc)
+        raise HTTPException(400, "Unable to confirm captured payment") from exc
+    except Exception as exc:
+        logger.exception("Razorpay payment fetch failed")
+        raise HTTPException(500, "Unable to confirm payment status") from exc
+
+    existing = db.scalar(
+        select(models.Appointment)
+        .where(models.Appointment.doctor_id == payment_order.doctor_id)
+        .where(models.Appointment.scheduled_start == payment_order.scheduled_start)
+        .where(models.Appointment.status.in_(["BOOKED", "CHECKED_IN"]))
+    )
+    if existing:
+        payment_order.status = "CAPTURED_BOOKING_FAILED"
+        payment_order.payment_id = body.razorpay_payment_id
+        payment_order.payment_signature = body.razorpay_signature
+        db.commit()
+        raise HTTPException(409, "Payment captured, but the slot is no longer available. Contact support with the payment ID.")
+
+    appointment = models.Appointment(
+        patient_id=payment_order.patient_id, doctor_id=payment_order.doctor_id,
+        department=db.get(models.Staff, payment_order.doctor_id).department,
+        specialty=payment_order.specialty, reason=payment_order.reason,
+        appointment_type=payment_order.appointment_type,
+        scheduled_start=payment_order.scheduled_start, scheduled_end=payment_order.scheduled_end,
+        status="BOOKED", channel=payment_order.channel,
+    )
+    db.add(appointment)
+    db.flush()
+    payment_order.status = "PAID"
+    payment_order.payment_id = body.razorpay_payment_id
+    payment_order.payment_signature = body.razorpay_signature
+    payment_order.appointment_id = appointment.appointment_id
+    db.commit()
+    doctor = db.get(models.Staff, payment_order.doctor_id)
+    return {"success": True, "payment_id": body.razorpay_payment_id, "order_id": payment_order.order_id,
+            "appointment": _appointment_payment_dict(appointment, doctor)}
+
+
+def _appointment_payment_dict(appointment: models.Appointment, doctor: models.Staff | None) -> dict:
+    return {
+        "appointment_id": appointment.appointment_id, "status": appointment.status,
+        "reason": appointment.reason, "specialty": appointment.specialty,
+        "scheduled_start": appointment.scheduled_start.isoformat(),
+        "scheduled_end": appointment.scheduled_end.isoformat(),
+        "doctor": None if not doctor else {"name": doctor.name, "room": doctor.room, "floor": doctor.floor},
+    }
 
 
 def _invoice_dict(inv: models.Invoice) -> dict:

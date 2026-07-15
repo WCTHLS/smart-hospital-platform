@@ -23,6 +23,30 @@ class MobileProfilesRequest(BaseModel):
     mobile: str
 
 
+class OtpSendRequest(BaseModel):
+    mobile: str
+
+    @field_validator("mobile")
+    @classmethod
+    def validate_mobile(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) != 10 or not value.isdigit():
+            raise ValueError("mobile number must contain exactly 10 digits")
+        return value
+
+
+class OtpVerifyRequest(OtpSendRequest):
+    code: str
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        value = value.strip()
+        if not value.isdigit() or not 1 <= len(value) <= 10:
+            raise ValueError("OTP must contain 1 to 10 digits")
+        return value
+
+
 class IdentityVerifyRequest(BaseModel):
     method: str = Field(description="ABHA / OTP / MRN")
     value: str
@@ -104,6 +128,20 @@ class PatientProfileUpdateRequest(BaseModel):
     address: str
     allergies: list[AllergyIn] = Field(default_factory=list)
     documents: list[DocumentIn] = Field(default_factory=list)
+
+
+class PatientPhotoUpdateRequest(BaseModel):
+    profile_photo: str
+
+    @field_validator("profile_photo")
+    @classmethod
+    def validate_profile_photo(cls, value: str) -> str:
+        allowed = ("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")
+        if not value.startswith(allowed):
+            raise ValueError("profile photo must be a JPEG, PNG or WebP image")
+        if len(value) > 2_800_000:
+            raise ValueError("profile photo must be 2 MB or smaller")
+        return value
 
 
 class ConsentRequest(BaseModel):
@@ -202,6 +240,24 @@ class PayRequest(BaseModel):
     method: str = "UPI"
     amount: float | None = None
     reference: str | None = None
+
+
+class RazorpayOrderRequest(BaseModel):
+    patient_id: str | None = None
+    doctor_id: str | None = None
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
+    reason: str | None = None
+    specialty: str | None = None
+    appointment_type: str = "OPD"
+    channel: str = "PORTAL"
+    checkout_email: str | None = None
+
+
+class RazorpayVerifyRequest(BaseModel):
+    razorpay_payment_id: str | None = None
+    razorpay_order_id: str | None = None
+    razorpay_signature: str | None = None
 
 
 class ClaimRequest(BaseModel):
