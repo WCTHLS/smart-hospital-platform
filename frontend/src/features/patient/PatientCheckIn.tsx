@@ -83,9 +83,9 @@ export default function CheckIn() {
           {busy && <div className="holo">Loading today's appointments...</div>}
           {!busy && !appointments.length && <div className="holo">No booked appointment was found for today.</div>}
           {appointments.map((item) => <div className="holo" key={item.appointment_id}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div><b className="block">{item.doctor?.name ?? "Assigned doctor"}</b><span className="mt-1 block text-xs" style={{ color: "var(--muted)" }}>{item.specialty} · {timeLabel(item.scheduled_start)} · {item.reason || "OPD visit"}</span></div>
-              <button className="btn g" onClick={() => { setAppointment(item); setStep("details"); }}>Check in</button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0"><b className="block truncate">{item.doctor?.name ?? "Assigned doctor"}</b><span className="mt-1 block text-xs leading-relaxed" style={{ color: "var(--muted)" }}>{item.specialty} · {timeLabel(item.scheduled_start)} · {item.reason || "OPD visit"}</span></div>
+              <button className="btn g w-full shrink-0 sm:w-auto" onClick={() => { setAppointment(item); setStep("details"); }}>Check in</button>
             </div>
           </div>)}
           <div className="actions-row between">
@@ -102,13 +102,13 @@ export default function CheckIn() {
           <div className="actions-row between"><button className="btn-link" onClick={() => setStep("appointments")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy} onClick={completeCheckIn}>Complete check-in <CheckCircle2 size={16} /></button></div>
         </div>}
       </section>
-      <aside className="card h-fit space-y-3"><Stage number={1} title="Today's appointment" active={step === "appointments"} done={step !== "appointments"} /><Stage number={2} title="Complete check-in" active={step !== "appointments"} done={false} /></aside>
+      <aside className="card order-first grid h-fit grid-cols-2 gap-2 lg:order-none lg:block lg:space-y-3"><Stage number={1} title="Today's appointment" active={step === "appointments"} done={step !== "appointments"} /><Stage number={2} title="Complete check-in" active={step !== "appointments"} done={false} /></aside>
     </div>
   </div>;
 }
 
 function StepHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
-  return <div className="flex items-center gap-2"><span className="grid h-10 w-10 place-items-center rounded-xl" style={{ background: "var(--panel2)", border: "1px solid var(--line2)", color: "var(--cyan)" }}>{icon}</span><h3 className="text-lg font-extrabold">{title}</h3></div>;
+  return <div className="flex items-center gap-2"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl sm:h-10 sm:w-10" style={{ background: "var(--panel2)", border: "1px solid var(--line2)", color: "var(--cyan)" }}>{icon}</span><h3 className="text-base font-extrabold sm:text-lg">{title}</h3></div>;
 }
 
 function Stage({ number, title, active, done }: { number: number; title: string; active: boolean; done: boolean }) {

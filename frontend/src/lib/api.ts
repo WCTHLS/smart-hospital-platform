@@ -51,6 +51,8 @@ export const api = {
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),
   todayAppointments: (patient_id: string) =>
     get<any>(`/api/v1/patients/${patient_id}/appointments/today`),
+  upcomingAppointments: (patient_id: string) =>
+    get<any>(`/api/v1/patients/${patient_id}/appointments/upcoming`),
   appointmentSlots: (body: any) => post<any>("/api/v1/appointments/slots", body),
   bookAppointment: (body: any) => post<any>("/api/v1/appointments/book", body),
   cancelAppointment: (appointment_id: string) => post<any>(`/api/v1/appointments/${appointment_id}/cancel`),

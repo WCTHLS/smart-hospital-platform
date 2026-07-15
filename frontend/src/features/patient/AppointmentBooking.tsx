@@ -114,7 +114,7 @@ export default function AppointmentBooking() {
     }
   }
 
-  return <div className="space-y-5">
+  return <div className="patient-page space-y-4 sm:space-y-5">
     <SectionTitle sub={`Logged in as ${session.name}`}>Book appointment</SectionTitle>
     <section className="card mx-auto max-w-3xl space-y-5">
       {error && <div className="alertbox">{error}</div>}

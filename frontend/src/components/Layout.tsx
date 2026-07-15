@@ -102,7 +102,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen">
       {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-20 flex w-[236px] flex-col gap-1 p-4"
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-[236px] flex-col gap-1 p-4 lg:flex"
         style={{ borderRight: "1px solid var(--line)", background: "rgba(6,9,18,.7)", backdropFilter: "blur(14px)" }}>
         <div className="mb-4 flex items-center gap-2.5 px-1" onClick={() => nav("/")} style={{ cursor: "pointer" }}>
           <div className="grid h-9 w-9 place-items-center rounded-xl"
@@ -154,26 +154,26 @@ export default function Layout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main */}
-      <div className="ml-[236px]">
-        <header className="sticky top-0 z-10 flex items-center justify-between px-7 py-3"
+      <div className="ml-0 lg:ml-[236px]">
+        <header className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 sm:px-5 lg:px-7"
           style={{ borderBottom: "1px solid var(--line)", background: "rgba(6,9,18,.55)", backdropFilter: "blur(14px)" }}>
-          <div className="text-[12px] uppercase tracking-[0.2em]" style={{ color: "var(--dim)" }}>
+          <div className="min-w-0 truncate text-[11px] uppercase tracking-[0.12em] sm:text-[12px] sm:tracking-[0.2em]" style={{ color: "var(--dim)" }}>
             {NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
           </div>
           <div className="flex items-center gap-3">
             {/* Live Connection Status */}
-            <span className="flex items-center gap-1.5 text-[11px] font-bold"
+            <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold sm:text-[11px]"
               style={{ color: connected ? "#a7f3c4" : "#ffe0a3" }}>
               <span className="inline-block h-2 w-2 rounded-full"
                 style={{ background: connected ? "var(--mint)" : "var(--amber)", boxShadow: `0 0 8px ${connected ? "var(--mint)" : "var(--amber)"}` }} />
-              {connected ? "CONNECTED" : "CONNECTING"}
+              <span className="hidden min-[380px]:inline">{connected ? "CONNECTED" : "CONNECTING"}</span>
             </span>
 
             {/* AI Status */}
-            <AiPill />
+            <div className="hidden md:block"><AiPill /></div>
 
             {/* Custom Role Selector Dropdown */}
-            <div className="flex items-center gap-1.5 rounded-xl border px-2.5 py-1"
+            <div className="hidden items-center gap-1.5 rounded-xl border px-2.5 py-1 sm:flex"
               style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}>
               <User size={13} color="var(--dim)" />
               <select
@@ -192,10 +192,26 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </header>
         <motion.main key={loc.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }} className="mx-auto max-w-[1520px] px-7 py-6">
+          transition={{ duration: 0.25 }} className="mx-auto max-w-[1520px] px-3 py-4 pb-24 sm:px-5 sm:py-5 lg:px-7 lg:py-6 lg:pb-6">
           {children}
         </motion.main>
       </div>
+
+      {activeRole === "patient" && loc.pathname !== "/patient/login" && (
+        <nav className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-2 gap-2 rounded-2xl border p-2 shadow-2xl backdrop-blur-xl lg:hidden"
+          style={{ background: "rgba(6,9,18,.94)", borderColor: "var(--glass-border)" }} aria-label="Patient navigation">
+          {visibleNav.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end}
+              className={({ isActive }) => `flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-xs font-bold ${isActive ? "text-white" : "text-[var(--muted)]"}`}
+              style={({ isActive }) => ({
+                background: isActive ? "linear-gradient(90deg, rgba(52,225,232,.18), rgba(167,139,250,.18))" : "transparent",
+                border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
+              })}>
+              <item.icon size={17} /> {item.label}
+            </NavLink>
+          ))}
+        </nav>
+      )}
 
       <CriticalToast />
     </div>

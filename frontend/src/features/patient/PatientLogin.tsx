@@ -167,7 +167,7 @@ export default function PatientLogin() {
   }
 
   return (
-    <div className={`mx-auto my-12 ${step === "register" || step === "medical" ? "max-w-3xl" : "max-w-md"}`}>
+    <div className={`patient-page mx-auto my-2 sm:my-8 lg:my-12 ${step === "register" || step === "medical" ? "max-w-3xl" : "max-w-md"}`}>
       <Card className="space-y-6">
         <div className="space-y-2 text-center">
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl" style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))" }}>
@@ -191,9 +191,9 @@ export default function PatientLogin() {
         {step === "otp" && <div className="space-y-4">
           <div className="flex items-center gap-2"><LockKeyhole size={16} /> OTP sent to {mobile}</div>
           <input className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="Enter OTP" />
-          <div className="flex items-center justify-between gap-3">
+          <div className="actions-row between !mt-0 !border-0 !pt-0">
             <button className="btn-link" disabled={busy} onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <button className="btn ghost sm" disabled={busy} onClick={sendOtp}>Resend OTP</button>
               <button className="btn g" disabled={busy || otp.length < 1} onClick={verifyOtp}>{busy ? "Verifying..." : "Verify OTP"}</button>
             </div>
@@ -229,7 +229,7 @@ export default function PatientLogin() {
             <Field label="Blood group"><select className="input" value={registration.blood_group} onChange={(e) => setRegistration({ ...registration, blood_group: e.target.value })}><option value="">Select blood group</option><option value="UNK">Unknown</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></Field>
             <Field label="Address"><input className="input" value={registration.address} onChange={(e) => setRegistration({ ...registration, address: e.target.value })} /></Field>
           </div>
-          <div className="flex items-center justify-between gap-3">
+          <div className="actions-row between">
             <button className="btn-link" disabled={busy} onClick={() => setStep(profiles.length ? "profiles" : "mobile")}>
               <ArrowLeft size={14} /> {profiles.length ? "Back to profiles" : "Change number"}
             </button>
@@ -250,7 +250,7 @@ export default function PatientLogin() {
           </div>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-bold">Allergies</h4>
               <button className="btn ghost sm" onClick={() => setAllergies((items) => [...items, emptyAllergy()])}><Plus size={14} /> Add allergy</button>
             </div>
@@ -263,7 +263,7 @@ export default function PatientLogin() {
           </div>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-bold">Documents</h4>
               <button className="btn ghost sm" onClick={() => setDocuments((items) => [...items, emptyDocument()])}><Plus size={14} /> Add document</button>
             </div>
@@ -275,7 +275,7 @@ export default function PatientLogin() {
             </div>)}
           </div>
 
-          <div className="flex items-center justify-between gap-3">
+          <div className="actions-row between">
             <button className="btn-link" disabled={busy} onClick={() => setStep("register")}><ArrowLeft size={14} /> Back</button>
             <button className="btn g" disabled={busy || !medicalDetailsValid} onClick={registerPatient}>{busy ? "Registering..." : "Register and continue"}</button>
           </div>
