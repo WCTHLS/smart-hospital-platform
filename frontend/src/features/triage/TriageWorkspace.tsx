@@ -77,6 +77,15 @@ export default function Triage() {
 
   const selectPatient = (encounter: any) => {
     setRes(null);
+    setSymptom(encounter.reason || "");
+    setDuration("");
+    setV({
+      bp_systolic: "" as any,
+      bp_diastolic: "" as any,
+      spo2: "" as any,
+      heart_rate: "" as any,
+      temperature: "" as any,
+    });
     setJourney({
       patientId: encounter.patient.patient_id,
       patientName: encounter.patient.name,
@@ -94,7 +103,7 @@ export default function Triage() {
     qc.invalidateQueries({ queryKey: ["triage-queue"] });
   };
 
-  const upd = (k: string, val: string) => setV((s) => ({ ...s, [k]: Number(val) }));
+  const upd = (k: string, val: string) => setV((s) => ({ ...s, [k]: val === "" ? "" : Number(val) }));
 
   async function run() {
     if (!journey.encounterId) return;

@@ -48,11 +48,14 @@ export const api = {
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),
   todayAppointments: (patient_id: string) =>
     get<any>(`/api/v1/patients/${patient_id}/appointments/today`),
+  hospitalTodayAppointments: () => get<any>("/api/v1/appointments/today"),
   appointmentSlots: (body: any) => post<any>("/api/v1/appointments/slots", body),
   bookAppointment: (body: any) => post<any>("/api/v1/appointments/book", body),
   cancelAppointment: (appointment_id: string) => post<any>(`/api/v1/appointments/${appointment_id}/cancel`),
   patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
+  addPatientIssue: (patient_id: string, body: { issue_name: string; onset_info?: string }) =>
+    post<any>(`/api/v1/patients/${patient_id}/issues`, body),
   doctors: () => get<any[]>("/api/v1/doctors"),
   doctorEncounters: (doctor_id: string) => get<any[]>(`/api/v1/doctors/${doctor_id}/encounters`),
   updateDoctorAvailability: (doctor_id: string, available: boolean) =>

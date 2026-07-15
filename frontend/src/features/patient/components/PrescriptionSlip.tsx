@@ -3,12 +3,12 @@ import { Card, Tag } from "../../../components/ui";
 
 interface PrescriptionSlipProps {
   encounterId: string;
-  activeMedications?: string[];
+  items?: { drug_name: string; dose: string; frequency: string; duration_days?: number }[];
 }
 
 export default function PrescriptionSlip({ 
   encounterId, 
-  activeMedications 
+  items 
 }: PrescriptionSlipProps) {
   return (
     <Card className="space-y-3 animate-in fade-in duration-300">
@@ -16,7 +16,7 @@ export default function PrescriptionSlip({
         <Stethoscope size={16} className="text-[var(--cyan)]" /> E-Prescription Slip
       </h4>
 
-      {activeMedications && activeMedications.length > 0 ? (
+      {items && items.length > 0 ? (
         <div className="space-y-3">
           <div 
             className="border border-dashed p-4 rounded-2xl space-y-3 relative overflow-hidden"
@@ -44,16 +44,15 @@ export default function PrescriptionSlip({
                 </tr>
               </thead>
               <tbody>
-                {activeMedications.map((med: string, i: number) => {
-                  const parts = med.split(" ");
-                  const name = parts.slice(0, -1).join(" ") || med;
-                  const dose = parts[parts.length - 1] || "";
+                {items.map((item: any, i: number) => {
                   return (
                     <tr key={i} className="border-b last:border-0 border-[var(--glass-border)] text-slate-300">
-                      <td className="py-2.5 font-bold text-white">{name}</td>
-                      <td className="py-2.5" style={{ color: "var(--ink)" }}>{dose}</td>
-                      <td className="py-2.5" style={{ color: "var(--muted)" }}>As directed</td>
-                      <td className="py-2.5 text-right font-medium" style={{ color: "var(--ink)" }}>Refilled</td>
+                      <td className="py-2.5 font-bold text-white">{item.drug_name}</td>
+                      <td className="py-2.5" style={{ color: "var(--ink)" }}>{item.dose || "—"}</td>
+                      <td className="py-2.5" style={{ color: "var(--muted)" }}>{item.frequency || "As directed"}</td>
+                      <td className="py-2.5 text-right font-medium" style={{ color: "var(--ink)" }}>
+                        {item.duration_days ? `${item.duration_days} days` : "Refilled"}
+                      </td>
                     </tr>
                   );
                 })}

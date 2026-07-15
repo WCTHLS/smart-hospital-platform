@@ -17,6 +17,7 @@ const NAV = [
   { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, roles: ["doctor"] },
   { to: "/lab", label: "Lab Workspace", icon: FlaskConical, roles: ["lab"] },
   { to: "/patient", label: "My Status", icon: Smartphone, roles: ["patient"] },
+  { to: "/reception", label: "Reception Desk", icon: ClipboardList, roles: ["receptionist"] },
   { to: "/command", label: "Command Center", icon: MonitorDot, roles: ["admin"] },
   { to: "/admin", label: "Admin Workspace", icon: ShieldAlert, roles: ["admin"] },
 ];
@@ -82,6 +83,8 @@ export default function Layout({ children }: { children: ReactNode }) {
       journey.setRole("lab");
     } else if (path === "/triage" && activeRole !== "nurse") {
       journey.setRole("nurse");
+    } else if (path === "/reception" && activeRole !== "receptionist") {
+      journey.setRole("receptionist");
     } else if ((path === "/command" || path === "/admin") && activeRole !== "admin") {
       journey.setRole("admin");
     } else if (path.startsWith("/patient") && activeRole !== "patient") {
@@ -97,6 +100,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     else if (newRole === "doctor") nav("/copilot");
     else if (newRole === "admin") nav("/command");
     else if (newRole === "lab") nav("/lab");
+    else if (newRole === "receptionist") nav("/reception");
   };
 
   return (
@@ -186,6 +190,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 <option value="nurse" style={{ background: "#0a1120" }}>🏥 Triage Nurse</option>
                 <option value="doctor" style={{ background: "#0a1120" }}>🩺 Doctor Workspace</option>
                 <option value="lab" style={{ background: "#0a1120" }}>🧪 Lab Portal</option>
+                <option value="receptionist" style={{ background: "#0a1120" }}>🛎️ Reception Desk</option>
                 <option value="admin" style={{ background: "#0a1120" }}>📊 Command Center</option>
               </select>
             </div>

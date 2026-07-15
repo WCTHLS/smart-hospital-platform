@@ -13,7 +13,7 @@ interface PrescriptionProps {
 
 export default function Prescription({ encounterId }: PrescriptionProps) {
   const journey = useJourney();
-  const [items, setItems] = useState<Item[]>([{ drug_name: "Amoxicillin 500mg", dose: "500 mg", frequency: "1-0-1" }]);
+  const [items, setItems] = useState<Item[]>([]);
   const [cds, setCds] = useState<any>(null);
   const [rxId, setRxId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,10 +28,24 @@ export default function Prescription({ encounterId }: PrescriptionProps) {
     refetchInterval: 10000,
   });
 
-  const setItem = (i: number, k: keyof Item, val: string) =>
+  const setItem = (i: number, k: keyof Item, val: string) => {
     setItems((s) => s.map((it, idx) => (idx === i ? { ...it, [k]: val } : it)));
-  const add = (preset?: Item) => setItems((s) => [...s, preset || { drug_name: "", dose: "", frequency: "1-0-1" }]);
-  const del = (i: number) => setItems((s) => s.filter((_, idx) => idx !== i));
+    setCds(null);
+    setRxId(null);
+    setDone(null);
+  };
+  const add = (preset?: Item) => {
+    setItems((s) => [...s, preset || { drug_name: "", dose: "", frequency: "1-0-1" }]);
+    setCds(null);
+    setRxId(null);
+    setDone(null);
+  };
+  const del = (i: number) => {
+    setItems((s) => s.filter((_, idx) => idx !== i));
+    setCds(null);
+    setRxId(null);
+    setDone(null);
+  };
 
   const applySuggestion = (forDrug: string, newDrug: string) => {
     setItems((s) => s.map((it) => {
@@ -71,6 +85,21 @@ export default function Prescription({ encounterId }: PrescriptionProps) {
       }
     } finally { 
       setBusy(false); 
+    }
+  }
+
+  async function approveNoMeds() {
+    setBusy(true);
+    setErr(null);
+    setDone(null);
+    try {
+      const draft = await api.createRx({ encounter_id: encounterId, items: [] });
+      const r = await api.approveRx(draft.rx_id, { approved_by: "Dr. Mehta", accept_substitutions: false, override_warnings: false });
+      setDone(r);
+    } catch (e: any) {
+      setErr(e.message || "Failed to e-sign empty prescription");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -123,14 +152,30 @@ export default function Prescription({ encounterId }: PrescriptionProps) {
           );
         })}
 
+        {err && <div className="alertbox mt-2">{err}</div>}
         <div className="flex gap-2 mt-3">
           <button type="button" className="btn ghost" onClick={() => add()}><Plus size={15} /> Add</button>
-          <button type="button" className="btn flex-1" disabled={busy || !items.length} onClick={runCds}><Pill size={15} /> Run CDS</button>
+          {items.length > 0 ? (
+            <button type="button" className="btn flex-1" disabled={busy} onClick={runCds}><Pill size={15} /> Run CDS</button>
+          ) : (
+            <button type="button" className="btn flex-1 g" disabled={busy} onClick={approveNoMeds}><BadgeCheck size={16} /> E-Sign (No Meds)</button>
+          )}
         </div>
       </Card>
 
       <Card>
-        {!cds ? <Empty>The Rx CDS agent checks allergy, interactions, dose, formulary and live stock.</Empty> : (
+        {done ? (
+          <div className="space-y-3 mt-2 animate-in fade-in">
+            <div className="flex items-center gap-2 font-bold" style={{ color: "var(--mint)" }}>
+              <CheckCircle2 size={18} /> Approved &amp; e-signed. Prescription finalized.
+            </div>
+            <div className="p-3 rounded-xl bg-[var(--cyan)]/10 border border-[var(--cyan)]/25 text-[var(--cyan)] text-center text-xs font-bold">
+              👈 Proceed to the "Billing &amp; Discharge" tab to finalize the consultation.
+            </div>
+          </div>
+        ) : !cds ? (
+          <Empty>The Rx CDS agent checks allergy, interactions, dose, formulary and live stock.</Empty>
+        ) : (
           <>
             <div className="mb-2 flex items-center justify-between">
               <h4 className="font-bold text-slate-100" style={{ color: "#d7e5ff" }}>Clinical decision support</h4>
@@ -175,18 +220,9 @@ export default function Prescription({ encounterId }: PrescriptionProps) {
               )}
             </div>
             {err && <div className="alertbox mt-2">{err}</div>}
-            {done ? (
-              <div className="space-y-3 mt-3">
-                <div className="flex items-center gap-2" style={{ color: "var(--mint)" }}><CheckCircle2 size={16} /> Approved &amp; e-signed. Pharmacy stock reserved.</div>
-                <div className="p-3 rounded-xl bg-[var(--cyan)]/10 border border-[var(--cyan)]/25 text-[var(--cyan)] text-center text-xs font-bold">
-                  👈 Proceed to the "Billing &amp; Discharge" tab to finalize the consultation.
-                </div>
-              </div>
-            ) : (
-              <button className="btn g mt-3 w-full" disabled={busy || (cds.block && !accept && !override)} onClick={approve}>
-                <BadgeCheck size={16} /> Approve &amp; e-sign
-              </button>
-            )}
+            <button className="btn g mt-3 w-full" disabled={busy || (cds.block && !accept && !override)} onClick={approve}>
+              <BadgeCheck size={16} /> Approve &amp; e-sign
+            </button>
           </>
         )}
       </Card>

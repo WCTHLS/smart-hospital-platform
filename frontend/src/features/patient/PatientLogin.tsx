@@ -33,7 +33,7 @@ export default function PatientLogin() {
   const setJourney = useJourney((state) => state.set);
   const redirect = safeRedirect(params.get("redirect"));
   const [step, setStep] = useState<LoginStep>("mobile");
-  const [mobile, setMobile] = useState("9876500011");
+  const [mobile, setMobile] = useState("6281116923");
   const [otp, setOtp] = useState("");
   const [profiles, setProfiles] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
@@ -169,7 +169,7 @@ export default function PatientLogin() {
           <label className="block text-sm font-semibold">Registered mobile number</label>
           <div className="relative">
             <Phone size={15} className="absolute left-3 top-3" color="var(--dim)" />
-            <input className="input pl-9" inputMode="numeric" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="9876500011" />
+            <input className="input pl-9" inputMode="numeric" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="6281116923" />
           </div>
           <button className="btn w-full" disabled={!/^\d{10}$/.test(mobile)} onClick={() => setStep("otp")}>Send OTP</button>
         </div>}

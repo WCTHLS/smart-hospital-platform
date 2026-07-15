@@ -130,7 +130,7 @@ export default function PatientDashboard() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-bold text-white">{appointment.doctor?.name ?? "Assigned doctor"}</div>
-                    <div className="mt-1 text-[var(--muted)]">{appointment.specialty} · {appointment.scheduled_start.slice(11, 16)}</div>
+                    <div className="mt-1 text-[var(--muted)]">{appointment.specialty} · {new Date(appointment.scheduled_start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                     <div className="mt-1 text-[var(--muted)]">Reason: {appointment.reason || "Not provided"}</div>
                   </div>
                   <button 
@@ -216,9 +216,9 @@ export default function PatientDashboard() {
             <div className="grid gap-4 md:grid-cols-2">
               <ConsultationSummary 
                 encounterId={showEncounterId!}
-                encounterDate={p360?.encounters?.find((e: any) => e.encounter_id === showEncounterId)?.date}
-                triage={encDetails.triage} 
-                p360={p360} 
+                triage={encDetails?.triage} 
+                notes={encDetails?.notes}
+                soapNote={encDetails?.note?.final_text} 
               />
 
               <VitalsAndLabs 
@@ -229,7 +229,7 @@ export default function PatientDashboard() {
 
             <PrescriptionSlip 
               encounterId={showEncounterId!} 
-              activeMedications={p360?.active_medications || []} 
+              items={encDetails?.prescription?.items || []} 
             />
           </>
         ) : (

@@ -28,8 +28,10 @@ function todayIso() {
 }
 
 function timeLabel(value: string) {
-  const [hours, minutes] = value.slice(11, 16).split(":").map(Number);
-  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+  if (!value) return "";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function errorText(error: unknown) {
@@ -144,7 +146,21 @@ export default function AppointmentBooking() {
           <div className="flex items-start justify-between gap-3"><div><b>{doctor.doctor_name}</b><div className="text-xs" style={{ color: "var(--muted)" }}>{doctor.specialty}</div></div><UserRound size={18} /></div>
           <div className="mt-3 flex flex-wrap gap-2">{doctorSlots.map((slot) => {
             const selected = selectedSlot?.doctor_id === slot.doctor_id && selectedSlot?.scheduled_start === slot.scheduled_start;
-            return <button className="appointment-time-slot" style={selected ? { borderColor: "var(--cyan)", background: "rgba(52,225,232,.14)" } : undefined} key={slot.scheduled_start} onClick={() => setSelectedSlot(slot)}>{timeLabel(slot.scheduled_start)}</button>;
+            return (
+              <button 
+                className="appointment-time-slot" 
+                style={selected ? { 
+                  color: "#04121a", 
+                  background: "linear-gradient(135deg, var(--cyan), var(--blue))", 
+                  boxShadow: "0 0 14px rgba(52, 225, 232, 0.3)", 
+                  borderColor: "transparent" 
+                } : undefined} 
+                key={slot.scheduled_start} 
+                onClick={() => setSelectedSlot(slot)}
+              >
+                {timeLabel(slot.scheduled_start)}
+              </button>
+            );
           })}</div>
         </div>)}
         <div className="actions-row between">

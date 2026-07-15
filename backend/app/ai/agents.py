@@ -449,6 +449,7 @@ def patient_summary_agent(
     active_meds: list[str],
     recent_notes: list[dict[str, Any]],
     latest_vitals: dict[str, Any] | None,
+    issues_str: str,
 ) -> dict[str, Any]:
     """Generates an AI-drafted summary of the patient's medical history."""
     allergies_str = ", ".join(a.get("substance", "") for a in allergies) or "No known allergies"
@@ -467,11 +468,12 @@ def patient_summary_agent(
         "You are an expert clinical summarizer. Summarize the following patient history in 2-3 concise bullet points "
         "for the consulting doctor.\n\n"
         f"Patient: {patient_brief.get('name')}, {patient_brief.get('age')} years, {patient_brief.get('gender')}.\n"
+        f"Chronic Medical Issues: {issues_str}\n"
         f"Allergies: {allergies_str}\n"
         f"Active Meds: {meds_str}\n"
         f"Latest Vitals: {vitals_str}\n"
         f"Past History: {diagnoses_str}\n"
-        "Be factual, clinical, and highlight critical concerns (especially allergies)."
+        "Be factual, clinical, and highlight critical concerns (especially chronic issues/warnings and allergies)."
     )
     llm = gateway.generate(prompt, temperature=0.1)
     if llm:

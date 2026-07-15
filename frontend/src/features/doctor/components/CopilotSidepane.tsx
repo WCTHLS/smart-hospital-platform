@@ -145,23 +145,29 @@ export default function CopilotSidepane({
         </Card>
       )}
 
-      {/* Allergies & Alerts */}
-      <Card className="space-y-2">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Allergies & Alerts</div>
-        {data.allergies.length ? data.allergies.map((a: any) => (
-          <div key={a.substance} className="inline-block mr-1.5"><Tag tone="red">⚠ {a.substance}</Tag></div>
-        )) : <div className="text-[11px] text-[var(--muted)]">No known allergies</div>}
-      </Card>
+      {summaryText && (
+        <>
+          {/* Previous Issues & Warnings */}
+          <Card className="space-y-2 animate-in fade-in duration-300">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Previous Issues &amp; Warnings</div>
+            {data.issues?.length ? data.issues.map((i: any) => (
+              <div key={i.issue_id} className="inline-block mr-1.5">
+                <Tag tone="red">⚠ {i.issue_name} {i.onset_info ? `(${i.onset_info})` : ""}</Tag>
+              </div>
+            )) : <div className="text-[11px] text-[var(--muted)]">No warning alerts recorded</div>}
+          </Card>
 
-      {/* Used/Active Medications */}
-      <Card className="space-y-2">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Active Medications</div>
-        {data.active_medications.length ? (
-          <ul className="space-y-1 text-[11.5px] text-[var(--muted)]">
-            {data.active_medications.map((m: string, i: number) => <li key={i}>• {m}</li>)}
-          </ul>
-        ) : <div className="text-[11px] text-[var(--muted)]">None recorded</div>}
-      </Card>
+          {/* Used/Active Medications */}
+          <Card className="space-y-2 animate-in fade-in duration-300">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Active Medications</div>
+            {data.active_medications.length ? (
+              <ul className="space-y-1 text-[11.5px] text-[var(--muted)]">
+                {data.active_medications.map((m: string, i: number) => <li key={i}>• {m}</li>)}
+              </ul>
+            ) : <div className="text-[11px] text-[var(--muted)]">None recorded</div>}
+          </Card>
+        </>
+      )}
     </div>
   );
 }
