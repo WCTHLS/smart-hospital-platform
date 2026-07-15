@@ -72,6 +72,19 @@ npm run dev                   # http://localhost:5173
 Open **http://localhost:5173** and walk the full patient journey. Everything works without Ollama
 (the AI falls back to a deterministic clinical engine).
 
+### Razorpay test cards
+
+Use these cards only with Razorpay **Test Mode** keys. No real money is charged. For every card,
+enter any random CVV and any future expiry date.
+
+| Network | Card number | CVV and expiry date |
+|---------|-------------|---------------------|
+| Visa | `4100 2800 0000 1007` | Random CVV and any future date |
+| Mastercard | `5500 6700 0000 1002` | Random CVV and any future date |
+| RuPay | `6527 6589 0000 1005` | Random CVV and any future date |
+| Diners | `3608 280009 1007` | Random CVV and any future date |
+| Amex | `3402 560004 01007` | Random CVV and any future date |
+
 ### Optional — real self-hosted LLM
 
 ```bash

@@ -242,6 +242,24 @@ class PayRequest(BaseModel):
     reference: str | None = None
 
 
+class RazorpayOrderRequest(BaseModel):
+    patient_id: str | None = None
+    doctor_id: str | None = None
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
+    reason: str | None = None
+    specialty: str | None = None
+    appointment_type: str = "OPD"
+    channel: str = "PORTAL"
+    checkout_email: str | None = None
+
+
+class RazorpayVerifyRequest(BaseModel):
+    razorpay_payment_id: str | None = None
+    razorpay_order_id: str | None = None
+    razorpay_signature: str | None = None
+
+
 class ClaimRequest(BaseModel):
     payer: str
     tpa: str | None = None

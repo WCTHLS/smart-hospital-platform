@@ -95,6 +95,23 @@ export const api = {
   // billing
   invoice: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/invoice`),
   pay: (invoice_id: string, method: string) => post<any>(`/api/v1/invoices/${invoice_id}/pay`, { method }),
+  createRazorpayOrder: (body: {
+    patient_id: string;
+    doctor_id: string;
+    scheduled_start: string;
+    scheduled_end: string;
+    reason: string;
+    specialty: string;
+    appointment_type: string;
+    channel: string;
+    checkout_email: string;
+  }) =>
+    post<any>("/api/v1/payments/razorpay/create-order", body),
+  verifyRazorpayPayment: (body: {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+  }) => post<any>("/api/v1/payments/razorpay/verify-payment", body),
   claim: (invoice_id: string, body: any) => post<any>(`/api/v1/invoices/${invoice_id}/claim`, body),
   discharge: (encounter_id: string) => put<any>(`/api/v1/encounters/${encounter_id}/discharge`),
 

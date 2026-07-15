@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     twilio_country_code: str = "+91"
     twilio_test_mobile_numbers: str = ""
 
+    # Razorpay Standard Checkout
+    razorpay_key_id: str = ""
+    razorpay_key_secret: str = ""
+
+    @property
+    def razorpay_configured(self) -> bool:
+        return bool(self.razorpay_key_id.strip() and self.razorpay_key_secret.strip())
+
     # CORS
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
 

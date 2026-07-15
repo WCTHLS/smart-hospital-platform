@@ -111,6 +111,7 @@ export default function PatientLogin() {
         first_name: registration.first_name,
         last_name: registration.last_name,
         dob: registration.dob,
+        email: registration.email,
       });
       setJourney({ patientId: profile.patient_id, patientName: name });
       nav(redirect, { replace: true });

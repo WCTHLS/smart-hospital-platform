@@ -486,6 +486,7 @@ def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_d
                     "specialty": doctor.specialty,
                     "location": schedule.location,
                     "room": schedule.room,
+                    "opd_fee": doctor.opd_fee,
                     "scheduled_start": slot_start.isoformat(),
                     "scheduled_end": slot_end.isoformat(),
                 })
