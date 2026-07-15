@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart, Cpu,
-  Smartphone, BellRing, User, ShieldAlert, FlaskConical,
+  Smartphone, BellRing, User, ShieldAlert, FlaskConical, Menu, X,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useJourney, Role } from "../lib/store";
@@ -67,6 +67,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const nav = useNavigate();
   const connected = useRealtime((s) => s.connected);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const activeRole = journey.activeRole;
 
@@ -88,6 +89,10 @@ export default function Layout({ children }: { children: ReactNode }) {
       journey.setRole("patient");
     }
   }, [loc.pathname, activeRole, journey]);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [loc.pathname]);
 
   const handleRoleChange = (newRole: Role) => {
     journey.reset();
@@ -157,10 +162,19 @@ export default function Layout({ children }: { children: ReactNode }) {
       <div className="ml-0 lg:ml-[236px]">
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 sm:px-5 lg:px-7"
           style={{ borderBottom: "1px solid var(--line)", background: "rgba(6,9,18,.55)", backdropFilter: "blur(14px)" }}>
-          <div className="min-w-0 truncate text-[11px] uppercase tracking-[0.12em] sm:text-[12px] sm:tracking-[0.2em]" style={{ color: "var(--dim)" }}>
-            {NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
+          <div className="flex min-w-0 items-center gap-2">
+            {activeRole === "patient" && loc.pathname !== "/patient/login" && (
+              <button className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border lg:hidden"
+                style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--cyan)" }}
+                onClick={() => setMobileMenuOpen((open) => !open)} aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}>
+                {mobileMenuOpen ? <X size={19} /> : <Menu size={19} />}
+              </button>
+            )}
+            <div className="hidden min-w-0 truncate text-[11px] uppercase tracking-[0.12em] min-[430px]:block sm:text-[12px] sm:tracking-[0.2em]" style={{ color: "var(--dim)" }}>
+              {NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             {/* Live Connection Status */}
             <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold sm:text-[11px]"
               style={{ color: connected ? "#a7f3c4" : "#ffe0a3" }}>
@@ -173,13 +187,14 @@ export default function Layout({ children }: { children: ReactNode }) {
             <div className="hidden md:block"><AiPill /></div>
 
             {/* Custom Role Selector Dropdown */}
-            <div className="hidden items-center gap-1.5 rounded-xl border px-2.5 py-1 sm:flex"
+            <div className="flex min-w-0 items-center gap-1 rounded-xl border px-1.5 py-1 sm:gap-1.5 sm:px-2.5"
               style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}>
-              <User size={13} color="var(--dim)" />
+              <User className="hidden shrink-0 sm:block" size={13} color="var(--dim)" />
               <select
                 value={activeRole}
                 onChange={(e) => handleRoleChange(e.target.value as Role)}
-                className="bg-transparent text-[12.5px] font-bold text-white border-0 outline-none cursor-pointer pr-1"
+                className="min-w-0 max-w-[132px] cursor-pointer border-0 bg-transparent pr-0 text-[11px] font-bold text-white outline-none sm:max-w-none sm:pr-1 sm:text-[12.5px]"
+                aria-label="Select workspace"
                 style={{ color: "#dce9ff" }}
               >
                 <option value="patient" style={{ background: "#0a1120" }}>👤 Patient Portal</option>
@@ -192,26 +207,33 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </header>
         <motion.main key={loc.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }} className="mx-auto max-w-[1520px] px-3 py-4 pb-24 sm:px-5 sm:py-5 lg:px-7 lg:py-6 lg:pb-6">
+          transition={{ duration: 0.25 }} className="mx-auto max-w-[1520px] px-3 py-4 pb-6 sm:px-5 sm:py-5 lg:px-7 lg:py-6">
           {children}
         </motion.main>
       </div>
 
-      {activeRole === "patient" && loc.pathname !== "/patient/login" && (
-        <nav className="fixed inset-x-3 bottom-3 z-30 grid grid-cols-2 gap-2 rounded-2xl border p-2 shadow-2xl backdrop-blur-xl lg:hidden"
-          style={{ background: "rgba(6,9,18,.94)", borderColor: "var(--glass-border)" }} aria-label="Patient navigation">
-          {visibleNav.map((item) => (
-            <NavLink key={item.to} to={item.to} end={item.end}
-              className={({ isActive }) => `flex min-h-12 items-center justify-center gap-2 rounded-xl px-3 text-xs font-bold ${isActive ? "text-white" : "text-[var(--muted)]"}`}
-              style={({ isActive }) => ({
-                background: isActive ? "linear-gradient(90deg, rgba(52,225,232,.18), rgba(167,139,250,.18))" : "transparent",
-                border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
-              })}>
-              <item.icon size={17} /> {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      )}
+      <AnimatePresence>
+        {activeRole === "patient" && loc.pathname !== "/patient/login" && mobileMenuOpen && (
+          <>
+            <motion.button className="fixed inset-0 z-20 bg-black/55 lg:hidden" aria-label="Close navigation menu"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMobileMenuOpen(false)} />
+            <motion.nav className="fixed left-3 right-3 top-[68px] z-30 space-y-2 rounded-2xl border p-3 shadow-2xl backdrop-blur-xl lg:hidden"
+              initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+              style={{ background: "rgba(6,9,18,.97)", borderColor: "var(--glass-border)" }} aria-label="Patient navigation">
+              {visibleNav.map((item) => (
+                <NavLink key={item.to} to={item.to} end={item.end}
+                  className={({ isActive }) => `flex min-h-12 items-center gap-3 rounded-xl px-4 text-sm font-bold ${isActive ? "text-white" : "text-[var(--muted)]"}`}
+                  style={({ isActive }) => ({
+                    background: isActive ? "linear-gradient(90deg, rgba(52,225,232,.18), rgba(167,139,250,.18))" : "transparent",
+                    border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
+                  })}>
+                  <item.icon size={18} /> {item.label}
+                </NavLink>
+              ))}
+            </motion.nav>
+          </>
+        )}
+      </AnimatePresence>
 
       <CriticalToast />
     </div>
