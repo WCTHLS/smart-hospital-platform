@@ -51,6 +51,7 @@ export const api = {
   consent: (patient_id: string) => post<any>("/api/v1/consent", { patient_id }),
   todayAppointments: (patient_id: string) =>
     get<any>(`/api/v1/patients/${patient_id}/appointments/today`),
+  hospitalTodayAppointments: () => get<any>("/api/v1/appointments/today"),
   upcomingAppointments: (patient_id: string) =>
     get<any>(`/api/v1/patients/${patient_id}/appointments/upcoming`),
   appointmentSlots: (body: any) => post<any>("/api/v1/appointments/slots", body),
@@ -58,6 +59,8 @@ export const api = {
   cancelAppointment: (appointment_id: string) => post<any>(`/api/v1/appointments/${appointment_id}/cancel`),
   patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
+  addPatientIssue: (patient_id: string, body: { issue_name: string; onset_info?: string }) =>
+    post<any>(`/api/v1/patients/${patient_id}/issues`, body),
   doctors: () => get<any[]>("/api/v1/doctors"),
   doctorEncounters: (doctor_id: string) => get<any[]>(`/api/v1/doctors/${doctor_id}/encounters`),
   updateDoctorAvailability: (doctor_id: string, available: boolean) =>
@@ -83,6 +86,7 @@ export const api = {
     post<any>(`/api/v1/lab-orders/${lab_order_id}/publish-result`),
   confirmLabOrder: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/confirm`),
+  labCheckIn: (body: any) => post<any>("/api/v1/labs/check-in", body),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
   labOrders: () => get<any>("/api/v1/lab-orders"),
@@ -91,6 +95,13 @@ export const api = {
   createRx: (body: any) => post<any>("/api/v1/prescriptions", body),
   approveRx: (rx_id: string, body: any) => post<any>(`/api/v1/prescriptions/${rx_id}/approve`, body),
   stock: (drug?: string) => get<any>(`/api/v1/pharmacy/stock${drug ? `?drug=${encodeURIComponent(drug)}` : ""}`),
+  pharmacyLookup: (search: string) => get<any>(`/api/v1/pharmacy/lookup?search=${encodeURIComponent(search)}`),
+  dispensePrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/dispense/${rx_id}`),
+  releaseExpiredReservations: () => post<any>("/api/v1/pharmacy/release-expired-reservations"),
+  payPrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/prescriptions/${rx_id}/pay`),
+  readyPrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/prescriptions/${rx_id}/ready`),
+  pickupPrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/prescriptions/${rx_id}/pickup`),
+  prepaidPrescriptions: () => get<any>("/api/v1/pharmacy/prepaid"),
 
   // billing
   invoice: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/invoice`),
@@ -127,4 +138,23 @@ export const api = {
   verifyDoctorPin: (doctor_id: string, access_pin: string) => post<any>("/api/v1/doctors/verify-pin", { doctor_id, access_pin }),
   listDoctorSchedule: (doctor_id: string) => get<any[]>(`/api/v1/admin/doctors/${doctor_id}/schedule`),
   updateDoctorSchedule: (doctor_id: string, body: any[]) => post<any>(`/api/v1/admin/doctors/${doctor_id}/schedule`, body),
+
+  // revisit & econsult
+  uploadPatientDocument: (patientId: string, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return fetch(`${BASE}/api/v1/patients/${patientId}/upload-document`, {
+      method: "POST",
+      body: formData,
+    }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) {
+        throw new ApiError(res.status, data?.detail ?? data);
+      }
+      return data;
+    });
+  },
+  bookRevisit: (patientId: string, body: any) => post<any>(`/api/v1/patients/${patientId}/revisit/book`, body),
+  requestEconsult: (patientId: string, body: any) => post<any>(`/api/v1/patients/${patientId}/econsult/request`, body),
 };

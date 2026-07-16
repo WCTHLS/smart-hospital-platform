@@ -12,6 +12,8 @@ import AdminPortal from "./features/admin/AdminPortal";
 import PatientLogin from "./features/patient/PatientLogin";
 import RequirePatient from "./components/RequirePatient";
 import AppointmentBooking from "./features/patient/AppointmentBooking";
+import ReceptionWorkspace from "./features/reception/ReceptionWorkspace";
+import PharmacyWorkspace from "./features/pharmacy/PharmacyWorkspace";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -27,6 +29,8 @@ export default function App() {
             <Route path="/triage" element={<TriageWorkspace />} />
             <Route path="/copilot" element={<DoctorWorkspace />} />
             <Route path="/lab" element={<LabWorkspace />} />
+            <Route path="/reception" element={<ReceptionWorkspace />} />
+            <Route path="/pharmacy" element={<PharmacyWorkspace />} />
             <Route path="/patient/login" element={<PatientLogin />} />
             <Route path="/patient" element={<RequirePatient><PatientDashboard /></RequirePatient>} />
             <Route path="/patient/checkin" element={<RequirePatient><PatientCheckIn /></RequirePatient>} />

@@ -165,15 +165,19 @@ def seed() -> None:
 
         # ---------------------------------------------------------------- Hero patient (matches mockups)
         rimjhim = models.Patient(
-            first_name="Rimjhim", last_name="Sharma", dob=date(1992, 4, 18), gender="Female",
-            abha_number="91-2345-6789-0123", abha_address="rimjhim.sharma@abdm", mrn="MRN-100234",
-            empi_id="EMPI-100234", mobile="9876500011", blood_group="O+",
+            first_name="Swagath", last_name="Reddy", dob=date(1996, 7, 14), gender="Male",
+            abha_number="91-2345-6789-0123", abha_address="swagath.reddy@abdm", mrn="MRN-100234",
+            empi_id="EMPI-100234", mobile="6281116923", blood_group="O+",
             address="12 MG Road, Pune, Maharashtra",
         )
         db.add(rimjhim)
         db.flush()
         db.add(models.Allergy(patient_id=rimjhim.patient_id, substance="Penicillin",
                               drug_class="penicillin", severity="SEVERE", reaction="Urticaria, angioedema"))
+        db.add(models.PatientIssue(patient_id=rimjhim.patient_id, issue_name="Heart Attack",
+                                   onset_info="6 months ago", status="ACTIVE"))
+        db.add(models.PatientIssue(patient_id=rimjhim.patient_id, issue_name="Ischemic Stroke",
+                                   onset_info="3 months ago", status="ACTIVE"))
 
         # Active consent so Patient 360 works immediately in the demo
         now = _utcnow()
@@ -181,6 +185,62 @@ def seed() -> None:
                                       hip_id="aarogya-hip", hiu_id="aarogya-hiu", status="GRANTED",
                                       valid_from=now, valid_to=now + timedelta(days=1))
         db.add(consent)
+
+        # Past Encounter: Heart Attack / Myocardial Infarction (180 days ago / 6 months ago)
+        past_ha = _add_encounter_with_appointment(
+            db, patient=rimjhim, doctor=doctor_by_name["Dr. Vikram Rao"],
+            reason="Acute crushing chest pain, sweating, dyspnea. Admitted for Heart Attack.", appointment_status="COMPLETED",
+            visit_type="IPD", department="Cardiology", channel="WALKIN", status="DISCHARGED",
+            arrival_ts=now - timedelta(days=180), end_ts=now - timedelta(days=180),
+        )
+        db.add(models.Vitals(encounter_id=past_ha.encounter_id, bp_systolic=140, bp_diastolic=90, spo2=94, heart_rate=105, temperature=98.6, bmi=24.5, captured_ts=now - timedelta(days=180)))
+        note_ha = models.ClinicalNote(
+            encounter_id=past_ha.encounter_id, note_type="SOAP",
+            ai_draft="S: Patient admitted with crushing substernal chest pain...",
+            final_text="S: Patient presented with sudden onset retrosternal crushing chest pain radiating to left arm, sweating, and dyspnea. O: ECG shows ST-segment elevation in leads V1-V4. Troponin T positive. A: Acute anterolateral myocardial infarction (I21.09). P: Primary PCI to LAD performed successfully. Discharged on double antiplatelets (Aspirin + Clopidogrel) and Atorvastatin.",
+            icd10_codes=[{"code": "I21.09", "label": "Acute myocardial infarction"}],
+            status="APPROVED", authored_by="ambient-agent", approved_by="Dr. Vikram Rao",
+            approved_ts=now - timedelta(days=180),
+        )
+        db.add(note_ha)
+        rx_ha = models.Prescription(encounter_id=past_ha.encounter_id, patient_id=rimjhim.patient_id,
+                                    status="APPROVED", prescribed_by="Dr. Vikram Rao",
+                                    approved_ts=now - timedelta(days=180), created_ts=now - timedelta(days=180))
+        db.add(rx_ha)
+        db.flush()
+        db.add(models.PrescriptionItem(rx_id=rx_ha.rx_id, drug_name="Aspirin 75mg", dose="75 mg",
+                                       route="PO", frequency="1-0-0", duration_days=30, quantity=30))
+        db.add(models.PrescriptionItem(rx_id=rx_ha.rx_id, drug_name="Clopidogrel 75mg", dose="75 mg",
+                                       route="PO", frequency="1-0-0", duration_days=30, quantity=30))
+        db.add(models.PrescriptionItem(rx_id=rx_ha.rx_id, drug_name="Atorvastatin 40mg", dose="40 mg",
+                                       route="PO", frequency="0-0-1", duration_days=30, quantity=30))
+
+        # Past Encounter: Ischemic Stroke (90 days ago / 3 months ago)
+        past_stroke = _add_encounter_with_appointment(
+            db, patient=rimjhim, doctor=doctor_by_name["Dr. Ananya Mehta"],
+            reason="Sudden weakness in right arm and face, slurred speech. Admitted for Ischemic Stroke.", appointment_status="COMPLETED",
+            visit_type="IPD", department="Neurology", channel="WALKIN", status="DISCHARGED",
+            arrival_ts=now - timedelta(days=90), end_ts=now - timedelta(days=90),
+        )
+        db.add(models.Vitals(encounter_id=past_stroke.encounter_id, bp_systolic=130, bp_diastolic=85, spo2=97, heart_rate=78, temperature=98.4, bmi=24.3, captured_ts=now - timedelta(days=90)))
+        note_stroke = models.ClinicalNote(
+            encounter_id=past_stroke.encounter_id, note_type="SOAP",
+            ai_draft="S: Patient admitted with right arm weakness and speech difficulty...",
+            final_text="S: Patient presented with sudden onset right-sided weakness and slurred speech. O: MRI brain confirmed acute infarct in left MCA territory. No intracranial hemorrhage. A: Cerebral infarction / ischemic stroke (I63.9). P: Managed conservatively. Deficits completely resolved at discharge. Discharged on antiplatelet therapy and physical therapy.",
+            icd10_codes=[{"code": "I63.9", "label": "Cerebral infarction, unspecified"}],
+            status="APPROVED", authored_by="ambient-agent", approved_by="Dr. Ananya Mehta",
+            approved_ts=now - timedelta(days=90),
+        )
+        db.add(note_stroke)
+        rx_stroke = models.Prescription(encounter_id=past_stroke.encounter_id, patient_id=rimjhim.patient_id,
+                                        status="APPROVED", prescribed_by="Dr. Ananya Mehta",
+                                        approved_ts=now - timedelta(days=90), created_ts=now - timedelta(days=90))
+        db.add(rx_stroke)
+        db.flush()
+        db.add(models.PrescriptionItem(rx_id=rx_stroke.rx_id, drug_name="Clopidogrel 75mg", dose="75 mg",
+                                       route="PO", frequency="1-0-0", duration_days=30, quantity=30))
+        db.add(models.PrescriptionItem(rx_id=rx_stroke.rx_id, drug_name="Atorvastatin 20mg", dose="20 mg",
+                                       route="PO", frequency="0-0-1", duration_days=30, quantity=30))
 
         # Past encounter with approved note + labs + active meds (history for Patient 360)
         past = _add_encounter_with_appointment(
@@ -402,25 +462,36 @@ def seed() -> None:
 
         # ---------------------------------------------------------------- Live waiting patients (Command Center)
         waiting = [
-            ("Aarav", "Patel", "Male", 41, "General Medicine", "Room 3", "Floor 2", "3", 12),
-            ("Meera", "Nair", "Female", 6, "Paediatrics", "Room 2", "Floor 1", "3", 18),
-            ("Vikram", "Singh", "Male", 58, "Cardiology", "Room 7", "Floor 3", "2", 8),
+            ("Aarav", "Patel", "Male", 41, "General Medicine", "3", 12, "Fever and cold"),
+            ("Meera", "Nair", "Female", 6, "Paediatrics", "3", 18, "Mild chest congestion"),
+            ("Vikram", "Singh", "Male", 58, "Cardiology", "2", 8, "Occasional palpitations"),
+            ("Swati", "Deshmukh", "Female", 32, "General Medicine", "4", 15, "Dry cough and headache"),
+            ("Kabir", "Malhotra", "Male", 45, "Orthopaedics", "3", 20, "Sprained left ankle"),
+            ("Rohan", "Sen", "Male", 29, "Dermatology", "5", 25, "Itchy red skin rash"),
+            ("Amina", "Begum", "Female", 67, "Cardiology", "2", 5, "Chest tightness on walking"),
+            ("David", "DSouza", "Male", 52, "Pulmonology", "2", 14, "Shortness of breath"),
+            ("Pooja", "Hegde", "Female", 24, "General Medicine", "4", 10, "Fatigue and body pain"),
+            ("Arjun", "Rao", "Male", 38, "Orthopaedics", "3", 9, "Persistent lower back pain"),
+            ("Zoya", "Khan", "Female", 19, "Dermatology", "4", 22, "Acne breakout and itching"),
+            ("Neha", "Gokhale", "Female", 8, "Paediatrics", "3", 16, "High fever and runny nose"),
+            ("Suresh", "Nair", "Male", 71, "Pulmonology", "2", 6, "Chronic wet cough"),
         ]
-        for i, (fn, ln, g, age, dept, room, floor, acuity, eta) in enumerate(waiting):
+        for i, (fn, ln, g, age, dept, acuity, eta, symptom) in enumerate(waiting):
             p = models.Patient(first_name=fn, last_name=ln, gender=g,
                                dob=date(2026 - age, 6, 1), mrn=f"MRN-2003{i}0", mobile=f"98765111{i}0")
             db.add(p)
             db.flush()
-            seeded_doctor = next(doctor for doctor in doctor_by_name.values() if doctor.specialty == dept)
+            matched_doctors = [doc for doc in doctor_by_name.values() if doc.specialty == dept]
+            seeded_doctor = matched_doctors[i % len(matched_doctors)]
             enc = _add_encounter_with_appointment(
-                db, patient=p, doctor=seeded_doctor, reason="See intake",
+                db, patient=p, doctor=seeded_doctor, reason=symptom,
                 appointment_status="CHECKED_IN", visit_type="OPD", department=dept,
                 channel="WALKIN", status="TRIAGED",
             )
-            db.add(models.Triage(encounter_id=enc.encounter_id, chief_complaint="See intake",
-                                 acuity_level=acuity, specialty=dept, red_flag=(acuity == "2")))
+            db.add(models.Triage(encounter_id=enc.encounter_id, chief_complaint=symptom,
+                                 acuity_level=acuity, specialty=dept, red_flag=(acuity <= "2")))
             db.add(models.Token(encounter_id=enc.encounter_id, token_number=f"A-{100 + i:03d}",
-                                department=dept, room=room, floor=floor, eta_minutes=eta, status="WAITING"))
+                                department=dept, room=seeded_doctor.room or "Room 1", floor=seeded_doctor.floor or "Floor 1", eta_minutes=eta, status="WAITING"))
 
         # Doctor availability (DoctorSchedule) for every seeded doctor, across specialties.
         _ensure_doctor_schedules(db)
@@ -429,7 +500,7 @@ def seed() -> None:
 
         specialties = sorted({spec for _, spec in doctors})
         print("Seed complete.")
-        print(f"  Hero patient : Rimjhim Sharma  ·  patient_id={rimjhim.patient_id}")
+        print(f"  Hero patient : Swagath Reddy  ·  patient_id={rimjhim.patient_id}")
         print(f"  ABHA         : 91-2345-6789-0123  (allergic to Penicillin)")
         print(f"  Doctors      : {len(doctors)} across {len(specialties)} specialties (>=2 each)   "
               f"Pharmacy items: {len(stock)}   Waiting patients: {len(waiting)}")

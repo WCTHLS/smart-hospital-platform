@@ -143,6 +143,53 @@ def create_lab_orders(body: LabOrderRequest, db: Session = Depends(get_db)) -> d
     }
 
 
+def _check_and_discharge_lab_visit(db: Session, patient_id: str) -> None:
+    lab_enc = db.scalar(
+        select(models.Encounter)
+        .where(models.Encounter.patient_id == patient_id)
+        .where(models.Encounter.visit_type == "LAB")
+        .where(models.Encounter.status != "DISCHARGED")
+        .order_by(models.Encounter.arrival_ts.desc())
+    )
+    if not lab_enc:
+        return
+        
+    if lab_enc.notes:
+        order_ids = lab_enc.notes.split(",")
+        pending_count = db.scalar(
+            select(func.count())
+            .select_from(models.LabOrder)
+            .where(models.LabOrder.lab_order_id.in_(order_ids))
+            .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
+        ) or 0
+    else:
+        last_clinic_enc = db.scalar(
+            select(models.Encounter)
+            .where(models.Encounter.patient_id == patient_id)
+            .where(models.Encounter.visit_type != "LAB")
+            .order_by(models.Encounter.arrival_ts.desc())
+        )
+        if last_clinic_enc:
+            pending_count = db.scalar(
+                select(func.count())
+                .select_from(models.LabOrder)
+                .where(models.LabOrder.encounter_id == last_clinic_enc.encounter_id)
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
+            ) or 0
+        else:
+            pending_count = db.scalar(
+                select(func.count())
+                .select_from(models.LabOrder)
+                .where(models.LabOrder.patient_id == patient_id)
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
+            ) or 0
+    
+    if pending_count == 0:
+        lab_enc.status = "DISCHARGED"
+        for tk in db.scalars(select(models.Token).where(models.Token.encounter_id == lab_enc.encounter_id)):
+            tk.status = "COMPLETED"
+
+
 @router.post("/lab-orders/{lab_order_id}/publish-result")
 def publish_result(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
     order = db.get(models.LabOrder, lab_order_id)
@@ -168,6 +215,7 @@ def publish_result(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
     ):
         res_row.abnormal_flag = structured["abnormal_flag"]
 
+    _check_and_discharge_lab_visit(db, order.patient_id)
     db.commit()
     bus.publish(Topics.LABRESULT_PUBLISHED, {"lab_order_id": lab_order_id, "test": order.test_name,
                                              "encounter_id": order.encounter_id})
@@ -198,6 +246,22 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
     results = db.execute(stmt).all()
     out = []
     for order, fn, ln in results:
+        token_number = None
+        lab_enc = db.scalar(
+            select(models.Encounter)
+            .where(models.Encounter.patient_id == order.patient_id)
+            .where(models.Encounter.visit_type == "LAB")
+            .where(models.Encounter.status != "DISCHARGED")
+            .order_by(models.Encounter.arrival_ts.desc())
+        )
+        if lab_enc:
+            token = db.scalar(
+                select(models.Token)
+                .where(models.Token.encounter_id == lab_enc.encounter_id)
+            )
+            if token:
+                token_number = token.token_number
+
         out.append({
             "lab_order_id": order.lab_order_id,
             "test_name": order.test_name,
@@ -210,6 +274,7 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
             "attachment_name": order.attachment_name,
             "attachment_uri": order.attachment_uri,
             "category": _lab_category(order.test_name),
+            "token_number": token_number,
         })
     return out
 
@@ -257,6 +322,7 @@ def submit_results(lab_order_id: str, body: LabResultSubmitRequest, db: Session 
     ):
         res_row.abnormal_flag = structured["abnormal_flag"]
         
+    _check_and_discharge_lab_visit(db, order.patient_id)
     db.commit()
     bus.publish(Topics.LABRESULT_PUBLISHED, {"lab_order_id": lab_order_id, "test": order.test_name,
                                              "encounter_id": order.encounter_id})
@@ -294,7 +360,25 @@ def upload_lab_attachment(
 @router.get("/encounters/{encounter_id}/lab")
 def encounter_lab(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     encounter = _encounter(db, encounter_id)
-    orders = db.scalars(select(models.LabOrder).where(models.LabOrder.encounter_id == encounter_id)).all()
+    
+    parent_id = None
+    if encounter.notes and "parent:" in encounter.notes:
+        for part in encounter.notes.split(";"):
+            if part.strip().startswith("parent:"):
+                parent_id = part.strip().split("parent:")[-1].strip()
+    if not parent_id and encounter.appointment_id:
+        appt = db.get(models.Appointment, encounter.appointment_id)
+        if appt and appt.reason and appt.reason.startswith("Re-visit follow-up for encounter"):
+            parent_id = appt.reason.split("encounter ")[-1].strip()
+            
+    target_encounter_ids = [encounter_id]
+    if parent_id:
+        target_encounter_ids.append(parent_id)
+        
+    orders = db.scalars(
+        select(models.LabOrder)
+        .where(models.LabOrder.encounter_id.in_(target_encounter_ids))
+    ).all()
     out = []
     for o in orders:
         results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == o.lab_order_id)).all()
@@ -454,20 +538,25 @@ def approve_prescription(rx_id: str, body: ApproveRxRequest, db: Session = Depen
     items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx_id)).all()
     patient_ctx = _get_patient_context(db, rx.encounter_id, rx.patient_id)
 
-    # Optionally auto-substitute blocked / out-of-stock items with a safe suggestion
-    if body.accept_substitutions:
-        pre = agents.rx_cds_agent(allergies, [], [{"drug_name": i.drug_name} for i in items], patient_ctx, stock_index)
-        sugg = {s["for"]: s["suggestion"] for s in pre["result"]["suggestions"]}
-        for i in items:
-            if i.drug_name in sugg:
-                i.substituted_from = i.drug_name
-                i.drug_name = sugg[i.drug_name]
-
-    # Re-run CDS as the safety gate — allergy conflicts BLOCK approval unless overridden by the doctor
-    cds = agents.rx_cds_agent(allergies, [], [{"drug_name": i.drug_name} for i in items], patient_ctx, stock_index)
-    if cds["result"]["block"] and not body.override_warnings:
-        raise HTTPException(status_code=409, detail={"message": "Prescription blocked by CDS — resolve conflicts or override warnings.",
-                                                     "cds": cds})
+    # Optimize LLM CDS call: skip if doctor overrides, otherwise run at most once
+    cds = {"result": {"block": False, "alerts": [], "suggestions": []}}
+    if not body.override_warnings:
+        cds = agents.rx_cds_agent(allergies, [], [{"drug_name": i.drug_name} for i in items], patient_ctx, stock_index)
+        if body.accept_substitutions and cds.get("result", {}).get("suggestions"):
+            sugg = {s["for"]: s["suggestion"] for s in cds["result"]["suggestions"]}
+            substituted = False
+            for i in items:
+                if i.drug_name in sugg:
+                    i.substituted_from = i.drug_name
+                    i.drug_name = sugg[i.drug_name]
+                    substituted = True
+            if substituted:
+                cds["result"]["block"] = False
+                cds["result"]["alerts"] = [a for a in cds["result"]["alerts"] if a.get("severity") != "BLOCK"]
+        
+        if cds.get("result", {}).get("block"):
+            raise HTTPException(status_code=409, detail={"message": "Prescription blocked by CDS — resolve conflicts or override warnings.",
+                                                         "cds": cds})
 
     invoice = services.get_or_create_invoice(db, encounter)
     for i in items:
@@ -501,7 +590,10 @@ def pharmacy_stock(drug: str | None = None, db: Session = Depends(get_db)) -> li
         stmt = stmt.where(func.lower(models.PharmacyStock.drug_name).like(f"%{drug.lower()}%"))
     rows = db.scalars(stmt.limit(50)).all()
     return [{"drug_name": s.drug_name, "salt": s.salt, "drug_class": s.drug_class,
-             "available": s.quantity_available - s.quantity_reserved, "unit_price": s.unit_price,
+             "available": s.quantity_available - s.quantity_reserved,
+             "quantity_available": s.quantity_available,
+             "quantity_reserved": s.quantity_reserved,
+             "unit_price": s.unit_price,
              "formulary": s.formulary, "expiry": s.expiry_date.isoformat() if s.expiry_date else None}
             for s in rows]
 
@@ -515,7 +607,15 @@ def update_encounter_notes_advice(
     e = db.get(models.Encounter, encounter_id)
     if not e:
         raise HTTPException(404, "Encounter not found")
-    e.notes = body.notes
+    triage = db.scalar(
+        select(models.Triage)
+        .where(models.Triage.encounter_id == encounter_id)
+        .order_by(models.Triage.created_ts.desc())
+    )
+    chief_complaint = triage.chief_complaint if triage else "not specified"
+    
+    refined_notes = agents.refine_notes_agent(body.notes, chief_complaint)
+    e.notes = refined_notes
     db.commit()
     return {"status": "success", "notes": e.notes}
 
@@ -542,3 +642,274 @@ def confirm_lab_order(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
     order.status = "CONFIRMED"
     db.commit()
     return {"status": "success", "lab_order_id": lab_order_id}
+
+
+@router.get("/pharmacy/lookup")
+def pharmacy_lookup(search: str, db: Session = Depends(get_db)) -> list[dict]:
+    # Search can be patient mobile number or queue Token number
+    patient_ids = db.scalars(
+        select(models.Patient.patient_id).where(models.Patient.mobile == search)
+    ).all()
+    
+    token_encounter_ids = db.scalars(
+        select(models.Token.encounter_id).where(models.Token.token_number == search)
+    ).all()
+    
+    stmt = select(models.Encounter)
+    if patient_ids:
+        stmt = stmt.where(models.Encounter.patient_id.in_(patient_ids))
+    elif token_encounter_ids:
+        stmt = stmt.where(models.Encounter.encounter_id.in_(token_encounter_ids))
+    else:
+        return []
+        
+    encounters = db.scalars(stmt.order_by(models.Encounter.arrival_ts.desc())).all()
+    
+    results = []
+    for e in encounters:
+        # Fetch approved or dispensed prescriptions for this encounter
+        rxs = db.scalars(
+            select(models.Prescription)
+            .where(models.Prescription.encounter_id == e.encounter_id)
+            .where(models.Prescription.status.in_(["APPROVED", "DISPENSED", "EXPIRED", "PREPAID"]))
+        ).all()
+        
+        for rx in rxs:
+            items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)).all()
+            patient = db.get(models.Patient, e.patient_id)
+            # Find doctor
+            doctor = db.scalar(select(models.Staff).where(models.Staff.staff_id == rx.prescribed_by))
+            if not doctor:
+                doctor = db.scalar(select(models.Staff).where(models.Staff.name == rx.prescribed_by))
+            
+            results.append({
+                "rx_id": rx.rx_id,
+                "encounter_id": e.encounter_id,
+                "date": e.arrival_ts.date().isoformat() if e.arrival_ts else None,
+                "patient_name": patient.full_name,
+                "patient_mobile": patient.mobile,
+                "doctor_name": doctor.name if doctor else rx.prescribed_by or "Assigned Clinician",
+                "department": e.department,
+                "status": rx.status,
+                "items": [
+                    {
+                        "drug_name": item.drug_name,
+                        "dose": item.dose,
+                        "frequency": item.frequency,
+                        "duration_days": item.duration_days,
+                        "quantity": item.quantity or 1,
+                        "unit_price": db.scalar(
+                            select(models.PharmacyStock.unit_price)
+                            .where(func.lower(models.PharmacyStock.drug_name) == item.drug_name.lower())
+                        ) or 10.0
+                    }
+                    for item in items
+                ]
+            })
+            
+    return results
+
+
+@router.post("/pharmacy/dispense/{rx_id}")
+def dispense_prescription(rx_id: str, db: Session = Depends(get_db)) -> dict:
+    rx = db.get(models.Prescription, rx_id)
+    if not rx:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+    if rx.status != "APPROVED":
+        raise HTTPException(status_code=400, detail=f"Prescription is in status {rx.status}, only APPROVED prescriptions can be dispensed")
+
+    items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx_id)).all()
+    for item in items:
+        stock = db.scalar(
+            select(models.PharmacyStock).where(func.lower(models.PharmacyStock.drug_name) == item.drug_name.lower())
+        )
+        if stock:
+            qty = item.quantity or 1
+            stock.quantity_available = max(0, stock.quantity_available - qty)
+            stock.quantity_reserved = max(0, stock.quantity_reserved - qty)
+
+    rx.status = "DISPENSED"
+    db.commit()
+    bus.publish(Topics.PAYMENT_COMPLETED, {"rx_id": rx_id, "encounter_id": rx.encounter_id})
+    return {"status": "success", "rx_id": rx_id, "prescription_status": rx.status}
+
+
+@router.post("/pharmacy/release-expired-reservations")
+def release_expired_reservations(db: Session = Depends(get_db)) -> dict:
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    
+    expired_rxs = db.scalars(
+        select(models.Prescription)
+        .where(models.Prescription.status == "APPROVED")
+        .where(models.Prescription.approved_ts < cutoff)
+    ).all()
+
+    released_count = 0
+    for rx in expired_rxs:
+        items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)).all()
+        for item in items:
+            stock = db.scalar(
+                select(models.PharmacyStock).where(func.lower(models.PharmacyStock.drug_name) == item.drug_name.lower())
+            )
+            if stock:
+                qty = item.quantity or 1
+                stock.quantity_reserved = max(0, stock.quantity_reserved - qty)
+        
+        rx.status = "EXPIRED"
+        released_count += 1
+        
+    db.commit()
+    return {"status": "success", "released_count": released_count}
+
+
+@router.post("/pharmacy/prescriptions/{rx_id}/pay")
+def pay_prescription(rx_id: str, db: Session = Depends(get_db)) -> dict:
+    rx = db.get(models.Prescription, rx_id)
+    if not rx:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+    if rx.status != "APPROVED":
+        raise HTTPException(status_code=400, detail=f"Prescription must be APPROVED to pay online (current: {rx.status})")
+    
+    rx.status = "PREPAID"
+    
+    # Check if a Pharmacy pickup token already exists for this encounter
+    token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == rx.encounter_id)
+        .where(models.Token.department == "Pharmacy")
+    )
+    if not token:
+        total_tokens = db.scalar(
+            select(func.count())
+            .select_from(models.Token)
+            .where(models.Token.token_number.like("PHA-%"))
+        ) or 0
+        token = models.Token(
+            encounter_id=rx.encounter_id,
+            token_number=f"PHA-{total_tokens + 101:03d}",
+            department="Pharmacy",
+            room="Pharmacy Counter 3",
+            floor="Ground Floor",
+            eta_minutes=10,
+            status="WAITING",
+        )
+        db.add(token)
+    else:
+        token.status = "WAITING"
+        
+    db.commit()
+    bus.publish(Topics.PAYMENT_COMPLETED, {"rx_id": rx_id, "encounter_id": rx.encounter_id})
+    return {"status": "success", "rx_id": rx_id, "prescription_status": rx.status, "token_number": token.token_number}
+
+
+@router.post("/pharmacy/prescriptions/{rx_id}/ready")
+def ready_prescription(rx_id: str, db: Session = Depends(get_db)) -> dict:
+    rx = db.get(models.Prescription, rx_id)
+    if not rx:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+    if rx.status != "PREPAID":
+        raise HTTPException(status_code=400, detail=f"Only PREPAID prescriptions can be marked ready (current: {rx.status})")
+    
+    token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == rx.encounter_id)
+        .where(models.Token.department == "Pharmacy")
+    )
+    if token:
+        token.status = "READY"
+        db.commit()
+        return {"status": "success", "rx_id": rx_id, "token_status": token.status}
+    else:
+        raise HTTPException(status_code=404, detail="Pharmacy pickup token not found")
+
+
+@router.post("/pharmacy/prescriptions/{rx_id}/pickup")
+def pickup_prescription(rx_id: str, db: Session = Depends(get_db)) -> dict:
+    rx = db.get(models.Prescription, rx_id)
+    if not rx:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+    if rx.status != "PREPAID":
+        raise HTTPException(status_code=400, detail=f"Prescription must be PREPAID to mark picked up (current: {rx.status})")
+         
+    # Deduct stock quantities from inventory
+    items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx_id)).all()
+    for item in items:
+        stock = db.scalar(
+            select(models.PharmacyStock).where(func.lower(models.PharmacyStock.drug_name) == item.drug_name.lower())
+        )
+        if stock:
+            qty = item.quantity or 1
+            stock.quantity_available = max(0, stock.quantity_available - qty)
+            stock.quantity_reserved = max(0, stock.quantity_reserved - qty)
+            
+    rx.status = "DISPENSED"
+    
+    token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == rx.encounter_id)
+        .where(models.Token.department == "Pharmacy")
+    )
+    if token:
+        token.status = "COMPLETED"
+        
+    db.commit()
+    return {"status": "success", "rx_id": rx_id, "prescription_status": rx.status}
+
+
+@router.get("/pharmacy/prepaid")
+def list_prepaid_prescriptions(db: Session = Depends(get_db)) -> list[dict]:
+    rxs = db.scalars(
+        select(models.Prescription)
+        .where(models.Prescription.status == "PREPAID")
+        .order_by(models.Prescription.created_ts.desc())
+    ).all()
+    
+    results = []
+    for rx in rxs:
+        encounter = db.get(models.Encounter, rx.encounter_id)
+        patient = db.get(models.Patient, rx.patient_id) if encounter else None
+        if not patient:
+            continue
+        items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)).all()
+        token = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == rx.encounter_id)
+            .where(models.Token.department == "Pharmacy")
+        )
+        # Find doctor
+        doctor = db.scalar(select(models.Staff).where(models.Staff.staff_id == rx.prescribed_by))
+        if not doctor:
+            doctor = db.scalar(select(models.Staff).where(models.Staff.name == rx.prescribed_by))
+            
+        results.append({
+            "rx_id": rx.rx_id,
+            "encounter_id": rx.encounter_id,
+            "date": rx.created_ts.date().isoformat(),
+            "patient_name": f"{patient.first_name} {patient.last_name}",
+            "patient_mobile": patient.mobile,
+            "doctor_name": doctor.name if doctor else rx.prescribed_by or "Assigned Clinician",
+            "department": encounter.department if encounter else "Pharmacy",
+            "status": rx.status,
+            "pickup_token": {
+                "number": token.token_number if token else None,
+                "status": token.status if token else None,
+                "room": token.room if token else None,
+                "floor": token.floor if token else None
+            } if token else None,
+            "items": [
+                {
+                    "drug_name": item.drug_name,
+                    "dose": item.dose,
+                    "frequency": item.frequency,
+                    "duration_days": item.duration_days,
+                    "quantity": item.quantity or 1,
+                    "unit_price": db.scalar(
+                        select(models.PharmacyStock.unit_price)
+                        .where(func.lower(models.PharmacyStock.drug_name) == item.drug_name.lower())
+                    ) or 10.0
+                }
+                for item in items
+            ]
+        })
+    return results

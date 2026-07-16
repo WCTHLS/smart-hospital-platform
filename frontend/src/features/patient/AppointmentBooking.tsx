@@ -46,8 +46,10 @@ function todayIso() {
 }
 
 function timeLabel(value: string) {
-  const [hours, minutes] = value.slice(11, 16).split(":").map(Number);
-  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+  if (!value) return "";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function errorText(error: unknown) {
@@ -121,45 +123,58 @@ export default function AppointmentBooking() {
         channel: "PORTAL",
         checkout_email: checkoutEmail.trim(),
       });
-      const payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
-        let settled = false;
-        const checkout = new Razorpay({
-          // Returned by the same server that created the order, preventing key/order mismatch.
-          key: order.key_id,
-          amount: order.amount,
-          currency: order.currency,
-          name: "Aarogya AI",
-          description: `${selectedSlot.specialty} consultation with ${selectedSlot.doctor_name}`,
-          order_id: order.order_id,
-          prefill: order.prefill,
-          readonly: {
-            name: true,
-            email: Boolean(order.prefill?.email),
-            contact: Boolean(order.prefill?.contact),
-          },
-          retry: { enabled: true },
-          theme: { color: "#34e1e8" },
-          modal: {
-            confirm_close: true,
-            ondismiss: () => {
-              if (!settled) reject(new Error("Payment was cancelled. Your appointment has not been booked."));
+      let payment: RazorpaySuccess;
+      if (order.key_id === "mock_sandbox_key") {
+        payment = {
+          razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
+          razorpay_order_id: order.order_id,
+          razorpay_signature: "mock_signature_sandbox",
+        };
+      } else {
+        const Razorpay = window.Razorpay;
+        if (!Razorpay) {
+          throw new Error("Razorpay Checkout is not available. Refresh the page and try again.");
+        }
+        payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
+          let settled = false;
+          const checkout = new Razorpay({
+            // Returned by the same server that created the order, preventing key/order mismatch.
+            key: order.key_id,
+            amount: order.amount,
+            currency: order.currency,
+            name: "Aarogya AI",
+            description: `${selectedSlot.specialty} consultation with ${selectedSlot.doctor_name}`,
+            order_id: order.order_id,
+            prefill: order.prefill,
+            readonly: {
+              name: true,
+              email: Boolean(order.prefill?.email),
+              contact: Boolean(order.prefill?.contact),
             },
-          },
-          handler: (response: RazorpaySuccess) => {
+            retry: { enabled: true },
+            theme: { color: "#34e1e8" },
+            modal: {
+              confirm_close: true,
+              ondismiss: () => {
+                if (!settled) reject(new Error("Payment was cancelled. Your appointment has not been booked."));
+              },
+            },
+            handler: (response: RazorpaySuccess) => {
+              settled = true;
+              resolve(response);
+            },
+          });
+          checkout.on("payment.failed", (response: any) => {
             settled = true;
-            resolve(response);
-          },
+            const failure = response?.error;
+            const context = [failure?.code, failure?.reason, failure?.step].filter(Boolean).join(" · ");
+            reject(new Error(
+              `${failure?.description || "Payment failed. Please try again."}${context ? ` (${context})` : ""}`
+            ));
+          });
+          checkout.open();
         });
-        checkout.on("payment.failed", (response: any) => {
-          settled = true;
-          const failure = response?.error;
-          const context = [failure?.code, failure?.reason, failure?.step].filter(Boolean).join(" · ");
-          reject(new Error(
-            `${failure?.description || "Payment failed. Please try again."}${context ? ` (${context})` : ""}`
-          ));
-        });
-        checkout.open();
-      });
+      }
 
       const result = await api.verifyRazorpayPayment(payment);
       setAppointment(result.appointment);
@@ -212,9 +227,23 @@ export default function AppointmentBooking() {
         {!doctors.length && <div className="holo">No doctors or slots are available on this date.</div>}
         {doctors.map(({ doctor, slots: doctorSlots }) => <div className="holo" key={doctor.doctor_id}>
           <div className="flex items-start justify-between gap-3"><div><b>{doctor.doctor_name}</b><div className="text-xs" style={{ color: "var(--muted)" }}>{doctor.specialty}</div></div><UserRound size={18} /></div>
-          <div className="mt-3 flex flex-wrap gap-2">{doctorSlots.map((slot) => {
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-thin">{doctorSlots.map((slot) => {
             const selected = selectedSlot?.doctor_id === slot.doctor_id && selectedSlot?.scheduled_start === slot.scheduled_start;
-            return <button className="appointment-time-slot" style={selected ? { borderColor: "var(--cyan)", background: "rgba(52,225,232,.14)" } : undefined} key={slot.scheduled_start} onClick={() => setSelectedSlot(slot)}>{timeLabel(slot.scheduled_start)}</button>;
+            return (
+              <button 
+                className="appointment-time-slot" 
+                style={selected ? { 
+                  color: "#04121a", 
+                  background: "linear-gradient(135deg, var(--cyan), var(--blue))", 
+                  boxShadow: "0 0 14px rgba(52, 225, 232, 0.3)", 
+                  borderColor: "transparent" 
+                } : undefined} 
+                key={slot.scheduled_start} 
+                onClick={() => setSelectedSlot(slot)}
+              >
+                {timeLabel(slot.scheduled_start)}
+              </button>
+            );
           })}</div>
         </div>)}
         <div className="actions-row between">
@@ -226,8 +255,8 @@ export default function AppointmentBooking() {
       {step === "payment" && selectedSlot && <>
         <h3 className="text-lg font-extrabold">Payment</h3>
         <div className="holo space-y-2"><Detail label="Doctor" value={selectedSlot.doctor_name} /><Detail label="Speciality" value={selectedSlot.specialty} /><Detail label="Date" value={selectedSlot.scheduled_start.slice(0, 10)} /><Detail label="Time" value={timeLabel(selectedSlot.scheduled_start)} /><Detail label="Consultation fee" value={selectedSlot.opd_fee != null ? `₹${Number(selectedSlot.opd_fee).toFixed(2)}` : "Not configured"} /></div>
-        <Field label="Billing email"><input className="input" type="email" autoComplete="email" value={checkoutEmail} onChange={(event) => setCheckoutEmail(event.target.value)} placeholder="patient@example.com" /></Field>
-        <div className="actions-row between"><button className="btn-link" disabled={busy} onClick={() => setStep("slots")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy || selectedSlot.opd_fee == null || !/^\S+@\S+\.\S+$/.test(checkoutEmail.trim())} onClick={payAndBook}><CreditCard size={16} /> {busy ? "Opening checkout..." : `Pay ₹${Number(selectedSlot.opd_fee || 0).toFixed(2)}`}</button></div>
+        <Field label="Billing email (Optional)"><input className="input" type="email" autoComplete="email" value={checkoutEmail} onChange={(event) => setCheckoutEmail(event.target.value)} placeholder="patient@example.com" /></Field>
+        <div className="actions-row between"><button className="btn-link" disabled={busy} onClick={() => setStep("slots")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy || selectedSlot.opd_fee == null || (checkoutEmail.trim() !== "" && !/^\S+@\S+\.\S+$/.test(checkoutEmail.trim()))} onClick={payAndBook}><CreditCard size={16} /> {busy ? "Opening checkout..." : `Pay ₹${Number(selectedSlot.opd_fee || 0).toFixed(2)}`}</button></div>
       </>}
 
       {step === "details" && appointment && <>

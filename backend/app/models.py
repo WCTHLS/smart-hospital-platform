@@ -47,7 +47,8 @@ class Patient(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
 
-    allergies: Mapped[list["Allergy"]] = relationship(back_populates="patient")
+    allergies: Mapped[list["Allergy"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    issues: Mapped[list["PatientIssue"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     encounters: Mapped[list["Encounter"]] = relationship(back_populates="patient")
 
     @property
@@ -73,6 +74,19 @@ class Allergy(Base):
     reaction: Mapped[str | None] = mapped_column(String(120))
 
     patient: Mapped["Patient"] = relationship(back_populates="allergies")
+
+
+class PatientIssue(Base):
+    __tablename__ = "patient_issue"
+
+    issue_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id", ondelete="CASCADE"), nullable=False)
+    issue_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    onset_info: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")  # ACTIVE / RESOLVED
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    patient: Mapped["Patient"] = relationship(back_populates="issues")
 
 
 class ConsentArtifact(Base):

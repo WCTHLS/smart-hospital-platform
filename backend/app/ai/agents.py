@@ -449,6 +449,7 @@ def patient_summary_agent(
     active_meds: list[str],
     recent_notes: list[dict[str, Any]],
     latest_vitals: dict[str, Any] | None,
+    issues_str: str,
 ) -> dict[str, Any]:
     """Generates an AI-drafted summary of the patient's medical history."""
     allergies_str = ", ".join(a.get("substance", "") for a in allergies) or "No known allergies"
@@ -467,11 +468,12 @@ def patient_summary_agent(
         "You are an expert clinical summarizer. Summarize the following patient history in 2-3 concise bullet points "
         "for the consulting doctor.\n\n"
         f"Patient: {patient_brief.get('name')}, {patient_brief.get('age')} years, {patient_brief.get('gender')}.\n"
+        f"Chronic Medical Issues: {issues_str}\n"
         f"Allergies: {allergies_str}\n"
         f"Active Meds: {meds_str}\n"
         f"Latest Vitals: {vitals_str}\n"
         f"Past History: {diagnoses_str}\n"
-        "Be factual, clinical, and highlight critical concerns (especially allergies)."
+        "Be factual, clinical, and highlight critical concerns (especially chronic issues/warnings and allergies)."
     )
     llm = gateway.generate(prompt, temperature=0.1)
     if llm:
@@ -486,4 +488,32 @@ def patient_summary_agent(
         source=_source(),
         citations=["Patient medical record timeline"],
     )
+
+
+def refine_notes_agent(notes_text: str, chief_complaint: str) -> str:
+    if not notes_text or not notes_text.strip():
+        return notes_text
+        
+    if not gateway.available():
+        return notes_text
+
+    prompt = (
+        "You are an expert clinical assistant. You are given a doctor's informal/rough consultation notes and the patient's chief complaint.\n\n"
+        f"Patient Chief Complaint: {chief_complaint}\n"
+        f"Doctor's Original Notes: {notes_text}\n\n"
+        "Your task is to:\n"
+        "1. Correct any spelling, grammar, punctuation, or medical terminology typos in the notes.\n"
+        "2. Refine the style to be clean, professional, and medically sound.\n"
+        "3. Keep the refined note short and concise, of similar length to the doctor's original notes (do NOT generate long summaries, general templates, or add unrelated advice).\n"
+        "4. Align the advice with the patient's issue/chief complaint, preserving all doctor intent and clinical advice exactly.\n\n"
+        "Output ONLY the final refined notes text. Do not include any introductory, concluding, or markdown commentary (like 'Here is the refined note:')."
+    )
+    try:
+        refined = gateway.generate(prompt, temperature=0.2)
+        refined_clean = refined.strip()
+        if refined_clean:
+            return refined_clean
+    except Exception as e:
+        print(f"Error in refine_notes_agent: {e}")
+    return notes_text
 

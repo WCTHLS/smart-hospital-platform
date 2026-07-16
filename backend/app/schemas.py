@@ -52,18 +52,10 @@ class IdentityVerifyRequest(BaseModel):
     value: str
 
 
-class AllergyIn(BaseModel):
-    substance: str
-    drug_class: str | None = None
-    severity: str | None = None
-    reaction: str | None = None
-
-    @field_validator("severity")
-    @classmethod
-    def validate_severity(cls, value: str | None) -> str | None:
-        if value is not None and value not in {"MILD", "MODERATE", "SEVERE"}:
-            raise ValueError("severity must be MILD, MODERATE or SEVERE")
-        return value
+class PatientIssueIn(BaseModel):
+    issue_name: str
+    onset_info: str | None = None
+    status: str = "ACTIVE"
 
 
 class DocumentIn(BaseModel):
@@ -92,11 +84,11 @@ class PatientRegistrationRequest(BaseModel):
     last_name: str
     dob: date
     mobile: str
-    email: str
+    email: str | None = None
     gender: str
-    blood_group: str
-    address: str
-    allergies: list[AllergyIn] = Field(default_factory=list)
+    blood_group: str | None = None
+    address: str | None = None
+    issues: list[PatientIssueIn] = Field(default_factory=list)
     documents: list[DocumentIn] = Field(default_factory=list)
 
     @field_validator("dob")
@@ -115,7 +107,9 @@ class PatientRegistrationRequest(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, value: str) -> str:
+    def validate_email(cls, value: str | None) -> str | None:
+        if not value:
+            return None
         if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value.strip()):
             raise ValueError("enter a valid email address")
         return value.strip()

@@ -1,4 +1,4 @@
-import { Clipboard } from "lucide-react";
+import { Clipboard, FileText, Download } from "lucide-react";
 import { Card, Tag } from "../../../components/ui";
 
 interface VitalsAndLabsProps {
@@ -35,6 +35,21 @@ export default function VitalsAndLabs({ latestVitals, orders }: VitalsAndLabsPro
                   <b>{r.value} {r.unit} {r.flag !== "N" && `(${r.flag})`}</b>
                 </div>
               ))}
+              {o.attachment_uri && (
+                <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between">
+                  <span className="text-[10px] text-[var(--muted)] flex items-center gap-1 truncate max-w-[180px]">
+                    <FileText size={12} className="shrink-0" /> {o.attachment_name || "Diagnostic Report"}
+                  </span>
+                  <a 
+                    href={o.attachment_uri.startsWith("http") ? o.attachment_uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="inline-flex items-center gap-1 text-[11px] text-[var(--cyan)] hover:underline font-semibold shrink-0"
+                  >
+                    <Download size={11} /> View Report
+                  </a>
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -13,8 +13,10 @@ function errorText(error: unknown) {
 }
 
 function timeLabel(value: string) {
-  const [hours, minutes] = value.slice(11, 16).split(":").map(Number);
-  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+  if (!value) return "";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export default function CheckIn() {

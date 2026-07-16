@@ -46,6 +46,8 @@ def create_razorpay_order(body: RazorpayOrderRequest, db: Session = Depends(get_
     if body.scheduled_end <= body.scheduled_start:
         raise HTTPException(400, "Invalid appointment slot")
     checkout_email = (patient.email or body.checkout_email or "").strip()
+    if not checkout_email:
+        checkout_email = f"{patient.mobile or 'patient'}@example.com"
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", checkout_email):
         raise HTTPException(400, "A valid customer email is required for payment")
     existing = db.scalar(
@@ -58,21 +60,29 @@ def create_razorpay_order(body: RazorpayOrderRequest, db: Session = Depends(get_
         raise HTTPException(409, "This appointment slot is no longer available")
     receipt = f"appt_{uuid.uuid4().hex[:24]}"
 
-    try:
-        order = _razorpay_client().order.create(data={
+    is_mock = not settings.razorpay_configured
+    if is_mock:
+        order = {
+            "id": f"order_mock_{uuid.uuid4().hex[:14]}",
             "amount": amount,
             "currency": "INR",
-            "receipt": receipt,
-            "notes": {"patient_id": body.patient_id, "doctor_id": body.doctor_id},
-        })
-    except razorpay.errors.BadRequestError as exc:
-        message = str(exc)
-        status = 401 if "auth" in message.lower() or "key" in message.lower() else 500
-        logger.warning("Razorpay order creation rejected: %s", message)
-        raise HTTPException(status, "Razorpay authentication failed" if status == 401 else "Razorpay rejected the order") from exc
-    except Exception as exc:
-        logger.exception("Razorpay order creation failed")
-        raise HTTPException(500, "Unable to create Razorpay order") from exc
+        }
+    else:
+        try:
+            order = _razorpay_client().order.create(data={
+                "amount": amount,
+                "currency": "INR",
+                "receipt": receipt,
+                "notes": {"patient_id": body.patient_id, "doctor_id": body.doctor_id},
+            })
+        except razorpay.errors.BadRequestError as exc:
+            message = str(exc)
+            status = 401 if "auth" in message.lower() or "key" in message.lower() else 500
+            logger.warning("Razorpay order creation rejected: %s", message)
+            raise HTTPException(status, "Razorpay authentication failed" if status == 401 else "Razorpay rejected the order") from exc
+        except Exception as exc:
+            logger.exception("Razorpay order creation failed")
+            raise HTTPException(500, "Unable to create Razorpay order") from exc
 
     payment_order = models.RazorpayOrder(
         order_id=order["id"], patient_id=body.patient_id, doctor_id=body.doctor_id,
@@ -85,7 +95,7 @@ def create_razorpay_order(body: RazorpayOrderRequest, db: Session = Depends(get_
     db.commit()
     return {
         "order_id": order["id"], "amount": order["amount"], "currency": order["currency"],
-        "key_id": settings.razorpay_key_id,
+        "key_id": "mock_sandbox_key" if is_mock else settings.razorpay_key_id,
         "prefill": {
             "name": patient.full_name,
             "email": checkout_email,
@@ -108,37 +118,39 @@ def verify_razorpay_payment(body: RazorpayVerifyRequest, db: Session = Depends(g
         return {"success": True, "payment_id": payment_order.payment_id, "order_id": payment_order.order_id,
                 "appointment": _appointment_payment_dict(appointment, doctor)}
 
-    client = _razorpay_client()
-    try:
-        # Use the order id retrieved from our database, not an untrusted callback value.
-        client.utility.verify_payment_signature({
-            "razorpay_payment_id": body.razorpay_payment_id,
-            "razorpay_order_id": payment_order.order_id,
-            "razorpay_signature": body.razorpay_signature,
-        })
-    except razorpay.errors.SignatureVerificationError as exc:
-        raise HTTPException(400, "Payment signature verification failed") from exc
-    except Exception as exc:
-        logger.exception("Razorpay signature verification failed unexpectedly")
-        raise HTTPException(500, "Unable to verify Razorpay payment") from exc
-    try:
-        payment = client.payment.fetch(body.razorpay_payment_id)
-        if payment.get("order_id") != payment_order.order_id:
-            raise HTTPException(400, "Payment does not belong to this order")
-        if payment.get("amount") != payment_order.amount_paise or payment.get("currency") != payment_order.currency:
-            raise HTTPException(400, "Payment amount or currency does not match the server order")
-        if payment.get("status") == "authorized":
-            payment = client.payment.capture(body.razorpay_payment_id, payment_order.amount_paise, {"currency": payment_order.currency})
-        if payment.get("status") != "captured":
-            raise HTTPException(409, f"Payment is {payment.get('status', 'not captured')}")
-    except HTTPException:
-        raise
-    except razorpay.errors.BadRequestError as exc:
-        logger.warning("Razorpay payment status verification failed: %s", exc)
-        raise HTTPException(400, "Unable to confirm captured payment") from exc
-    except Exception as exc:
-        logger.exception("Razorpay payment fetch failed")
-        raise HTTPException(500, "Unable to confirm payment status") from exc
+    is_mock = payment_order.order_id.startswith("order_mock_")
+    if not is_mock:
+        client = _razorpay_client()
+        try:
+            # Use the order id retrieved from our database, not an untrusted callback value.
+            client.utility.verify_payment_signature({
+                "razorpay_payment_id": body.razorpay_payment_id,
+                "razorpay_order_id": payment_order.order_id,
+                "razorpay_signature": body.razorpay_signature,
+            })
+        except razorpay.errors.SignatureVerificationError as exc:
+            raise HTTPException(400, "Payment signature verification failed") from exc
+        except Exception as exc:
+            logger.exception("Razorpay signature verification failed unexpectedly")
+            raise HTTPException(500, "Unable to verify Razorpay payment") from exc
+        try:
+            payment = client.payment.fetch(body.razorpay_payment_id)
+            if payment.get("order_id") != payment_order.order_id:
+                raise HTTPException(400, "Payment does not belong to this order")
+            if payment.get("amount") != payment_order.amount_paise or payment.get("currency") != payment_order.currency:
+                raise HTTPException(400, "Payment amount or currency does not match the server order")
+            if payment.get("status") == "authorized":
+                payment = client.payment.capture(body.razorpay_payment_id, payment_order.amount_paise, {"currency": payment_order.currency})
+            if payment.get("status") != "captured":
+                raise HTTPException(409, f"Payment is {payment.get('status', 'not captured')}")
+        except HTTPException:
+            raise
+        except razorpay.errors.BadRequestError as exc:
+            logger.warning("Razorpay payment status verification failed: %s", exc)
+            raise HTTPException(400, "Unable to confirm captured payment") from exc
+        except Exception as exc:
+            logger.exception("Razorpay payment fetch failed")
+            raise HTTPException(500, "Unable to confirm payment status") from exc
 
     existing = db.scalar(
         select(models.Appointment)

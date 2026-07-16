@@ -52,21 +52,28 @@ export default function PatientDashboard() {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
 
+  // Follow-up consultation state variables
+  const [showRevisitModal, setShowRevisitModal] = useState(false);
+  const [revisitDate, setRevisitDate] = useState("");
+  const [revisitSlot, setRevisitSlot] = useState("");
+  const [uploadingReport, setUploadingReport] = useState(false);
+  const [uploadedDocUri, setUploadedDocUri] = useState<string | null>(null);
+  const [uploadedDocName, setUploadedDocName] = useState<string | null>(null);
+  const [bookingRevisit, setBookingRevisit] = useState(false);
+  const [revisitSuccessMsg, setRevisitSuccessMsg] = useState("");
+  const [requestingEconsult, setRequestingEconsult] = useState(false);
+  const [econsultSuccessMsg, setEconsultSuccessMsg] = useState("");
+  const [revisitError, setRevisitError] = useState("");
+
   const portalSession = getPortalPatient()!;
   const portalPatientId = portalSession.patient_id;
   const portalPatientName = portalSession.name;
 
   function timeLabel(value: string) {
-    if (!value || value.length < 16) return value || "";
-    try {
-      const timeStr = value.slice(11, 16);
-      if (!timeStr.includes(":")) return timeStr;
-      const [hours, minutes] = timeStr.split(":").map(Number);
-      if (isNaN(hours) || isNaN(minutes)) return timeStr;
-      return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
-    } catch {
-      return value;
-    }
+    if (!value) return "";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return value;
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
   async function handlePhotoUpload(file?: File) {
@@ -129,10 +136,26 @@ export default function PatientDashboard() {
     nav("/patient/login?redirect=/patient", { replace: true });
   };
 
+  function handleEpisodeClick(ep: any) {
+    const activeLab = ep.labs?.find((l: any) => l.status !== "DISCHARGED");
+    const activeFollowup = ep.followups?.find((f: any) => f.status !== "DISCHARGED");
+    if (activeLab) {
+      setSelectedEncounterId(activeLab.encounter_id);
+    } else if (activeFollowup) {
+      setSelectedEncounterId(activeFollowup.encounter_id);
+    } else {
+      setSelectedEncounterId(ep.encounter_id);
+    }
+    setSelectedAppointmentId(null);
+    setShowMobileVisitList(false);
+  }
+
   const today = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-  const todayEncounters = p360?.encounters?.filter((encounter: any) => encounter.date === today) ?? [];
-  const pastEncounters = p360?.encounters?.filter((encounter: any) => encounter.date !== today) ?? [];
+  const episodes = p360?.episodes ?? [];
+  const todayEpisodes = episodes.filter((ep: any) => ep.date === today);
+  const pastEpisodes = episodes.filter((ep: any) => ep.date !== today);
   const appointments = appointmentData?.appointments ?? [];
+
   const latestDischargeEvent = events.find((event) =>
     event.topic === "visit.discharged" &&
     p360?.encounters?.some((encounter: any) => encounter.encounter_id === event.payload?.encounter_id)
@@ -144,14 +167,45 @@ export default function PatientDashboard() {
     }
   }, [latestDischargeEvent?.ts, refetchP360]);
 
-  const activeEnc = p360?.encounters?.find((e: any) => e.status !== "DISCHARGED");
-  
-  const defaultAppId = !selectedEncounterId && !activeEnc && appointments.length > 0
+  // Find active episode/encounter
+  const activeEpisode = episodes.find((ep: any) => {
+    if (ep.status !== "DISCHARGED") return true;
+    const hasActiveLab = ep.labs?.some((l: any) => l.status !== "DISCHARGED");
+    const hasActiveFollowup = ep.followups?.some((f: any) => f.status !== "DISCHARGED");
+    return hasActiveLab || hasActiveFollowup;
+  });
+
+  let activeEncId = activeEpisode?.encounter_id;
+  if (activeEpisode) {
+    const activeLab = activeEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
+    const activeFollowup = activeEpisode.followups?.find((f: any) => f.status !== "DISCHARGED");
+    if (activeLab) {
+      activeEncId = activeLab.encounter_id;
+    } else if (activeFollowup) {
+      activeEncId = activeFollowup.encounter_id;
+    }
+  }
+
+  const defaultAppId = !selectedEncounterId && !activeEncId && appointments.length > 0
     ? appointments[0].appointment_id
     : null;
 
   const showAppointmentId = selectedAppointmentId || (selectedEncounterId ? null : defaultAppId);
-  const showEncounterId = selectedEncounterId || (showAppointmentId ? null : activeEnc?.encounter_id);
+  const showEncounterId = selectedEncounterId || (showAppointmentId ? null : activeEncId);
+
+  const currentEpisode = episodes.find((ep: any) => 
+    ep.encounter_id === showEncounterId || 
+    ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
+    ep.followups?.some((f: any) => f.encounter_id === showEncounterId)
+  );
+
+  const parentEncounterId = currentEpisode?.encounter_id || showEncounterId;
+
+  const { data: parentEncDetails } = useQuery({
+    queryKey: ["portal-encounter-parent", parentEncounterId],
+    queryFn: () => api.encounter(parentEncounterId!),
+    enabled: !!parentEncounterId,
+  });
 
   const { data: encDetails, refetch: refetchEnc } = useQuery({
     queryKey: ["portal-encounter", showEncounterId],
@@ -169,10 +223,29 @@ export default function PatientDashboard() {
 
   const mine = events.filter((e) => e.payload?.encounter_id === showEncounterId);
   let stage = STATUS_STAGE[encDetails?.status ?? "CHECKED_IN"] ?? 0;
-  if (encDetails?.note?.status === "APPROVED") stage = Math.max(stage, 2);
-  if (encDetails?.labs?.length) stage = Math.max(stage, 3);
-  if (encDetails?.labs?.some((order: any) => order.results?.length)) stage = Math.max(stage, 4);
-  if (encDetails?.prescription?.status === "APPROVED") stage = Math.max(stage, 5);
+  
+  const isLabVisit = encDetails?.visit_type === "LAB" || encDetails?.department === "Laboratory";
+  if (isLabVisit) {
+    if (encDetails.status === "DISCHARGED") {
+      stage = 6; // Discharged
+    } else {
+      const labOrders = labDetails?.orders || encDetails.labs || [];
+      const anyResulted = labOrders.some((o: any) => o.status === "RESULTED");
+      const allResulted = labOrders.length > 0 && labOrders.every((o: any) => o.status === "RESULTED");
+      if (allResulted) {
+        stage = 6;
+      } else if (anyResulted) {
+        stage = 4; // Under review / partial results
+      } else {
+        stage = 3; // Diagnostics / checked in & waiting
+      }
+    }
+  } else {
+    if (encDetails?.note?.status === "APPROVED") stage = Math.max(stage, 2);
+    if (encDetails?.labs?.length) stage = Math.max(stage, 3);
+    if (encDetails?.labs?.some((order: any) => order.results?.length)) stage = Math.max(stage, 4);
+    if (encDetails?.prescription?.status === "APPROVED") stage = Math.max(stage, 5);
+  }
   for (const e of mine) stage = Math.max(stage, TOPIC_STAGE[e.topic] ?? -1);
 
   const token = encDetails?.token;
@@ -204,6 +277,83 @@ export default function PatientDashboard() {
       setCheckInError(e?.message || "Check-in failed. Please try again.");
     } finally {
       setCheckingIn(false);
+    }
+  }
+
+  // Trigger E-consultation request
+  async function handleRequestEconsult(doctorId: string) {
+    if (!doctorId) return;
+    setRequestingEconsult(true);
+    setEconsultSuccessMsg("");
+    setRevisitError("");
+    try {
+      const res = await api.requestEconsult(portalPatientId, { 
+        doctor_id: doctorId,
+        parent_encounter_id: parentEncounterId 
+      });
+      setEconsultSuccessMsg(`E-Consultation requested successfully! Your remote review token is ${res.token_number}. The doctor will review your reports shortly.`);
+      await refetchP360();
+    } catch (e: any) {
+      setRevisitError(e?.message || "Failed to request E-Consultation. Please try again.");
+    } finally {
+      setRequestingEconsult(false);
+    }
+  }
+
+  // Handle external report upload
+  async function handleReportUpload(file: File) {
+    if (!file) return;
+    setUploadingReport(true);
+    setRevisitError("");
+    try {
+      const res = await api.uploadPatientDocument(portalPatientId, file);
+      setUploadedDocUri(res.uri);
+      setUploadedDocName(res.title);
+    } catch (e: any) {
+      setRevisitError(e?.message || "Failed to upload document.");
+    } finally {
+      setUploadingReport(false);
+    }
+  }
+
+  // Confirm revisit slot booking
+  async function handleBookRevisit(doctorId: string) {
+    if (!doctorId || !revisitDate || !revisitSlot) {
+      setRevisitError("Please select date and slot.");
+      return;
+    }
+    setBookingRevisit(true);
+    setRevisitSuccessMsg("");
+    setRevisitError("");
+    try {
+      await api.bookRevisit(portalPatientId, {
+        doctor_id: doctorId,
+        booking_date: revisitDate,
+        booking_slot: revisitSlot,
+        parent_encounter_id: parentEncounterId,
+        attachment_name: uploadedDocName || undefined,
+        attachment_uri: uploadedDocUri || undefined,
+      });
+      setRevisitSuccessMsg("Re-visit slot booked successfully! Please carry your physical test reports with you to the doctor, irrespective of whether you uploaded them or not.");
+      await refetchAppointments();
+      await refetchP360();
+    } catch (e: any) {
+      setRevisitError(e?.message || "Failed to book Re-visit. Please try again.");
+    } finally {
+      setBookingRevisit(false);
+    }
+  }
+
+  async function handleCancelAppointment(apptId: string) {
+    if (!confirm("Are you sure you want to cancel this appointment? This action cannot be undone.")) return;
+    try {
+      await api.cancelAppointment(apptId);
+      alert("Appointment has been cancelled successfully.");
+      void refetchAppointments();
+      void refetchP360();
+      setSelectedAppointmentId(null);
+    } catch (e: any) {
+      alert(e?.message || "Failed to cancel appointment.");
     }
   }
 
@@ -297,7 +447,7 @@ export default function PatientDashboard() {
               Book appointment
             </button>
           </div>
-          {!appointments.length && !todayEncounters.length && (
+          {!appointments.length && !todayEpisodes.length && (
             <div className="holo text-xs text-[var(--muted)]">No current or upcoming appointments.</div>
           )}
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
@@ -331,16 +481,17 @@ export default function PatientDashboard() {
                 </button>
               );
             })}
-            {todayEncounters.map((e: any) => {
-              const isActive = e.encounter_id === showEncounterId;
+            {todayEpisodes.map((ep: any) => {
+              const isActive = ep.encounter_id === showEncounterId || 
+                               ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
+                               ep.followups?.some((f: any) => f.encounter_id === showEncounterId);
+              const activeChild = ep.labs?.find((l: any) => l.status !== "DISCHARGED") || ep.followups?.find((f: any) => f.status !== "DISCHARGED");
+              const displayStatus = activeChild ? activeChild.status : ep.status;
+              
               return (
                 <button
-                  key={e.encounter_id}
-                  onClick={() => {
-                    setSelectedEncounterId(e.encounter_id);
-                    setSelectedAppointmentId(null);
-                    setShowMobileVisitList(false);
-                  }}
+                  key={ep.encounter_id}
+                  onClick={() => handleEpisodeClick(ep)}
                   className="w-full text-left p-2.5 rounded-xl border text-xs transition block hover:bg-white/5"
                   style={{
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)",
@@ -348,34 +499,33 @@ export default function PatientDashboard() {
                   }}
                 >
                   <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-white">{e.date}</span>
-                    <Tag tone={e.status === "DISCHARGED" ? "green" : "blue"}>{e.status}</Tag>
+                    <span className="font-bold text-white">{ep.date}</span>
+                    <Tag tone={displayStatus === "DISCHARGED" ? "green" : "blue"}>{displayStatus}</Tag>
                   </div>
-                  <div className="text-[var(--muted)]">{e.department} department</div>
-                  <div className="mt-1 text-[var(--muted)]">Reason: {e.reason || "Not provided"}</div>
+                  <div className="text-[var(--muted)]">{ep.department} department</div>
+                  <div className="mt-1 text-[var(--muted)]">Reason: {ep.reason || "Not provided"}</div>
                 </button>
               );
             })}
           </div>
         </Card>
-
+ 
         {/* Past Visits */}
         <Card className="space-y-3">
           <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Past visits</h4>
-          {!pastEncounters.length && (
+          {!pastEpisodes.length && (
             <div className="holo text-xs text-[var(--muted)]">No past visits available.</div>
           )}
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
-            {pastEncounters.map((e: any) => {
-              const isActive = e.encounter_id === showEncounterId;
+            {pastEpisodes.map((ep: any) => {
+              const isActive = ep.encounter_id === showEncounterId || 
+                               ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
+                               ep.followups?.some((f: any) => f.encounter_id === showEncounterId);
+              
               return (
                 <button
-                  key={e.encounter_id}
-                  onClick={() => {
-                    setSelectedEncounterId(e.encounter_id);
-                    setSelectedAppointmentId(null);
-                    setShowMobileVisitList(false);
-                  }}
+                  key={ep.encounter_id}
+                  onClick={() => handleEpisodeClick(ep)}
                   className="block w-full rounded-xl border p-2.5 text-left text-xs transition hover:bg-white/5"
                   style={{ 
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)", 
@@ -383,11 +533,11 @@ export default function PatientDashboard() {
                   }}
                 >
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="font-bold text-white">{e.date}</span>
-                    <Tag tone="green">{e.status}</Tag>
+                    <span className="font-bold text-white">{ep.date}</span>
+                    <Tag tone="green">{ep.status}</Tag>
                   </div>
-                  <div className="text-[var(--muted)]">{e.department} department</div>
-                  <div className="mt-1 text-[var(--muted)]">Reason: {e.reason || "Not provided"}</div>
+                  <div className="text-[var(--muted)]">{ep.department} department</div>
+                  <div className="mt-1 text-[var(--muted)]">Reason: {ep.reason || "Not provided"}</div>
                 </button>
               );
             })}
@@ -421,6 +571,13 @@ export default function PatientDashboard() {
                 </h3>
               </div>
               <div className="flex gap-2">
+                <button 
+                  onClick={() => handleCancelAppointment(selectedApp.appointment_id)}
+                  className="btn outline sm text-xs flex items-center gap-1.5"
+                  style={{ borderColor: "rgba(239,68,68,0.3)", color: "#fda4af" }}
+                >
+                  Cancel Visit
+                </button>
                 <button 
                   onClick={() => handleDownloadInvoice(selectedApp, false)}
                   className="btn ghost sm text-xs flex items-center gap-1.5"
@@ -472,21 +629,39 @@ export default function PatientDashboard() {
               <div className="text-xs font-semibold text-slate-200 mt-1">{selectedApp.reason || "General OPD checkup"}</div>
             </div>
 
-            <div className="flex justify-end pt-2">
-              <button 
-                disabled={checkingIn}
-                onClick={() => handleDirectCheckin(selectedApp)}
-                className="btn g w-full md:w-auto px-6 py-2 flex items-center justify-center gap-2"
-              >
-                {checkingIn ? (
-                  <>Checking in...</>
-                ) : (
-                  <>
-                    Complete Check-In <CheckCircle2 size={16} />
-                  </>
-                )}
-              </button>
-            </div>
+            {(() => {
+              const appDate = selectedApp.scheduled_start?.slice(0, 10);
+              const isToday = appDate === today;
+              if (isToday) {
+                return (
+                  <div className="flex justify-end pt-2">
+                    <button 
+                      disabled={checkingIn}
+                      onClick={() => handleDirectCheckin(selectedApp)}
+                      className="btn g w-full md:w-auto px-6 py-2 flex items-center justify-center gap-2"
+                    >
+                      {checkingIn ? (
+                        <>Checking in...</>
+                      ) : (
+                        <>
+                          Complete Check-In <CheckCircle2 size={16} />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              } else {
+                return (
+                  <div className="p-3 bg-blue-500/5 border border-blue-500/20 text-blue-300 rounded-xl text-xs flex gap-2.5 items-start mt-2">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5 text-blue-400" />
+                    <div>
+                      <span className="font-bold block mb-0.5">Check-In Offline</span>
+                      You can complete your check-in on the day of your visit: <span className="font-semibold text-white">{new Date(selectedApp.scheduled_start).toLocaleDateString()}</span>.
+                    </div>
+                  </div>
+                );
+              }
+            })()}
           </Card>
         )}
 
@@ -518,46 +693,117 @@ export default function PatientDashboard() {
               </div>
             </div>
 
-            {/* Triage Directions Banner */}
-            <div className="p-3 bg-cyan-500/5 border border-cyan-500/20 text-cyan-300 rounded-xl text-xs flex gap-2.5 items-start">
-              <MapPin size={16} className="shrink-0 mt-0.5 text-cyan-300" />
-              <div>
-                <span className="font-bold block mb-0.5">Please proceed to Triage</span>
-                Please walk to the triage area for vitals monitoring and nurse checkup.
-                {(() => {
-                  const triageStaff = triageStaffList?.find((s: any) => s.role === "NURSE" && s.department === "Triage" && s.available);
-                  const triageRoom = triageStaff?.room || "Triage Room 1";
-                  const triageFloor = triageStaff?.floor || "Ground Floor";
-                  return (
-                    <div className="mt-1 font-semibold text-white">
-                      Location: {triageRoom} ({triageFloor})
+            {(() => {
+              const isLab = encDetails.visit_type === "LAB" || encDetails.department === "Laboratory";
+              if (isLab) {
+                const labTokenNum = encDetails.token?.number || "L-PENDING";
+                const patientsAhead = Math.floor((encDetails.token?.eta_minutes || 0) / 5);
+                const estWaitMins = patientsAhead * 5;
+                const bookedTime = encDetails.appointment?.scheduled_start 
+                  ? timeLabel(encDetails.appointment.scheduled_start)
+                  : "";
+                
+                return (
+                  <div 
+                    className="token-highlight relative flex flex-col items-center justify-center space-y-2 overflow-hidden rounded-2xl border p-3.5 text-center shadow-md max-w-sm mx-auto w-full"
+                    style={{ 
+                      background: "linear-gradient(135deg, rgba(16,185,129,0.06), rgba(52,225,232,0.06))",
+                      borderColor: "rgba(16,185,129,0.25)" 
+                    }}
+                  >
+                    <div className="rounded-full border border-emerald-400/20 bg-emerald-400/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--mint)]">
+                      Laboratory Queue Token
                     </div>
-                  );
-                })()}
-              </div>
-            </div>
+                    <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(16,185,129,0.6)]">
+                      {labTokenNum}
+                    </div>
+                    
+                    <div className="text-xs space-y-1">
+                      <div className="text-slate-200 font-bold flex items-center justify-center gap-1">
+                        <MapPin size={12} className="text-emerald-400" /> Lab Room 1 (Ground Floor)
+                      </div>
+                      {bookedTime && (
+                        <div className="text-xs text-[var(--dim)] font-semibold mt-1">
+                          Booked Slot Time: <span className="text-white">{bookedTime}</span>
+                        </div>
+                      )}
+                      <div className="text-[11px] text-[var(--dim)] mt-1">
+                        Patients ahead in queue: <span className="font-semibold text-white">{patientsAhead}</span>
+                      </div>
+                      <div className="text-[11px] text-[var(--dim)]">
+                        Estimated wait time: <span className="font-semibold text-emerald-400">{estWaitMins} mins</span> <span className="text-[10px] text-[var(--muted)]">(5m per patient)</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              // Standard Triage Token Card
+              const triageStaff = triageStaffList?.find((s: any) => s.role === "NURSE" && s.department === "Triage" && s.available);
+              const triageRoom = triageStaff?.room || "Triage Room 1";
+              const triageFloor = triageStaff?.floor || "Ground Floor";
+              
+              const queueIdx = triageQueue?.queue ? triageQueue.queue.findIndex((item: any) => item.encounter_id === showEncounterId) : -1;
+              const patientsAhead = queueIdx === -1 ? (triageQueue?.queue?.length ?? 0) : queueIdx;
+              const triageTokenNum = queueIdx === -1 ? "T-PENDING" : `T-${100 + queueIdx}`;
+              const estWaitMins = patientsAhead * 5;
+
+              return (
+                <div 
+                  className="token-highlight relative flex flex-col items-center justify-center space-y-2 overflow-hidden rounded-2xl border p-3.5 text-center shadow-md max-w-sm mx-auto w-full"
+                  style={{ 
+                    background: "linear-gradient(135deg, rgba(52,225,232,0.06), rgba(139,92,246,0.06))",
+                    borderColor: "rgba(52,225,232,0.25)" 
+                  }}
+                >
+                  <div className="rounded-full border border-cyan-400/20 bg-cyan-400/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
+                    Triage Queue Token
+                  </div>
+                  <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(52,225,232,0.6)]">
+                    {triageTokenNum}
+                  </div>
+                  
+                  <div className="text-xs space-y-1">
+                    <div className="text-slate-200 font-bold flex items-center justify-center gap-1">
+                      <MapPin size={12} className="text-[var(--cyan)]" /> {triageRoom} ({triageFloor})
+                    </div>
+                    <div className="text-[11px] text-[var(--dim)] mt-1">
+                      Patients ahead: <span className="font-semibold text-white">{patientsAhead}</span>
+                    </div>
+                    <div className="text-[11px] text-[var(--dim)]">
+                      Estimated wait time: <span className="font-semibold text-emerald-400">{estWaitMins} mins</span> <span className="text-[10px] text-[var(--muted)]">(5m per check)</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Brief Appointment Details */}
             <div className="p-3 rounded-xl border bg-white/5 space-y-2 text-xs" style={{ borderColor: "var(--glass-border)" }}>
               <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-1 mb-1">
-                <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
+                <Clipboard size={14} className={encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? "text-emerald-400" : "text-[var(--cyan)]"} /> {encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? "Lab Visit Summary" : "Visit Summary"}
               </div>
-              <div className="kv"><span>Doctor</span><b>{encounterAppointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || "Not assigned"}</b></div>
-              <div className="kv"><span>Specialty</span><b>{encounterAppointment?.specialty || encDetails.triage?.specialty || encDetails.department || "Not recorded"}</b></div>
-              <div className="kv">
-                <span>Room / Floor</span>
-                <b>{[
-                  encounterAppointment?.doctor?.room || encDetails.triage?.recommended_doctor?.room,
-                  encounterAppointment?.doctor?.floor || encDetails.triage?.recommended_doctor?.floor,
-                ].filter(Boolean).join(" / ") || "Not assigned"}</b>
-              </div>
-              <div className="kv"><span>Time Slot</span><b>{encounterAppointment?.scheduled_start ? timeLabel(encounterAppointment.scheduled_start) : timeLabel(encDetails.arrival)}</b></div>
-              <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encounterAppointment?.reason || encDetails.reason || "Not provided"}</b></div>
-              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-sky-500/20 bg-sky-500/5 px-2.5 py-2 text-[11px]">
-                <span className="font-semibold text-sky-300">Active Triage Queue Position:</span>
-                <b className="text-white">{getPatientsAhead()} Patient(s)</b>
-                <span className="text-[var(--dim)]">ahead of you. Please wait near the triage room.</span>
-              </div>
+              {encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? (
+                <>
+                  <div className="kv"><span>Department</span><b>Clinical Laboratory</b></div>
+                  <div className="kv"><span>Location</span><b>Lab Room 1 / Ground Floor</b></div>
+                  <div className="kv"><span>Services</span><b>Sample Collection & Diagnostics</b></div>
+                </>
+              ) : (
+                <>
+                  <div className="kv"><span>Doctor</span><b>{encounterAppointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || "Not assigned"}</b></div>
+                  <div className="kv"><span>Specialty</span><b>{encounterAppointment?.specialty || encDetails.triage?.specialty || encDetails.department || "Not recorded"}</b></div>
+                  <div className="kv">
+                    <span>Room / Floor</span>
+                    <b>{[
+                      encounterAppointment?.doctor?.room || encDetails.triage?.recommended_doctor?.room,
+                      encounterAppointment?.doctor?.floor || encDetails.triage?.recommended_doctor?.floor,
+                    ].filter(Boolean).join(" / ") || "Not assigned"}</b>
+                  </div>
+                  <div className="kv"><span>Time Slot</span><b>{encounterAppointment?.scheduled_start ? timeLabel(encounterAppointment.scheduled_start) : timeLabel(encDetails.arrival)}</b></div>
+                  <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encounterAppointment?.reason || encDetails.reason || "Not provided"}</b></div>
+                </>
+              )}
             </div>
           </Card>
         )}
@@ -654,45 +900,306 @@ export default function PatientDashboard() {
         {/* Stage >= 2: Standard workflow */}
         {showEncounterId && stage >= 2 && encDetails && (
           <>
+            {currentEpisode && (
+              <Card 
+                className="p-4 space-y-4 border-cyan-500/20 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300"
+                style={{ 
+                  background: "linear-gradient(135deg, rgba(6,182,212,0.04), rgba(139,92,246,0.04))",
+                  borderColor: "rgba(255,255,255,0.05)"
+                }}
+              >
+                <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+                  <h4 className="font-extrabold text-[12px] text-white uppercase tracking-wider flex items-center gap-1.5">
+                    ✨ Unified Care Episode Timeline
+                  </h4>
+                  <span className="text-[10px] text-[var(--dim)] font-medium">Episode Date: {currentEpisode.date}</span>
+                </div>
+                
+                <div className="relative flex flex-col md:flex-row md:items-start gap-6 md:gap-4 pl-4 md:pl-0 pt-2 pb-1">
+                  {/* Step 1: Doctor Consult */}
+                  <div className="flex-1 relative flex gap-3.5 items-start">
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] bg-emerald-500 text-white shrink-0 mt-0.5 border-4 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                      ✓
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-white text-[12px]">1. Doctor Consultation</div>
+                      <div className="text-[10.5px] text-[var(--muted)]">
+                        {currentEpisode.department} · {currentEpisode.status === "DISCHARGED" ? "Discharged" : "Completed"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 2: Lab Diagnostics */}
+                  {(() => {
+                    const labOrders = parentEncDetails?.labs || encDetails?.labs || labDetails?.orders || [];
+                    const hasLabs = labOrders.length > 0;
+                    if (!hasLabs) return null;
+
+                    const allResulted = labOrders.every((o: any) => o.status === "RESULTED");
+                    const activeLab = currentEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
+                    
+                    let statusText = "Pending Lab Booking";
+                    let stepColorClass = "bg-slate-700 text-slate-400 border-slate-700/20";
+                    let marker = "2";
+                    
+                    if (allResulted) {
+                      statusText = "Results Published";
+                      stepColorClass = "bg-emerald-500 text-white border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]";
+                      marker = "✓";
+                    } else if (activeLab) {
+                      statusText = `Checked-in (${activeLab.token?.number || "L-101"})`;
+                      stepColorClass = "bg-cyan-500 text-white border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse";
+                      marker = "⚡";
+                    }
+
+                    return (
+                      <div className="flex-1 relative flex gap-3.5 items-start">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${stepColorClass} shrink-0 mt-0.5 border-4`}>
+                          {marker}
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-white text-[12px]">2. Lab Diagnostics</div>
+                          <div className="text-[10.5px] text-[var(--muted)]">{statusText}</div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Step 3: Follow-Up Review */}
+                  {(() => {
+                    const activeFollowup = currentEpisode.followups?.find((f: any) => f.status !== "DISCHARGED");
+                    const completedFollowup = currentEpisode.followups?.find((f: any) => f.status === "DISCHARGED");
+                    
+                    let statusText = "Review pending";
+                    let stepColorClass = "bg-slate-700 text-slate-400 border-slate-700/20";
+                    let marker = "3";
+                    
+                    if (completedFollowup) {
+                      statusText = "Re-visit Completed";
+                      stepColorClass = "bg-emerald-500 text-white border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]";
+                      marker = "✓";
+                    } else if (activeFollowup) {
+                      statusText = activeFollowup.visit_type === "E_CONSULT" 
+                        ? `E-Consult Active (${activeFollowup.token?.number || "E-501"})`
+                        : `Re-visit Active (${activeFollowup.token?.number || "T-101"})`;
+                      stepColorClass = "bg-cyan-500 text-white border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse";
+                      marker = "⚡";
+                    }
+
+                    return (
+                      <div className="flex-1 relative flex gap-3.5 items-start">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${stepColorClass} shrink-0 mt-0.5 border-4`}>
+                          {marker}
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-white text-[12px]">3. Follow-Up consultation</div>
+                          <div className="text-[10.5px] text-[var(--muted)]">{statusText}</div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </Card>
+            )}
+
+            {/* Prescription Slip directly at the top when discharged */}
+            {(parentEncDetails?.prescription || encDetails.prescription) && (
+              <PrescriptionSlip 
+                encounterId={parentEncounterId!} 
+                prescription={parentEncDetails?.prescription || encDetails.prescription}
+              />
+            )}
+
+            {(() => {
+              const followUpRx = currentEpisode?.followups?.find((f: any) => f.prescription)?.prescription;
+              if (!followUpRx) return null;
+              
+              return (
+                <PrescriptionSlip 
+                  encounterId={currentEpisode?.followups?.find((f: any) => f.prescription)?.encounter_id} 
+                  prescription={followUpRx}
+                  title="📋 Follow-Up Prescription Slip"
+                />
+              );
+            })()}
+
             <Card className="space-y-2 text-xs">
               <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-2 mb-1">
                 <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
               </div>
-              <div className="kv"><span>Doctor</span><b>{encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
-              <div className="kv"><span>Specialty</span><b>{encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
+              <div className="kv"><span>Doctor</span><b>{parentEncDetails?.triage?.recommended_doctor?.name || parentEncDetails?.appointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
+              <div className="kv"><span>Specialty</span><b>{parentEncDetails?.triage?.specialty || parentEncDetails?.appointment?.specialty || parentEncDetails?.department || encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
               <div className="kv"><span>Room / Floor</span><b>{[
-                encDetails.token?.room || encDetails.triage?.recommended_doctor?.room || encDetails.appointment?.doctor?.room,
-                encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
+                parentEncDetails?.token?.room || parentEncDetails?.triage?.recommended_doctor?.room || parentEncDetails?.appointment?.doctor?.room || encDetails.token?.room || encDetails.triage?.recommended_doctor?.room || encDetails.appointment?.doctor?.room,
+                parentEncDetails?.token?.floor || parentEncDetails?.triage?.recommended_doctor?.floor || parentEncDetails?.appointment?.doctor?.floor || encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
               ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
-              <div className="kv"><span>Time Slot</span><b>{encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
-              <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
+              <div className="kv"><span>Time Slot</span><b>{parentEncDetails?.appointment?.scheduled_start ? timeLabel(parentEncDetails.appointment.scheduled_start) : encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
+              <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{parentEncDetails?.triage?.chief_complaint || parentEncDetails?.appointment?.reason || encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
             </Card>
 
+            {/* Follow-up Care Portal */}
+            {parentEncDetails?.status === "DISCHARGED" && parentEncDetails?.visit_type !== "REVISIT" && parentEncDetails?.visit_type !== "E_CONSULT" && (
+              <Card 
+                className="space-y-3.5 relative overflow-hidden"
+                style={{ 
+                  background: "linear-gradient(135deg, rgba(6,182,212,0.08), rgba(139,92,246,0.08))", 
+                  borderColor: "rgba(6,182,212,0.2)" 
+                }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-3">
+                  <div>
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-cyan-400">Follow-up Care Portal</span>
+                    <h3 className="text-sm font-black text-white mt-0.5">Post-Consultation &amp; Lab Review</h3>
+                  </div>
+                  <Tag tone="green">Ready for Review</Tag>
+                </div>
+
+                {(() => {
+                  const labOrders = parentEncDetails?.labs || encDetails.labs || labDetails?.orders || [];
+                  const hasLabs = labOrders.length > 0;
+                  const allResulted = hasLabs && labOrders.every((o: any) => o.status === "RESULTED");
+                  
+                  const docId = currentEpisode?.doctor_id || parentEncDetails?.doctor_id || encDetails.doctor_id;
+                  const docName = currentEpisode?.doctor_name || parentEncDetails?.appointment?.doctor?.name || encDetails?.appointment?.doctor?.name || "the doctor";
+
+                  // Check for active follow-up consultations, completed follow-up, or active lab check-ins in the current episode
+                  const activeLab = currentEpisode?.labs?.find((l: any) => l.status !== "DISCHARGED");
+                  const activeFollowup = currentEpisode?.followups?.find((f: any) => f.status !== "DISCHARGED");
+                  const completedFollowup = currentEpisode?.followups?.find((f: any) => f.status === "DISCHARGED");
+
+                  if (completedFollowup) {
+                    return (
+                      <div className="p-3 text-xs bg-emerald-500/10 border-emerald-500/20 text-emerald-300 rounded-xl border flex gap-2">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Follow-up Completed:</strong> Your follow-up consultation is completed. Prescribed medications and doctor advice are updated below.
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (activeFollowup) {
+                    return (
+                      <div className="p-3 text-xs bg-cyan-500/10 border-cyan-500/20 text-cyan-300 rounded-xl border flex gap-2">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Follow-up Consultation Active:</strong> You are currently in the doctor's queue for report review. Token: <strong>{activeFollowup.token?.number}</strong>.
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (activeLab) {
+                    return (
+                      <div className="p-3 text-xs bg-cyan-500/10 border-cyan-500/20 text-cyan-300 rounded-xl border flex gap-2">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Lab Check-in Active:</strong> Please complete your sample collection at the clinical lab. Token: <strong>{activeLab.token?.number}</strong>.
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (econsultSuccessMsg) {
+                    return (
+                      <div className="p-3 text-xs bg-cyan-500/10 border-cyan-500/20 text-cyan-300 rounded-xl border flex gap-2">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <div>{econsultSuccessMsg}</div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-3 text-xs">
+                      {allResulted ? (
+                        <>
+                          <p className="text-[var(--dim)] leading-relaxed">
+                            All prescribed lab tests are completed. You can choose to consult the doctor in-person or request a remote review:
+                          </p>
+                          <div className="p-2 bg-white/5 border border-white/5 rounded-xl mb-1 text-[11px] text-[var(--muted)]">
+                            Consulting Doctor: <strong className="text-white">{docName}</strong> (General Medicine)
+                          </div>
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <button 
+                              onClick={() => {
+                                setRevisitDate("");
+                                setRevisitSlot("");
+                                setUploadedDocUri(null);
+                                setUploadedDocName(null);
+                                setRevisitSuccessMsg("");
+                                setRevisitError("");
+                                setShowRevisitModal(true);
+                              }}
+                              className="btn sm"
+                              style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                            >
+                              🏥 Book In-Person Re-Visit
+                            </button>
+                            <button 
+                              onClick={() => handleRequestEconsult(docId)}
+                              disabled={requestingEconsult}
+                              className="btn outline sm flex items-center gap-1.5"
+                              style={{ borderColor: "rgba(52,225,232,0.3)", color: "var(--cyan)" }}
+                            >
+                              💬 Request E-Consultation (Remote Review)
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[var(--dim)] leading-relaxed">
+                            If you have performed your lab tests externally, please upload your reports to schedule your follow-up re-visit:
+                          </p>
+                          <div className="p-2 bg-white/5 border border-white/5 rounded-xl mb-1 text-[11px] text-[var(--muted)]">
+                            Consulting Doctor: <strong className="text-white">{docName}</strong> (General Medicine)
+                          </div>
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <button 
+                              onClick={() => {
+                                setRevisitDate("");
+                                setRevisitSlot("");
+                                setUploadedDocUri(null);
+                                setUploadedDocName(null);
+                                setRevisitSuccessMsg("");
+                                setRevisitError("");
+                                setShowRevisitModal(true);
+                              }}
+                              className="btn sm"
+                              style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                            >
+                              📂 Upload Reports &amp; Book Re-Visit
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
+              </Card>
+            )}
+
             <LabOrdersAlert 
-              orders={encDetails.labs || labDetails?.orders || []} 
+              orders={parentEncDetails?.labs || encDetails.labs || labDetails?.orders || []} 
               refetchLab={refetchLab} 
               refetchEnc={refetchEnc} 
               refetchP360={refetchP360} 
+              patientId={portalPatientId}
             />
 
             <div className="grid gap-4 md:grid-cols-2">
               <ConsultationSummary 
-                encounterId={showEncounterId!}
-                triage={encDetails.triage} 
-                appointment={encDetails.appointment}
-                note={encDetails.note}
+                encounterId={parentEncounterId!}
+                triage={parentEncDetails?.triage || encDetails.triage} 
+                appointment={parentEncDetails?.appointment || encDetails.appointment}
+                notes={parentEncDetails?.notes || encDetails.notes}
+                note={parentEncDetails?.note || encDetails.note}
               />
 
               <VitalsAndLabs 
-                latestVitals={encDetails.vitals} 
-                orders={encDetails.labs || labDetails?.orders || []} 
+                latestVitals={parentEncDetails?.vitals || encDetails.vitals} 
+                orders={parentEncDetails?.labs || encDetails.labs || labDetails?.orders || []} 
               />
             </div>
-
-            <PrescriptionSlip 
-              encounterId={showEncounterId!} 
-              prescription={encDetails.prescription} 
-            />
           </>
         )}
 
@@ -705,6 +1212,156 @@ export default function PatientDashboard() {
               Choose one of your consultation visits or appointments from the list on the left to review details, triage status, queue position, vitals, and notes.
             </p>
           </Card>
+        )}
+
+        {/* Re-visit Slot Booking Modal */}
+        {showRevisitModal && encDetails && (
+          <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <Card className="w-full max-w-md space-y-4 relative overflow-hidden animate-in zoom-in-95 duration-200 text-xs">
+              <div className="flex items-center justify-between border-b border-white/5 pb-3">
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  🏥 Book Free Re-visit
+                </h3>
+                <button 
+                  onClick={() => setShowRevisitModal(false)}
+                  className="text-[var(--muted)] hover:text-white font-extrabold text-base"
+                >
+                  ×
+                </button>
+              </div>
+
+              {revisitSuccessMsg ? (
+                <div className="space-y-4 py-2">
+                  <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 text-emerald-400 rounded-xl flex gap-2">
+                    <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                    <div className="leading-relaxed">{revisitSuccessMsg}</div>
+                  </div>
+                  <button 
+                    onClick={() => setShowRevisitModal(false)}
+                    className="btn w-full font-bold"
+                    style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "white" }}
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3.5 text-[12.5px]">
+                  {revisitError && (
+                    <div className="p-2.5 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 text-center">
+                      {revisitError}
+                    </div>
+                  )}
+
+                  {/* Doctor Info */}
+                  <div className="p-2 bg-white/5 border border-white/5 rounded-xl text-[11px] text-[var(--muted)]">
+                    Re-visit Doctor: <strong className="text-white">{currentEpisode?.doctor_name || parentEncDetails?.appointment?.doctor?.name || encDetails?.appointment?.doctor?.name || "Consulting Doctor"}</strong> (General Medicine)
+                  </div>
+
+                  {/* Document upload field (Required if NOT all results completed in-house) */}
+                  {(() => {
+                    const labOrders = parentEncDetails?.labs || encDetails.labs || labDetails?.orders || [];
+                    const hasLabs = labOrders.length > 0;
+                    const allResulted = hasLabs && labOrders.every((o: any) => o.status === "RESULTED");
+                    
+                    if (allResulted) return null;
+
+                    return (
+                      <div className="space-y-1.5 border-b border-white/5 pb-3.5">
+                        <label className="block font-bold text-slate-300">Upload External Lab Reports (PDF or Image)</label>
+                        <div className="flex gap-2">
+                          <input 
+                            type="file"
+                            accept=".pdf,image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleReportUpload(file);
+                            }}
+                            className="hidden"
+                            id="revisit-report-upload"
+                            disabled={uploadingReport}
+                          />
+                          <label 
+                            htmlFor="revisit-report-upload"
+                            className="btn outline sm cursor-pointer flex items-center justify-center gap-1 w-full"
+                            style={{ 
+                              borderColor: uploadedDocUri ? "rgba(16,185,129,0.3)" : "rgba(255,255,255,0.1)", 
+                              color: uploadedDocUri ? "#34d399" : "var(--dim)" 
+                            }}
+                          >
+                            {uploadingReport ? "Uploading..." : uploadedDocUri ? "✓ Report Attached" : "📁 Choose File"}
+                          </label>
+                        </div>
+                        {uploadedDocName && (
+                          <div className="text-[10px] text-[var(--muted)] italic truncate">
+                            File: {uploadedDocName}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Date Picker */}
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-300">Select Date</label>
+                    <input 
+                      type="date"
+                      min={new Date().toISOString().split("T")[0]}
+                      value={revisitDate}
+                      onChange={(e) => {
+                        setRevisitDate(e.target.value);
+                        setRevisitSlot("");
+                      }}
+                      className="input w-full"
+                      style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "white" }}
+                    />
+                  </div>
+
+                  {/* Time Slot Picker */}
+                  {revisitDate && (
+                    <div className="space-y-1.5">
+                      <label className="block font-bold text-slate-300">Select Time Slot</label>
+                      <div className="grid grid-cols-3 gap-1.5 max-h-[140px] overflow-y-auto pr-1">
+                        {[
+                          "09:00 AM", "09:30 AM", "10:00 AM", "10:30 AM", 
+                          "11:00 AM", "11:30 AM", "02:00 PM", "02:30 PM", 
+                          "03:00 PM", "03:30 PM", "04:00 PM", "04:30 PM"
+                        ].map((s) => {
+                          const isSelected = revisitSlot === s;
+                          return (
+                            <button
+                              key={s}
+                              onClick={() => setRevisitSlot(s)}
+                              className="p-1.5 border rounded-lg text-center font-semibold transition"
+                              style={{
+                                borderColor: isSelected ? "var(--cyan)" : "var(--glass-border)",
+                                background: isSelected ? "rgba(52,225,232,0.1)" : "rgba(255,255,255,0.02)",
+                                color: isSelected ? "white" : "var(--dim)",
+                              }}
+                            >
+                               {s}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Booking action */}
+                  <button
+                    onClick={() => {
+                      const docId = currentEpisode?.doctor_id || parentEncDetails?.doctor_id || encDetails?.doctor_id;
+                      handleBookRevisit(docId!);
+                    }}
+                    disabled={bookingRevisit || uploadingReport || !revisitDate || !revisitSlot || (uploadedDocUri === null && !(encDetails?.labs?.length > 0 && encDetails.labs.every((o: any) => o.status === "RESULTED")))}
+                    className="btn w-full font-bold py-2 mt-2"
+                    style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                  >
+                    {bookingRevisit ? "Booking..." : "Confirm Free Re-visit"}
+                  </button>
+                </div>
+              )}
+            </Card>
+          </div>
         )}
       </div>
     </div>

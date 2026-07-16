@@ -7,10 +7,10 @@ import { useJourney } from "../../lib/store";
 import { Card, Field } from "../../components/ui";
 
 type LoginStep = "mobile" | "otp" | "profiles" | "register" | "medical";
-type AllergyDraft = { substance: string; drug_class: string; severity: string; reaction: string };
+type IssueDraft = { issue_name: string; onset_info: string };
 type DocumentDraft = { title: string; doc_type: string; uri: string; file_name: string };
 
-const emptyAllergy = (): AllergyDraft => ({ substance: "", drug_class: "Unknown", severity: "", reaction: "" });
+const emptyIssue = (): IssueDraft => ({ issue_name: "", onset_info: "" });
 const emptyDocument = (): DocumentDraft => ({ title: "", doc_type: "", uri: "", file_name: "" });
 
 function todayIso() {
@@ -33,7 +33,7 @@ export default function PatientLogin() {
   const setJourney = useJourney((state) => state.set);
   const redirect = safeRedirect(params.get("redirect"));
   const [step, setStep] = useState<LoginStep>("mobile");
-  const [mobile, setMobile] = useState("9876500011");
+  const [mobile, setMobile] = useState("6281116923");
   const [otp, setOtp] = useState("");
   const [profiles, setProfiles] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
@@ -47,7 +47,7 @@ export default function PatientLogin() {
     blood_group: "",
     address: "",
   });
-  const [allergies, setAllergies] = useState<AllergyDraft[]>([emptyAllergy()]);
+  const [issues, setIssues] = useState<IssueDraft[]>([emptyIssue()]);
   const [documents, setDocuments] = useState<DocumentDraft[]>([emptyDocument()]);
 
   if (getPortalPatient()) return <Navigate to={redirect} replace />;
@@ -89,11 +89,10 @@ export default function PatientLogin() {
       const result = await api.registerPatient({
         ...registration,
         mobile: mobile.trim(),
-        allergies: allergies.filter((item) => item.substance.trim()).map((item) => ({
-          substance: item.substance.trim(),
-          drug_class: item.drug_class.trim() || "Unknown",
-          severity: item.severity,
-          reaction: item.reaction.trim() || null,
+        issues: issues.filter((item) => item.issue_name.trim()).map((item) => ({
+          issue_name: item.issue_name.trim(),
+          onset_info: item.onset_info.trim() || null,
+          status: "ACTIVE",
         })),
         documents: documents.filter((item) => item.title.trim() && item.uri).map((item) => ({
           title: item.title.trim(),
@@ -140,15 +139,12 @@ export default function PatientLogin() {
     && registration.last_name.trim()
     && registration.dob
     && registration.dob <= todayIso()
-    && validEmail(registration.email)
+    && (!registration.email.trim() || validEmail(registration.email))
     && registration.gender
-    && registration.blood_group
-    && registration.address.trim()
     && /^\d{10}$/.test(mobile.trim())
   );
 
-  const medicalDetailsValid = allergies.every((item) => !item.substance.trim() || Boolean(item.severity))
-    && documents.every((item) => (!item.title.trim() && !item.uri && !item.doc_type)
+  const medicalDetailsValid = documents.every((item) => (!item.title.trim() && !item.uri && !item.doc_type)
       || Boolean(item.title.trim() && item.doc_type && item.uri));
 
   async function login(profile: any) {
@@ -184,7 +180,7 @@ export default function PatientLogin() {
           <label className="block text-sm font-semibold">Registered mobile number</label>
           <div className="relative">
             <Phone size={15} className="absolute left-3 top-3" color="var(--dim)" />
-            <input className="input pl-9" inputMode="numeric" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="9876500011" />
+            <input className="input pl-9" inputMode="numeric" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="6281116923" />
           </div>
           <button className="btn w-full" disabled={busy || !/^\d{10}$/.test(mobile)} onClick={sendOtp}>{busy ? "Sending..." : "Send OTP"}</button>
         </div>}
@@ -225,10 +221,10 @@ export default function PatientLogin() {
             <Field label="Last name"><input className="input" value={registration.last_name} onChange={(e) => setRegistration({ ...registration, last_name: e.target.value })} /></Field>
             <Field label="Date of birth"><input className="input" type="date" max={todayIso()} value={registration.dob} onChange={(e) => setRegistration({ ...registration, dob: e.target.value })} /></Field>
             <Field label="Mobile number"><input className="input" value={mobile} disabled /></Field>
-            <Field label="Email"><input className="input" type="email" value={registration.email} onChange={(e) => setRegistration({ ...registration, email: e.target.value })} placeholder="patient@example.com" /></Field>
+            <Field label="Email (Optional)"><input className="input" type="email" value={registration.email} onChange={(e) => setRegistration({ ...registration, email: e.target.value })} placeholder="patient@example.com" /></Field>
             <Field label="Gender"><select className="input" value={registration.gender} onChange={(e) => setRegistration({ ...registration, gender: e.target.value })}><option value="">Select gender</option><option>Female</option><option>Male</option><option>Other</option><option>Unknown</option></select></Field>
-            <Field label="Blood group"><select className="input" value={registration.blood_group} onChange={(e) => setRegistration({ ...registration, blood_group: e.target.value })}><option value="">Select blood group</option><option value="UNK">Unknown</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></Field>
-            <Field label="Address"><input className="input" value={registration.address} onChange={(e) => setRegistration({ ...registration, address: e.target.value })} /></Field>
+            <Field label="Blood group (Optional)"><select className="input" value={registration.blood_group} onChange={(e) => setRegistration({ ...registration, blood_group: e.target.value })}><option value="">Select blood group</option><option value="UNK">Unknown</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></Field>
+            <Field label="Address (Optional)"><input className="input" value={registration.address} onChange={(e) => setRegistration({ ...registration, address: e.target.value })} /></Field>
           </div>
           <div className="actions-row between">
             <button className="btn-link" disabled={busy} onClick={() => setStep(profiles.length ? "profiles" : "mobile")}>
@@ -246,20 +242,18 @@ export default function PatientLogin() {
 
         {step === "medical" && <div className="space-y-6">
           <div>
-            <h3 className="font-bold">Allergies and documents</h3>
-            <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>Add any known allergies and relevant medical documents. Leave a section blank if none apply.</p>
+            <h3 className="font-bold">Medical History & Documents</h3>
+            <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>Add any existing health conditions, previous major surgeries, or relevant medical files. Leave empty if none apply.</p>
           </div>
 
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="font-bold">Allergies</h4>
-              <button className="btn ghost sm" onClick={() => setAllergies((items) => [...items, emptyAllergy()])}><Plus size={14} /> Add allergy</button>
+              <h4 className="font-bold">Medical History & Previous Surgeries</h4>
+              <button className="btn ghost sm" onClick={() => setIssues((items) => [...items, emptyIssue()])}><Plus size={14} /> Add condition / surgery</button>
             </div>
-            {allergies.map((allergy, index) => <div className="holo grid gap-3 sm:grid-cols-2" key={index}>
-              <Field label="Substance"><input className="input" value={allergy.substance} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, substance: e.target.value } : item))} placeholder="e.g. Penicillin" /></Field>
-              <Field label="Drug class"><input className="input" value={allergy.drug_class} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, drug_class: e.target.value } : item))} placeholder="Unknown if not known" /></Field>
-              <Field label="Severity"><select className="input" value={allergy.severity} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, severity: e.target.value } : item))}><option value="">Select severity</option><option value="MILD">Mild</option><option value="MODERATE">Moderate</option><option value="SEVERE">Severe</option></select></Field>
-              <Field label="Reaction"><input className="input" value={allergy.reaction} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, reaction: e.target.value } : item))} placeholder="e.g. Rash or swelling" /></Field>
+            {issues.map((issue, index) => <div className="holo grid gap-3 sm:grid-cols-2" key={index}>
+              <Field label="Condition or Surgery"><input className="input" value={issue.issue_name} onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, issue_name: e.target.value } : item))} placeholder="e.g. Diabetes, BP, Heart surgery" /></Field>
+              <Field label="How long ago / onset info (Optional)"><input className="input" value={issue.onset_info} onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, onset_info: e.target.value } : item))} placeholder="e.g. 5 years, 3 months ago, 2024" /></Field>
             </div>)}
           </div>
 

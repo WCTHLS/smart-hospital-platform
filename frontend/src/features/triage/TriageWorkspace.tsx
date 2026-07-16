@@ -77,6 +77,15 @@ export default function Triage() {
 
   const selectPatient = (encounter: any) => {
     setRes(null);
+    setSymptom(encounter.reason || "");
+    setDuration("");
+    setV({
+      bp_systolic: "" as any,
+      bp_diastolic: "" as any,
+      spo2: "" as any,
+      heart_rate: "" as any,
+      temperature: "" as any,
+    });
     setJourney({
       patientId: encounter.patient.patient_id,
       patientName: encounter.patient.name,
@@ -94,7 +103,7 @@ export default function Triage() {
     qc.invalidateQueries({ queryKey: ["triage-queue"] });
   };
 
-  const upd = (k: string, val: string) => setV((s) => ({ ...s, [k]: Number(val) }));
+  const upd = (k: string, val: string) => setV((s) => ({ ...s, [k]: val === "" ? "" : Number(val) }));
 
   async function run() {
     if (!journey.encounterId) return;
@@ -391,6 +400,11 @@ export default function Triage() {
                 <div className="inline-block">
                   <Tag tone="blue">{res.token.room} · {res.token.floor} · ~{res.token.eta_minutes} min</Tag>
                 </div>
+                {res.scheduled_start && (
+                  <div className="text-xs text-[var(--dim)] font-semibold mt-1">
+                    Booked Slot Time: <span className="text-white">{new Date(res.scheduled_start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                )}
                 <button className="btn mt-4 w-full" onClick={backToQueue}>
                   Complete &amp; Return to Queue <ArrowRight size={16} />
                 </button>

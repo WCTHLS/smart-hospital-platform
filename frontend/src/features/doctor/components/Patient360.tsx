@@ -53,6 +53,20 @@ function HistoricalVisitDropdown({ encounter }: { encounter: any }) {
                 </div>
               )}
 
+              {/* Diagnosed Conditions / Issues */}
+              {details.note?.icd10_codes?.length > 0 && (
+                <div>
+                  <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-1">Diagnosed Condition(s):</div>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {details.note.icd10_codes.map((icd: any) => (
+                      <span key={icd.code} className="text-[10.5px] bg-red-500/10 text-red-400 font-bold px-2.5 py-0.5 rounded-xl border border-red-500/20">
+                        ⚠ {icd.label} ({icd.code})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* SOAP Note Text */}
               {details.note ? (
                 <div>
@@ -60,15 +74,6 @@ function HistoricalVisitDropdown({ encounter }: { encounter: any }) {
                   <div className="p-2 rounded bg-white/5 border border-white/5 text-[10.5px] whitespace-pre-line text-slate-300">
                     {details.note.final_text}
                   </div>
-                  {details.note.icd10_codes?.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {details.note.icd10_codes.map((icd: any) => (
-                        <span key={icd.code} className="text-[9.5px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
-                          {icd.code}: {icd.label}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div>
@@ -136,6 +141,30 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
   const [adviceNotes, setAdviceNotes] = useState("");
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesSuccess, setNotesSuccess] = useState(false);
+  
+  const [newIssueName, setNewIssueName] = useState("");
+  const [newIssueOnset, setNewIssueOnset] = useState("");
+  const [addingIssue, setAddingIssue] = useState(false);
+
+  const handleAddIssue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newIssueName.trim()) return;
+    setAddingIssue(true);
+    try {
+      await api.addPatientIssue(patientId, {
+        issue_name: newIssueName.trim(),
+        onset_info: newIssueOnset.trim() || undefined,
+      });
+      setNewIssueName("");
+      setNewIssueOnset("");
+      qc.invalidateQueries({ queryKey: ["p360", patientId] });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to add medical issue.");
+    } finally {
+      setAddingIssue(false);
+    }
+  };
 
   const { data, error, isLoading } = useQuery({
     queryKey: ["p360", patientId],
@@ -163,7 +192,10 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
     setSavingNotes(true);
     setNotesSuccess(false);
     try {
-      await api.updateEncounterNotes(encounterId, adviceNotes);
+      const res = await api.updateEncounterNotes(encounterId, adviceNotes);
+      if (res && res.notes) {
+        setAdviceNotes(res.notes);
+      }
       setNotesSuccess(true);
     } catch (err) {
       console.error(err);
@@ -189,6 +221,66 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
 
   return (
     <div className="space-y-4">
+      {/* Chronic Medical Issues (Problem List) */}
+      <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(239,68,68,0.04), transparent)" }}>
+        <div className="flex justify-between items-center pb-1.5 border-b border-white/5">
+          <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#d7e5ff" }}>
+            Chronic Medical Issues (Problem List)
+          </h4>
+          <span className="text-[10px] uppercase font-extrabold tracking-wider text-[var(--dim)]">Persists Across Encounters</span>
+        </div>
+        
+        {data.issues?.length ? (
+          <div className="flex flex-wrap gap-2 pb-1">
+            {data.issues.map((i: any) => (
+              <div 
+                key={i.issue_id} 
+                className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 font-bold"
+              >
+                <span>⚠ {i.issue_name}</span>
+                {i.onset_info && <span className="text-[10px] text-slate-400 font-normal">({i.onset_info})</span>}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-[var(--muted)] pb-1">No chronic medical issues recorded for this patient.</p>
+        )}
+
+        <form onSubmit={handleAddIssue} className="grid grid-cols-1 sm:grid-cols-12 gap-2 text-xs pt-2.5 border-t border-white/5">
+          <div className="sm:col-span-6">
+            <input
+              type="text"
+              placeholder="New Issue (e.g. Heart Attack, Diabetes)"
+              className="input w-full py-1.5 px-3 text-xs"
+              value={newIssueName}
+              onChange={(e) => setNewIssueName(e.target.value)}
+              required
+              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+            />
+          </div>
+          <div className="sm:col-span-3">
+            <input
+              type="text"
+              placeholder="Onset (e.g. 6mo ago)"
+              className="input w-full py-1.5 px-3 text-xs"
+              value={newIssueOnset}
+              onChange={(e) => setNewIssueOnset(e.target.value)}
+              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+            />
+          </div>
+          <div className="sm:col-span-3">
+            <button
+              type="submit"
+              disabled={addingIssue}
+              className="btn w-full py-1.5 px-4 text-xs font-bold"
+              style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+            >
+              {addingIssue ? "Saving..." : "Add Issue"}
+            </button>
+          </div>
+        </form>
+      </Card>
+
       {/* Today's Consultation Notes & Advice */}
       {encounterId && (
         <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(139,92,246,0.06), transparent)" }}>
@@ -268,6 +360,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
         ) : <Empty>No vitals captured yet for this patient.</Empty>}
       </Card>
 
+
       {/* Side-by-Side balanced layout for wider displays */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* Column 1: Recent Results */}
@@ -309,6 +402,36 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
           </div>
         </Card>
       </div>
+
+      {/* Uploaded Documents & External Reports */}
+      {data.documents && data.documents.length > 0 && (
+        <Card className="animate-in fade-in duration-300">
+          <h4 className="mb-3 font-bold flex items-center gap-2" style={{ color: "#d7e5ff" }}>
+            <FileText size={18} className="text-[var(--cyan)]" /> External Reports & Uploaded Documents
+          </h4>
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+            {data.documents.map((d: any) => (
+              <div 
+                key={d.document_id} 
+                className="p-3 border border-white/5 rounded-xl bg-white/[0.01] flex justify-between items-center text-xs"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-slate-300 truncate">{d.title}</div>
+                  <div className="text-[10px] text-[var(--muted)] mt-1">{d.date} · {d.doc_type}</div>
+                </div>
+                <a 
+                  href={d.uri.startsWith("http") ? d.uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${d.uri}`}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="btn ghost sm !py-1 !px-2.5 font-bold text-[11px] text-[var(--cyan)] hover:underline shrink-0 ml-2"
+                >
+                  View Report
+                </a>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
