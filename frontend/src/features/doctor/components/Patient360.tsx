@@ -192,7 +192,10 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
     setSavingNotes(true);
     setNotesSuccess(false);
     try {
-      await api.updateEncounterNotes(encounterId, adviceNotes);
+      const res = await api.updateEncounterNotes(encounterId, adviceNotes);
+      if (res && res.notes) {
+        setAdviceNotes(res.notes);
+      }
       setNotesSuccess(true);
     } catch (err) {
       console.error(err);

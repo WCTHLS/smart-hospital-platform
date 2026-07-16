@@ -489,3 +489,31 @@ def patient_summary_agent(
         citations=["Patient medical record timeline"],
     )
 
+
+def refine_notes_agent(notes_text: str, chief_complaint: str) -> str:
+    if not notes_text or not notes_text.strip():
+        return notes_text
+        
+    if not gateway.available():
+        return notes_text
+
+    prompt = (
+        "You are an expert clinical assistant. You are given a doctor's informal/rough consultation notes and the patient's chief complaint.\n\n"
+        f"Patient Chief Complaint: {chief_complaint}\n"
+        f"Doctor's Original Notes: {notes_text}\n\n"
+        "Your task is to:\n"
+        "1. Correct any spelling, grammar, punctuation, or medical terminology typos in the notes.\n"
+        "2. Refine the style to be clean, professional, and medically sound.\n"
+        "3. Keep the refined note short and concise, of similar length to the doctor's original notes (do NOT generate long summaries, general templates, or add unrelated advice).\n"
+        "4. Align the advice with the patient's issue/chief complaint, preserving all doctor intent and clinical advice exactly.\n\n"
+        "Output ONLY the final refined notes text. Do not include any introductory, concluding, or markdown commentary (like 'Here is the refined note:')."
+    )
+    try:
+        refined = gateway.generate(prompt, temperature=0.2)
+        refined_clean = refined.strip()
+        if refined_clean:
+            return refined_clean
+    except Exception as e:
+        print(f"Error in refine_notes_agent: {e}")
+    return notes_text
+

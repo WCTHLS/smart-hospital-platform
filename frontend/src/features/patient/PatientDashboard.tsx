@@ -136,10 +136,26 @@ export default function PatientDashboard() {
     nav("/patient/login?redirect=/patient", { replace: true });
   };
 
+  function handleEpisodeClick(ep: any) {
+    const activeLab = ep.labs?.find((l: any) => l.status !== "DISCHARGED");
+    const activeFollowup = ep.followups?.find((f: any) => f.status !== "DISCHARGED");
+    if (activeLab) {
+      setSelectedEncounterId(activeLab.encounter_id);
+    } else if (activeFollowup) {
+      setSelectedEncounterId(activeFollowup.encounter_id);
+    } else {
+      setSelectedEncounterId(ep.encounter_id);
+    }
+    setSelectedAppointmentId(null);
+    setShowMobileVisitList(false);
+  }
+
   const today = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
-  const todayEncounters = p360?.encounters?.filter((encounter: any) => encounter.date === today) ?? [];
-  const pastEncounters = p360?.encounters?.filter((encounter: any) => encounter.date !== today) ?? [];
+  const episodes = p360?.episodes ?? [];
+  const todayEpisodes = episodes.filter((ep: any) => ep.date === today);
+  const pastEpisodes = episodes.filter((ep: any) => ep.date !== today);
   const appointments = appointmentData?.appointments ?? [];
+
   const latestDischargeEvent = events.find((event) =>
     event.topic === "visit.discharged" &&
     p360?.encounters?.some((encounter: any) => encounter.encounter_id === event.payload?.encounter_id)
@@ -151,14 +167,45 @@ export default function PatientDashboard() {
     }
   }, [latestDischargeEvent?.ts, refetchP360]);
 
-  const activeEnc = p360?.encounters?.find((e: any) => e.status !== "DISCHARGED");
-  
-  const defaultAppId = !selectedEncounterId && !activeEnc && appointments.length > 0
+  // Find active episode/encounter
+  const activeEpisode = episodes.find((ep: any) => {
+    if (ep.status !== "DISCHARGED") return true;
+    const hasActiveLab = ep.labs?.some((l: any) => l.status !== "DISCHARGED");
+    const hasActiveFollowup = ep.followups?.some((f: any) => f.status !== "DISCHARGED");
+    return hasActiveLab || hasActiveFollowup;
+  });
+
+  let activeEncId = activeEpisode?.encounter_id;
+  if (activeEpisode) {
+    const activeLab = activeEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
+    const activeFollowup = activeEpisode.followups?.find((f: any) => f.status !== "DISCHARGED");
+    if (activeLab) {
+      activeEncId = activeLab.encounter_id;
+    } else if (activeFollowup) {
+      activeEncId = activeFollowup.encounter_id;
+    }
+  }
+
+  const defaultAppId = !selectedEncounterId && !activeEncId && appointments.length > 0
     ? appointments[0].appointment_id
     : null;
 
   const showAppointmentId = selectedAppointmentId || (selectedEncounterId ? null : defaultAppId);
-  const showEncounterId = selectedEncounterId || (showAppointmentId ? null : activeEnc?.encounter_id);
+  const showEncounterId = selectedEncounterId || (showAppointmentId ? null : activeEncId);
+
+  const currentEpisode = episodes.find((ep: any) => 
+    ep.encounter_id === showEncounterId || 
+    ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
+    ep.followups?.some((f: any) => f.encounter_id === showEncounterId)
+  );
+
+  const parentEncounterId = currentEpisode?.encounter_id || showEncounterId;
+
+  const { data: parentEncDetails } = useQuery({
+    queryKey: ["portal-encounter-parent", parentEncounterId],
+    queryFn: () => api.encounter(parentEncounterId!),
+    enabled: !!parentEncounterId,
+  });
 
   const { data: encDetails, refetch: refetchEnc } = useQuery({
     queryKey: ["portal-encounter", showEncounterId],
@@ -240,7 +287,10 @@ export default function PatientDashboard() {
     setEconsultSuccessMsg("");
     setRevisitError("");
     try {
-      const res = await api.requestEconsult(portalPatientId, { doctor_id: doctorId });
+      const res = await api.requestEconsult(portalPatientId, { 
+        doctor_id: doctorId,
+        parent_encounter_id: parentEncounterId 
+      });
       setEconsultSuccessMsg(`E-Consultation requested successfully! Your remote review token is ${res.token_number}. The doctor will review your reports shortly.`);
       await refetchP360();
     } catch (e: any) {
@@ -280,6 +330,7 @@ export default function PatientDashboard() {
         doctor_id: doctorId,
         booking_date: revisitDate,
         booking_slot: revisitSlot,
+        parent_encounter_id: parentEncounterId,
         attachment_name: uploadedDocName || undefined,
         attachment_uri: uploadedDocUri || undefined,
       });
@@ -396,7 +447,7 @@ export default function PatientDashboard() {
               Book appointment
             </button>
           </div>
-          {!appointments.length && !todayEncounters.length && (
+          {!appointments.length && !todayEpisodes.length && (
             <div className="holo text-xs text-[var(--muted)]">No current or upcoming appointments.</div>
           )}
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
@@ -430,16 +481,17 @@ export default function PatientDashboard() {
                 </button>
               );
             })}
-            {todayEncounters.map((e: any) => {
-              const isActive = e.encounter_id === showEncounterId;
+            {todayEpisodes.map((ep: any) => {
+              const isActive = ep.encounter_id === showEncounterId || 
+                               ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
+                               ep.followups?.some((f: any) => f.encounter_id === showEncounterId);
+              const activeChild = ep.labs?.find((l: any) => l.status !== "DISCHARGED") || ep.followups?.find((f: any) => f.status !== "DISCHARGED");
+              const displayStatus = activeChild ? activeChild.status : ep.status;
+              
               return (
                 <button
-                  key={e.encounter_id}
-                  onClick={() => {
-                    setSelectedEncounterId(e.encounter_id);
-                    setSelectedAppointmentId(null);
-                    setShowMobileVisitList(false);
-                  }}
+                  key={ep.encounter_id}
+                  onClick={() => handleEpisodeClick(ep)}
                   className="w-full text-left p-2.5 rounded-xl border text-xs transition block hover:bg-white/5"
                   style={{
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)",
@@ -447,34 +499,33 @@ export default function PatientDashboard() {
                   }}
                 >
                   <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-white">{e.date}</span>
-                    <Tag tone={e.status === "DISCHARGED" ? "green" : "blue"}>{e.status}</Tag>
+                    <span className="font-bold text-white">{ep.date}</span>
+                    <Tag tone={displayStatus === "DISCHARGED" ? "green" : "blue"}>{displayStatus}</Tag>
                   </div>
-                  <div className="text-[var(--muted)]">{e.department} department</div>
-                  <div className="mt-1 text-[var(--muted)]">Reason: {e.reason || "Not provided"}</div>
+                  <div className="text-[var(--muted)]">{ep.department} department</div>
+                  <div className="mt-1 text-[var(--muted)]">Reason: {ep.reason || "Not provided"}</div>
                 </button>
               );
             })}
           </div>
         </Card>
-
+ 
         {/* Past Visits */}
         <Card className="space-y-3">
           <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Past visits</h4>
-          {!pastEncounters.length && (
+          {!pastEpisodes.length && (
             <div className="holo text-xs text-[var(--muted)]">No past visits available.</div>
           )}
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
-            {pastEncounters.map((e: any) => {
-              const isActive = e.encounter_id === showEncounterId;
+            {pastEpisodes.map((ep: any) => {
+              const isActive = ep.encounter_id === showEncounterId || 
+                               ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
+                               ep.followups?.some((f: any) => f.encounter_id === showEncounterId);
+              
               return (
                 <button
-                  key={e.encounter_id}
-                  onClick={() => {
-                    setSelectedEncounterId(e.encounter_id);
-                    setSelectedAppointmentId(null);
-                    setShowMobileVisitList(false);
-                  }}
+                  key={ep.encounter_id}
+                  onClick={() => handleEpisodeClick(ep)}
                   className="block w-full rounded-xl border p-2.5 text-left text-xs transition hover:bg-white/5"
                   style={{ 
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)", 
@@ -482,11 +533,11 @@ export default function PatientDashboard() {
                   }}
                 >
                   <div className="mb-1 flex items-center justify-between">
-                    <span className="font-bold text-white">{e.date}</span>
-                    <Tag tone="green">{e.status}</Tag>
+                    <span className="font-bold text-white">{ep.date}</span>
+                    <Tag tone="green">{ep.status}</Tag>
                   </div>
-                  <div className="text-[var(--muted)]">{e.department} department</div>
-                  <div className="mt-1 text-[var(--muted)]">Reason: {e.reason || "Not provided"}</div>
+                  <div className="text-[var(--muted)]">{ep.department} department</div>
+                  <div className="mt-1 text-[var(--muted)]">Reason: {ep.reason || "Not provided"}</div>
                 </button>
               );
             })}
@@ -849,22 +900,145 @@ export default function PatientDashboard() {
         {/* Stage >= 2: Standard workflow */}
         {showEncounterId && stage >= 2 && encDetails && (
           <>
+            {currentEpisode && (
+              <Card 
+                className="p-4 space-y-4 border-cyan-500/20 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300"
+                style={{ 
+                  background: "linear-gradient(135deg, rgba(6,182,212,0.04), rgba(139,92,246,0.04))",
+                  borderColor: "rgba(255,255,255,0.05)"
+                }}
+              >
+                <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+                  <h4 className="font-extrabold text-[12px] text-white uppercase tracking-wider flex items-center gap-1.5">
+                    ✨ Unified Care Episode Timeline
+                  </h4>
+                  <span className="text-[10px] text-[var(--dim)] font-medium">Episode Date: {currentEpisode.date}</span>
+                </div>
+                
+                <div className="relative flex flex-col md:flex-row md:items-start gap-6 md:gap-4 pl-4 md:pl-0 pt-2 pb-1">
+                  {/* Step 1: Doctor Consult */}
+                  <div className="flex-1 relative flex gap-3.5 items-start">
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] bg-emerald-500 text-white shrink-0 mt-0.5 border-4 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                      ✓
+                    </div>
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-white text-[12px]">1. Doctor Consultation</div>
+                      <div className="text-[10.5px] text-[var(--muted)]">
+                        {currentEpisode.department} · {currentEpisode.status === "DISCHARGED" ? "Discharged" : "Completed"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 2: Lab Diagnostics */}
+                  {(() => {
+                    const labOrders = parentEncDetails?.labs || encDetails?.labs || labDetails?.orders || [];
+                    const hasLabs = labOrders.length > 0;
+                    if (!hasLabs) return null;
+
+                    const allResulted = labOrders.every((o: any) => o.status === "RESULTED");
+                    const activeLab = currentEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
+                    
+                    let statusText = "Pending Lab Booking";
+                    let stepColorClass = "bg-slate-700 text-slate-400 border-slate-700/20";
+                    let marker = "2";
+                    
+                    if (allResulted) {
+                      statusText = "Results Published";
+                      stepColorClass = "bg-emerald-500 text-white border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]";
+                      marker = "✓";
+                    } else if (activeLab) {
+                      statusText = `Checked-in (${activeLab.token?.number || "L-101"})`;
+                      stepColorClass = "bg-cyan-500 text-white border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse";
+                      marker = "⚡";
+                    }
+
+                    return (
+                      <div className="flex-1 relative flex gap-3.5 items-start">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${stepColorClass} shrink-0 mt-0.5 border-4`}>
+                          {marker}
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-white text-[12px]">2. Lab Diagnostics</div>
+                          <div className="text-[10.5px] text-[var(--muted)]">{statusText}</div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Step 3: Follow-Up Review */}
+                  {(() => {
+                    const activeFollowup = currentEpisode.followups?.find((f: any) => f.status !== "DISCHARGED");
+                    const completedFollowup = currentEpisode.followups?.find((f: any) => f.status === "DISCHARGED");
+                    
+                    let statusText = "Review pending";
+                    let stepColorClass = "bg-slate-700 text-slate-400 border-slate-700/20";
+                    let marker = "3";
+                    
+                    if (completedFollowup) {
+                      statusText = "Re-visit Completed";
+                      stepColorClass = "bg-emerald-500 text-white border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]";
+                      marker = "✓";
+                    } else if (activeFollowup) {
+                      statusText = activeFollowup.visit_type === "E_CONSULT" 
+                        ? `E-Consult Active (${activeFollowup.token?.number || "E-501"})`
+                        : `Re-visit Active (${activeFollowup.token?.number || "T-101"})`;
+                      stepColorClass = "bg-cyan-500 text-white border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse";
+                      marker = "⚡";
+                    }
+
+                    return (
+                      <div className="flex-1 relative flex gap-3.5 items-start">
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${stepColorClass} shrink-0 mt-0.5 border-4`}>
+                          {marker}
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="font-bold text-white text-[12px]">3. Follow-Up consultation</div>
+                          <div className="text-[10.5px] text-[var(--muted)]">{statusText}</div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </Card>
+            )}
+
+            {/* Prescription Slip directly at the top when discharged */}
+            {(parentEncDetails?.prescription || encDetails.prescription) && (
+              <PrescriptionSlip 
+                encounterId={parentEncounterId!} 
+                prescription={parentEncDetails?.prescription || encDetails.prescription}
+              />
+            )}
+
+            {(() => {
+              const followUpRx = currentEpisode?.followups?.find((f: any) => f.prescription)?.prescription;
+              if (!followUpRx) return null;
+              
+              return (
+                <PrescriptionSlip 
+                  encounterId={currentEpisode?.followups?.find((f: any) => f.prescription)?.encounter_id} 
+                  prescription={followUpRx}
+                  title="📋 Follow-Up Prescription Slip"
+                />
+              );
+            })()}
+
             <Card className="space-y-2 text-xs">
               <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-2 mb-1">
                 <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
               </div>
-              <div className="kv"><span>Doctor</span><b>{encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
-              <div className="kv"><span>Specialty</span><b>{encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
+              <div className="kv"><span>Doctor</span><b>{parentEncDetails?.triage?.recommended_doctor?.name || parentEncDetails?.appointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
+              <div className="kv"><span>Specialty</span><b>{parentEncDetails?.triage?.specialty || parentEncDetails?.appointment?.specialty || parentEncDetails?.department || encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
               <div className="kv"><span>Room / Floor</span><b>{[
-                encDetails.token?.room || encDetails.triage?.recommended_doctor?.room || encDetails.appointment?.doctor?.room,
-                encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
+                parentEncDetails?.token?.room || parentEncDetails?.triage?.recommended_doctor?.room || parentEncDetails?.appointment?.doctor?.room || encDetails.token?.room || encDetails.triage?.recommended_doctor?.room || encDetails.appointment?.doctor?.room,
+                parentEncDetails?.token?.floor || parentEncDetails?.triage?.recommended_doctor?.floor || parentEncDetails?.appointment?.doctor?.floor || encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
               ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
-              <div className="kv"><span>Time Slot</span><b>{encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
-              <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
+              <div className="kv"><span>Time Slot</span><b>{parentEncDetails?.appointment?.scheduled_start ? timeLabel(parentEncDetails.appointment.scheduled_start) : encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
+              <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{parentEncDetails?.triage?.chief_complaint || parentEncDetails?.appointment?.reason || encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
             </Card>
 
             {/* Follow-up Care Portal */}
-            {encDetails.status === "DISCHARGED" && encDetails.visit_type !== "REVISIT" && encDetails.visit_type !== "E_CONSULT" && (
+            {parentEncDetails?.status === "DISCHARGED" && parentEncDetails?.visit_type !== "REVISIT" && parentEncDetails?.visit_type !== "E_CONSULT" && (
               <Card 
                 className="space-y-3.5 relative overflow-hidden"
                 style={{ 
@@ -881,10 +1055,50 @@ export default function PatientDashboard() {
                 </div>
 
                 {(() => {
-                  const labOrders = encDetails.labs || labDetails?.orders || [];
+                  const labOrders = parentEncDetails?.labs || encDetails.labs || labDetails?.orders || [];
                   const hasLabs = labOrders.length > 0;
                   const allResulted = hasLabs && labOrders.every((o: any) => o.status === "RESULTED");
-                  const docId = encDetails.appointment?.doctor_id || encDetails.doctor_id || encDetails.triage?.recommended_doctor_id;
+                  
+                  const docId = currentEpisode?.doctor_id || parentEncDetails?.doctor_id || encDetails.doctor_id;
+                  const docName = currentEpisode?.doctor_name || parentEncDetails?.appointment?.doctor?.name || encDetails?.appointment?.doctor?.name || "the doctor";
+
+                  // Check for active follow-up consultations, completed follow-up, or active lab check-ins in the current episode
+                  const activeLab = currentEpisode?.labs?.find((l: any) => l.status !== "DISCHARGED");
+                  const activeFollowup = currentEpisode?.followups?.find((f: any) => f.status !== "DISCHARGED");
+                  const completedFollowup = currentEpisode?.followups?.find((f: any) => f.status === "DISCHARGED");
+
+                  if (completedFollowup) {
+                    return (
+                      <div className="p-3 text-xs bg-emerald-500/10 border-emerald-500/20 text-emerald-300 rounded-xl border flex gap-2">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Follow-up Completed:</strong> Your follow-up consultation is completed. Prescribed medications and doctor advice are updated below.
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (activeFollowup) {
+                    return (
+                      <div className="p-3 text-xs bg-cyan-500/10 border-cyan-500/20 text-cyan-300 rounded-xl border flex gap-2">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Follow-up Consultation Active:</strong> You are currently in the doctor's queue for report review. Token: <strong>{activeFollowup.token?.number}</strong>.
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (activeLab) {
+                    return (
+                      <div className="p-3 text-xs bg-cyan-500/10 border-cyan-500/20 text-cyan-300 rounded-xl border flex gap-2">
+                        <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                        <div>
+                          <strong>Lab Check-in Active:</strong> Please complete your sample collection at the clinical lab. Token: <strong>{activeLab.token?.number}</strong>.
+                        </div>
+                      </div>
+                    );
+                  }
 
                   if (econsultSuccessMsg) {
                     return (
@@ -902,6 +1116,9 @@ export default function PatientDashboard() {
                           <p className="text-[var(--dim)] leading-relaxed">
                             All prescribed lab tests are completed. You can choose to consult the doctor in-person or request a remote review:
                           </p>
+                          <div className="p-2 bg-white/5 border border-white/5 rounded-xl mb-1 text-[11px] text-[var(--muted)]">
+                            Consulting Doctor: <strong className="text-white">{docName}</strong> (General Medicine)
+                          </div>
                           <div className="flex flex-wrap gap-2 pt-1">
                             <button 
                               onClick={() => {
@@ -933,6 +1150,9 @@ export default function PatientDashboard() {
                           <p className="text-[var(--dim)] leading-relaxed">
                             If you have performed your lab tests externally, please upload your reports to schedule your follow-up re-visit:
                           </p>
+                          <div className="p-2 bg-white/5 border border-white/5 rounded-xl mb-1 text-[11px] text-[var(--muted)]">
+                            Consulting Doctor: <strong className="text-white">{docName}</strong> (General Medicine)
+                          </div>
                           <div className="flex flex-wrap gap-2 pt-1">
                             <button 
                               onClick={() => {
@@ -959,7 +1179,7 @@ export default function PatientDashboard() {
             )}
 
             <LabOrdersAlert 
-              orders={encDetails.labs || labDetails?.orders || []} 
+              orders={parentEncDetails?.labs || encDetails.labs || labDetails?.orders || []} 
               refetchLab={refetchLab} 
               refetchEnc={refetchEnc} 
               refetchP360={refetchP360} 
@@ -968,23 +1188,18 @@ export default function PatientDashboard() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <ConsultationSummary 
-                encounterId={showEncounterId!}
-                triage={encDetails.triage} 
-                appointment={encDetails.appointment}
-                notes={encDetails.notes}
-                note={encDetails.note}
+                encounterId={parentEncounterId!}
+                triage={parentEncDetails?.triage || encDetails.triage} 
+                appointment={parentEncDetails?.appointment || encDetails.appointment}
+                notes={parentEncDetails?.notes || encDetails.notes}
+                note={parentEncDetails?.note || encDetails.note}
               />
 
               <VitalsAndLabs 
-                latestVitals={encDetails.vitals} 
-                orders={encDetails.labs || labDetails?.orders || []} 
+                latestVitals={parentEncDetails?.vitals || encDetails.vitals} 
+                orders={parentEncDetails?.labs || encDetails.labs || labDetails?.orders || []} 
               />
             </div>
-
-            <PrescriptionSlip 
-              encounterId={showEncounterId!} 
-              prescription={encDetails.prescription}
-            />
           </>
         )}
 
@@ -1037,9 +1252,14 @@ export default function PatientDashboard() {
                     </div>
                   )}
 
+                  {/* Doctor Info */}
+                  <div className="p-2 bg-white/5 border border-white/5 rounded-xl text-[11px] text-[var(--muted)]">
+                    Re-visit Doctor: <strong className="text-white">{currentEpisode?.doctor_name || parentEncDetails?.appointment?.doctor?.name || encDetails?.appointment?.doctor?.name || "Consulting Doctor"}</strong> (General Medicine)
+                  </div>
+
                   {/* Document upload field (Required if NOT all results completed in-house) */}
                   {(() => {
-                    const labOrders = encDetails.labs || labDetails?.orders || [];
+                    const labOrders = parentEncDetails?.labs || encDetails.labs || labDetails?.orders || [];
                     const hasLabs = labOrders.length > 0;
                     const allResulted = hasLabs && labOrders.every((o: any) => o.status === "RESULTED");
                     
@@ -1129,8 +1349,8 @@ export default function PatientDashboard() {
                   {/* Booking action */}
                   <button
                     onClick={() => {
-                      const docId = encDetails.appointment?.doctor_id || encDetails.doctor_id || encDetails.triage?.recommended_doctor_id;
-                      handleBookRevisit(docId);
+                      const docId = currentEpisode?.doctor_id || parentEncDetails?.doctor_id || encDetails?.doctor_id;
+                      handleBookRevisit(docId!);
                     }}
                     disabled={bookingRevisit || uploadingReport || !revisitDate || !revisitSlot || (uploadedDocUri === null && !(encDetails?.labs?.length > 0 && encDetails.labs.every((o: any) => o.status === "RESULTED")))}
                     className="btn w-full font-bold py-2 mt-2"

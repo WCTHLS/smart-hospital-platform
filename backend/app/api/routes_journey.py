@@ -268,6 +268,10 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         if _appointment_local_date(appointment.scheduled_start) != _hospital_today():
             raise HTTPException(400, "Only today's appointment can be checked in")
 
+    parent_id = None
+    if appointment and appointment.reason and appointment.reason.startswith("Re-visit follow-up for encounter"):
+        parent_id = appointment.reason.split("encounter ")[-1].strip()
+
     encounter = models.Encounter(
         patient_id=patient.patient_id,
         appointment_id=appointment.appointment_id if appointment else None,
@@ -276,6 +280,7 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         visit_type=appointment.appointment_type if (appointment and appointment.appointment_type) else "OPD",
         channel=body.channel,
         status="CHECKED_IN",
+        notes=f"parent:{parent_id}" if parent_id else None,
     )
     db.add(encounter)
     db.flush()
@@ -658,7 +663,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
 
     encounters = db.scalars(
         select(models.Encounter).where(models.Encounter.patient_id == patient_id)
-        .order_by(models.Encounter.arrival_ts.desc()).limit(10)
+        .order_by(models.Encounter.arrival_ts.desc()).limit(40)
     ).all()
     enc_ids = [e.encounter_id for e in encounters]
     appointment_ids = [e.appointment_id for e in encounters if e.appointment_id]
@@ -714,6 +719,154 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         for d in recent_documents
     ]
 
+    # Episodes grouping logic
+    primary_encs = [e for e in encounters if e.visit_type not in ["LAB", "REVISIT", "E_CONSULT"] and e.department != "Laboratory"]
+    child_encs = [e for e in encounters if e.visit_type in ["LAB", "REVISIT", "E_CONSULT"] or e.department == "Laboratory"]
+
+    episodes = []
+    for p in primary_encs:
+        linked_children = []
+        for c in child_encs:
+            is_child = False
+            if c.notes and f"parent:{p.encounter_id}" in c.notes:
+                is_child = True
+            elif (not c.notes or "parent:" not in c.notes) and c.arrival_ts.date() == p.arrival_ts.date():
+                is_child = True
+
+            if is_child:
+                linked_children.append(c)
+
+        labs = []
+        followups = []
+        for c in linked_children:
+            token = db.scalar(
+                select(models.Token)
+                .where(models.Token.encounter_id == c.encounter_id)
+                .order_by(models.Token.issued_ts.desc())
+            )
+            rx = db.scalar(
+                select(models.Prescription)
+                .where(models.Prescription.encounter_id == c.encounter_id)
+                .order_by(models.Prescription.created_ts.desc())
+            )
+            rx_data = None
+            if rx:
+                rx_items = db.scalars(
+                    select(models.PrescriptionItem)
+                    .where(models.PrescriptionItem.rx_id == rx.rx_id)
+                ).all()
+                rx_data = {
+                    "rx_id": rx.rx_id,
+                    "status": rx.status,
+                    "pickup_token": (lambda pt: {
+                        "number": pt.token_number,
+                        "status": pt.status,
+                        "room": pt.room,
+                        "floor": pt.floor
+                    } if pt else None)(
+                        db.scalar(
+                            select(models.Token)
+                            .where(models.Token.encounter_id == c.encounter_id)
+                            .where(models.Token.department == "Pharmacy")
+                            .order_by(models.Token.issued_ts.desc())
+                        )
+                    ),
+                    "items": [
+                        {
+                            "drug_name": i.drug_name, 
+                            "dose": i.dose, 
+                            "frequency": i.frequency, 
+                            "duration_days": i.duration_days, 
+                            "quantity": i.quantity,
+                            "unit_price": db.scalar(
+                                select(models.PharmacyStock.unit_price)
+                                .where(func.lower(models.PharmacyStock.drug_name) == i.drug_name.lower())
+                            ) or 10.0
+                        }
+                        for i in rx_items
+                    ]
+                }
+
+            c_data = {
+                "encounter_id": c.encounter_id,
+                "date": c.arrival_ts.date().isoformat(),
+                "department": c.department,
+                "status": c.status,
+                "visit_type": c.visit_type,
+                "notes": c.notes,
+                "prescription": rx_data,
+                "token": {
+                    "number": token.token_number,
+                    "room": token.room,
+                    "floor": token.floor,
+                    "status": token.status,
+                    "eta_minutes": _calculate_live_eta(db, c.encounter_id)
+                } if token else None
+            }
+            if c.visit_type == "LAB" or c.department == "Laboratory":
+                labs.append(c_data)
+            else:
+                followups.append(c_data)
+
+        p_appt = encounter_appointments.get(p.appointment_id)
+        p_token = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == p.encounter_id)
+            .order_by(models.Token.issued_ts.desc())
+        )
+
+        p_doctor_id = p_appt.doctor_id if (p_appt and p_appt.doctor_id) else p.doctor_id
+        p_doctor_name = None
+        if p_doctor_id:
+            doc_staff = db.get(models.Staff, p_doctor_id)
+            p_doctor_name = doc_staff.name if doc_staff else None
+
+        episodes.append({
+            "encounter_id": p.encounter_id,
+            "date": p.arrival_ts.date().isoformat(),
+            "department": p.department,
+            "status": p.status,
+            "visit_type": p.visit_type,
+            "doctor_id": p_doctor_id,
+            "doctor_name": p_doctor_name,
+            "reason": p_appt.reason if p_appt else None,
+            "token": {
+                "number": p_token.token_number,
+                "room": p_token.room,
+                "floor": p_token.floor,
+                "status": p_token.status,
+                "eta_minutes": _calculate_live_eta(db, p.encounter_id)
+            } if p_token else None,
+            "labs": labs,
+            "followups": followups
+        })
+
+    grouped_child_ids = {c["encounter_id"] for ep in episodes for c in ep["labs"] + ep["followups"]}
+    for c in child_encs:
+        if c.encounter_id not in grouped_child_ids:
+            token = db.scalar(
+                select(models.Token)
+                .where(models.Token.encounter_id == c.encounter_id)
+                .order_by(models.Token.issued_ts.desc())
+            )
+            episodes.append({
+                "encounter_id": c.encounter_id,
+                "date": c.arrival_ts.date().isoformat(),
+                "department": c.department,
+                "status": c.status,
+                "visit_type": c.visit_type,
+                "reason": "Standalone Diagnostic/Follow-up",
+                "token": {
+                    "number": token.token_number,
+                    "room": token.room,
+                    "floor": token.floor,
+                    "status": token.status,
+                    "eta_minutes": _calculate_live_eta(db, c.encounter_id)
+                } if token else None,
+                "labs": [],
+                "followups": []
+            })
+
     audit(db, actor_id="copilot", actor_role="SYSTEM", action="PATIENT360_READ",
           entity_type="patient", entity_id=patient_id, consent_id=consent_id)
     db.commit()
@@ -758,10 +911,12 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "encounters": [
             {"encounter_id": e.encounter_id, "date": e.arrival_ts.date().isoformat(),
              "department": e.department, "status": e.status,
+             "visit_type": e.visit_type,
              "reason": encounter_appointments[e.appointment_id].reason
              if e.appointment_id in encounter_appointments else None}
             for e in encounters
         ],
+        "episodes": episodes,
         "documents": documents_list,
         "consent_id": consent_id,
         "ai_summary": summary_res,
@@ -994,6 +1149,7 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
 
     return {
         "encounter_id": e.encounter_id, "appointment_id": e.appointment_id,
+        "doctor_id": e.doctor_id or (appointment.doctor_id if appointment else None),
         "status": e.status, "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
         "notes": e.notes,
@@ -1024,10 +1180,27 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         "prescription": None if not rx else {
             "rx_id": rx.rx_id, "status": rx.status,
             "approved_ts": rx.approved_ts.isoformat() if rx.approved_ts else None,
+            "pickup_token": (lambda pt: {
+                "number": pt.token_number,
+                "status": pt.status,
+                "room": pt.room,
+                "floor": pt.floor
+            } if pt else None)(
+                db.scalar(
+                    select(models.Token)
+                    .where(models.Token.encounter_id == encounter_id)
+                    .where(models.Token.department == "Pharmacy")
+                    .order_by(models.Token.issued_ts.desc())
+                )
+            ),
             "items": [
                 {"drug_name": i.drug_name, "dose": i.dose, "route": i.route,
                  "frequency": i.frequency, "duration_days": i.duration_days,
-                 "quantity": i.quantity}
+                 "quantity": i.quantity,
+                 "unit_price": db.scalar(
+                     select(models.PharmacyStock.unit_price)
+                     .where(func.lower(models.PharmacyStock.drug_name) == i.drug_name.lower())
+                 ) or 10.0}
                 for i in rx_items
             ]
         },
@@ -1141,7 +1314,7 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
             "status": e.status,
             "visit_type": e.visit_type,
             "arrival": e.arrival_ts.isoformat(),
-            "is_reconsult": has_results or e.visit_type in ["REVISIT", "E_CONSULT"],
+            "is_reconsult": e.visit_type in ["REVISIT", "E_CONSULT"],
             "patient": {
                 "patient_id": p.patient_id,
                 "name": p.full_name,
@@ -1319,12 +1492,14 @@ class RevisitBookingPayload(BaseModel):
     doctor_id: str
     booking_date: date
     booking_slot: str
+    parent_encounter_id: str
     attachment_name: str | None = None
     attachment_uri: str | None = None
 
 
 class EconsultRequestPayload(BaseModel):
     doctor_id: str
+    parent_encounter_id: str
 
 
 @router.post("/patients/{patient_id}/upload-document")
@@ -1385,7 +1560,7 @@ def book_revisit(patient_id: str, body: RevisitBookingPayload, db: Session = Dep
         doctor_id=body.doctor_id,
         department=doctor.department,
         specialty=doctor.specialty,
-        reason="Follow-up Re-visit",
+        reason=f"Re-visit follow-up for encounter {body.parent_encounter_id}",
         appointment_type="REVISIT",
         scheduled_start=dt_utc,
         scheduled_end=dt_utc + timedelta(minutes=15),
@@ -1416,6 +1591,7 @@ def request_econsult(patient_id: str, body: EconsultRequestPayload, db: Session 
         department=doctor.department,
         visit_type="E_CONSULT",
         status="CHECKED_IN",
+        notes=f"parent:{body.parent_encounter_id}",
     )
     db.add(encounter)
     db.flush()

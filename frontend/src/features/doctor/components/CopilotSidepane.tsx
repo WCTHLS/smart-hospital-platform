@@ -1,29 +1,62 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity } from "lucide-react";
+import { Activity, CheckCircle2, ShieldAlert, BadgeCheck } from "lucide-react";
 import { api } from "../../../lib/api";
-import { Card, Tag, AgentBadge } from "../../../components/ui";
+import { Card, Tag, AgentBadge, Empty } from "../../../components/ui";
 
 interface CopilotSidepaneProps {
   patientId: string;
   tab: string;
   encounterId: string | null;
+  chiefComplaint?: string | null;
   sel: string[];
   toggle: (t: string) => void;
   suggestions: any[];
   loadingSuggestions: boolean;
   onGetSuggestions: () => void;
+
+  // Hoisted Rx properties
+  rxItems: any[];
+  setRxItems: React.Dispatch<React.SetStateAction<any[]>>;
+  cds: any;
+  setCds: (cds: any) => void;
+  rxId: string | null;
+  rxBusy: boolean;
+  rxAccept: boolean;
+  setRxAccept: (accept: boolean) => void;
+  rxOverride: boolean;
+  setRxOverride: (override: boolean) => void;
+  rxDone: any;
+  rxErr: string | null;
+  approveRx: () => void;
+  runCds: (items: any[]) => void;
 }
 
 export default function CopilotSidepane({
   patientId,
   tab,
   encounterId,
+  chiefComplaint,
   sel,
   toggle,
   suggestions,
   loadingSuggestions,
   onGetSuggestions,
+
+  rxItems,
+  setRxItems,
+  cds,
+  setCds,
+  rxId,
+  rxBusy,
+  rxAccept,
+  setRxAccept,
+  rxOverride,
+  setRxOverride,
+  rxDone,
+  rxErr,
+  approveRx,
+  runCds,
 }: CopilotSidepaneProps) {
   const qc = useQueryClient();
   const [generating, setGenerating] = useState(false);
@@ -49,6 +82,18 @@ export default function CopilotSidepane({
   }
 
   const summaryText = data.ai_summary?.result?.summary;
+
+  const sevTone = (s: string) => (s === "BLOCK" ? "red" : s === "MAJOR" || s === "WARN" ? "amber" : "blue");
+
+  const applySuggestion = (forDrug: string, newDrug: string) => {
+    setRxItems((s) => s.map((it) => {
+      const isMatch = it.drug_name.toLowerCase().trim() === forDrug.toLowerCase().trim() || 
+                      it.drug_name.toLowerCase().includes(forDrug.toLowerCase().trim()) || 
+                      forDrug.toLowerCase().includes(it.drug_name.toLowerCase().trim());
+      return isMatch ? { ...it, drug_name: newDrug } : it;
+    }));
+    setCds(null);
+  };
 
   return (
     <div className="space-y-3 animate-in fade-in duration-300">
@@ -145,16 +190,110 @@ export default function CopilotSidepane({
         </Card>
       )}
 
+      {/* CDS Agent Output Card when on Rx tab */}
+      {tab === "rx" && (
+        <Card className="border border-[var(--glass-border)] relative overflow-hidden mt-3" style={{ background: "rgba(255,255,255,0.01)" }}>
+          {rxDone ? (
+            <div className="space-y-3 py-1 animate-in fade-in">
+              <div className="flex items-center gap-2 font-bold text-xs" style={{ color: "var(--mint)" }}>
+                <CheckCircle2 size={18} /> Approved &amp; e-signed.
+              </div>
+              <p className="text-[11.5px] text-[var(--muted)]">Prescription finalized successfully.</p>
+            </div>
+          ) : !cds ? (
+            <Empty>The Rx CDS agent checks allergy, interactions, dose, formulary and live stock.</Empty>
+          ) : (
+            <div className="space-y-3 text-xs">
+              <div className="flex items-center justify-between border-b border-white/5 pb-2">
+                <h4 className="font-bold text-slate-100" style={{ color: "#d7e5ff" }}>Clinical Decision Support</h4>
+                <AgentBadge label="Rx CDS" />
+              </div>
+              {cds.block && (
+                <div className="alertbox mb-2">
+                  <ShieldAlert size={15} className="inline mr-1" /> Prescription contains a blocking allergy conflict.
+                </div>
+              )}
+              <div className="space-y-1.5">
+                {cds.alerts.length ? (
+                  cds.alerts.map((a: any, i: number) => (
+                    <div key={i} className="kv">
+                      <span>{a.drug}</span>
+                      <span className="flex-1 px-2 text-[11.5px]" style={{ color: "var(--muted)" }}>{a.message}</span>
+                      <Tag tone={sevTone(a.severity)}>{a.severity}</Tag>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ color: "var(--mint)" }} className="font-semibold">✓ No conflicts — safe to prescribe.</div>
+                )}
+              </div>
+              {cds.suggestions?.length > 0 && (
+                <div className="holo mt-2 text-[11.5px] space-y-1.5 bg-white/[0.01] p-2.5 rounded-xl border border-white/5">
+                  <div className="font-semibold text-white flex items-center gap-1">
+                    <AgentBadge label="AI" /> Suggested alternatives (click to apply):
+                  </div>
+                  {cds.suggestions.map((s: any, i: number) => {
+                    const isErr = s.suggestion === "AI responses did not give any response";
+                    return isErr ? (
+                      <div key={i} className="text-left w-full p-2 rounded text-rose-400 border border-rose-500/20 bg-rose-950/10 mt-1 font-semibold text-[10.5px]">
+                        ⚠ {s.suggestion} — <span className="text-[10px] text-[var(--muted)]">{s.reason}</span>
+                      </div>
+                    ) : (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => applySuggestion(s.for, s.suggestion)}
+                        className="block text-left w-full hover:bg-white/5 p-1 rounded transition text-[var(--cyan)] border border-dashed border-[var(--cyan)]/25 px-2 py-0.5 mt-1 text-[11px]"
+                      >
+                        • Use <b>{s.suggestion}</b> for {s.for} — <span className="text-[10.5px] text-[var(--muted)]">{s.reason}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-white/5">
+                <label className="flex items-center gap-2 text-[11.5px] cursor-pointer" style={{ color: "var(--muted)" }}>
+                  <input type="checkbox" checked={rxAccept} onChange={(e) => { setRxAccept(e.target.checked); if (e.target.checked) setRxOverride(false); }} /> Accept AI substitutions
+                </label>
+                {cds.block && (
+                  <label className="flex items-center gap-2 text-[11.5px] text-rose-400 font-semibold cursor-pointer">
+                    <input type="checkbox" checked={rxOverride} onChange={(e) => { setRxOverride(e.target.checked); if (e.target.checked) setRxAccept(false); }} /> Override allergy conflict warning (sign anyway)
+                  </label>
+                )}
+              </div>
+              {rxErr && <div className="alertbox mt-2 text-rose-400 border-rose-500/10 bg-rose-950/5">{rxErr}</div>}
+              <button 
+                className="btn g mt-3 w-full justify-center font-bold" 
+                disabled={rxBusy || (cds.block && !rxAccept && !rxOverride)} 
+                onClick={approveRx}
+              >
+                <BadgeCheck size={16} /> {rxBusy ? "Signing..." : "Approve & E-sign"}
+              </button>
+            </div>
+          )}
+        </Card>
+      )}
+
       {summaryText && (
         <>
           {/* Previous Issues & Warnings */}
           <Card className="space-y-2 animate-in fade-in duration-300">
             <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Previous Issues &amp; Warnings</div>
-            {data.issues?.length ? data.issues.map((i: any) => (
-              <div key={i.issue_id} className="inline-block mr-1.5">
-                <Tag tone="red">⚠ {i.issue_name} {i.onset_info ? `(${i.onset_info})` : ""}</Tag>
-              </div>
-            )) : <div className="text-[11px] text-[var(--muted)]">No warning alerts recorded</div>}
+            {(() => {
+              const filteredIssues = data.issues?.filter((i: any) => {
+                if (!chiefComplaint) return true;
+                return i.issue_name.toLowerCase().trim() !== chiefComplaint.toLowerCase().trim();
+              }) || [];
+              
+              if (filteredIssues.length === 0) {
+                return <div className="text-[11px] text-[var(--muted)]">No warning alerts recorded</div>;
+              }
+              
+              return filteredIssues.map((i: any) => (
+                <div key={i.issue_id} className="inline-block mr-1.5">
+                  <Tag tone="red">⚠ {i.issue_name} {i.onset_info ? `(${i.onset_info})` : ""}</Tag>
+                </div>
+              ));
+            })()}
           </Card>
 
           {/* Used/Active Medications */}

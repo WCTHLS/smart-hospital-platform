@@ -98,6 +98,10 @@ export const api = {
   pharmacyLookup: (search: string) => get<any>(`/api/v1/pharmacy/lookup?search=${encodeURIComponent(search)}`),
   dispensePrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/dispense/${rx_id}`),
   releaseExpiredReservations: () => post<any>("/api/v1/pharmacy/release-expired-reservations"),
+  payPrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/prescriptions/${rx_id}/pay`),
+  readyPrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/prescriptions/${rx_id}/ready`),
+  pickupPrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/prescriptions/${rx_id}/pickup`),
+  prepaidPrescriptions: () => get<any>("/api/v1/pharmacy/prepaid"),
 
   // billing
   invoice: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/invoice`),
