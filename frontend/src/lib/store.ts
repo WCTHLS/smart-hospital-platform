@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 /** Journey state shared across Check-in → Triage → Doctor Copilot. */
-export type Role = "patient" | "nurse" | "doctor" | "admin" | "lab" | "receptionist";
+export type Role = "patient" | "nurse" | "doctor" | "admin" | "lab" | "receptionist" | "pharmacist";
 
 interface JourneyState {
   patientId: string | null;

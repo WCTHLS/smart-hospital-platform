@@ -40,6 +40,7 @@ class Patient(Base):
     email: Mapped[str | None] = mapped_column(String(120))
     blood_group: Mapped[str | None] = mapped_column(String(5))
     address: Mapped[str | None] = mapped_column(String(240))
+    profile_photo: Mapped[str | None] = mapped_column(Text)
     summary: Mapped[str | None] = mapped_column(String(2000))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -320,6 +321,29 @@ class PharmacyStock(Base):
 
 
 # --------------------------------------------------------------------------------- Billing & Insurance
+class RazorpayOrder(Base):
+    __tablename__ = "razorpay_order"
+
+    order_id: Mapped[str] = mapped_column(String(40), primary_key=True)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    doctor_id: Mapped[str] = mapped_column(ForeignKey("staff.staff_id"))
+    amount_paise: Mapped[int] = mapped_column(Integer)
+    currency: Mapped[str] = mapped_column(String(3), default="INR")
+    receipt: Mapped[str] = mapped_column(String(40), unique=True)
+    scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    scheduled_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str] = mapped_column(Text)
+    specialty: Mapped[str] = mapped_column(String(60))
+    appointment_type: Mapped[str] = mapped_column(String(20), default="OPD")
+    channel: Mapped[str] = mapped_column(String(20), default="PORTAL")
+    status: Mapped[str] = mapped_column(String(24), default="CREATED")
+    payment_id: Mapped[str | None] = mapped_column(String(60), unique=True)
+    payment_signature: Mapped[str | None] = mapped_column(String(128))
+    appointment_id: Mapped[str | None] = mapped_column(ForeignKey("appointment.appointment_id"))
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
 class Invoice(Base):
     __tablename__ = "invoice"
 

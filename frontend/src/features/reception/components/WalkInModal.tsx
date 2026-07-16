@@ -154,8 +154,8 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
           gender,
           blood_group: bloodGroup,
           address: address || "Hospital Walk-in Address",
-          allergies: allergies
-            ? [{ substance: allergies, severity: "MODERATE" }]
+          issues: allergies
+            ? [{ issue_name: allergies, onset_info: "Unknown", status: "ACTIVE" }]
             : [],
         });
         patientId = regRes.patient_id;
@@ -415,7 +415,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                       No slots available for today. Please verify doctor schedule.
                     </div>
                   ) : (
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
                       {slots.map((s, idx) => {
                         const startLocal = new Date(s.scheduled_start).toLocaleTimeString([], {
                           hour: "2-digit",

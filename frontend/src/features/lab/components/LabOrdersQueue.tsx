@@ -35,7 +35,10 @@ export default function LabOrdersQueue({
                 }`}
               >
                 <div className="space-y-1">
-                  <div className="font-bold text-slate-200">{o.patient_name}</div>
+                  <div className="font-bold text-slate-200 flex items-center gap-2">
+                    {o.patient_name}
+                    {o.token_number && <Tag tone="violet">{o.token_number}</Tag>}
+                  </div>
                   <div className="text-[12px] flex items-center gap-3 text-[var(--dim)]" style={{ color: "var(--dim)" }}>
                     <span>Test: <b className="text-[var(--cyan)]">{o.test_name}</b></span>
                     <span>Code: {o.qr_code}</span>

@@ -15,6 +15,7 @@ export default function ReceptionWorkspace() {
   
   // Success toast/receipt state
   const [successInfo, setSuccessInfo] = useState<{ token: string; name: string } | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Live hospital metrics
   const { data: metrics, refetch: refetchMetrics } = useQuery({
@@ -87,6 +88,24 @@ export default function ReceptionWorkspace() {
       alert(err.message || "Failed to check-in patient");
     } finally {
       setBusyCheckinId(null);
+    }
+  };
+
+  const handleCancelAppointment = async (appointmentId: string) => {
+    if (!confirm("Are you sure you want to cancel this appointment? This action cannot be undone.")) return;
+    try {
+      setCancellingId(appointmentId);
+      await api.cancelAppointment(appointmentId);
+      alert("Appointment has been cancelled successfully.");
+      if (selectedPatient) {
+        refetchAppointments();
+      }
+      refetchHospitalAppointments();
+      refetchMetrics();
+    } catch (err: any) {
+      alert(err.message || "Failed to cancel appointment");
+    } finally {
+      setCancellingId(null);
     }
   };
 
@@ -321,14 +340,24 @@ export default function ReceptionWorkspace() {
                           </div>
 
                           {isBooked ? (
-                            <button
-                              disabled={isChecking}
-                              onClick={() => handleCheckIn(appt.appointment_id)}
-                              className="btn text-[10.5px] py-1 px-3 flex items-center gap-1 font-bold shrink-0"
-                              style={{ background: "linear-gradient(to right, var(--cyan), var(--violet))" }}
-                            >
-                              {isChecking ? "Checking In..." : <>Check In <ArrowRight size={12} /></>}
-                            </button>
+                            <div className="flex gap-2 items-center shrink-0">
+                              <button
+                                disabled={cancellingId === appt.appointment_id}
+                                onClick={() => handleCancelAppointment(appt.appointment_id)}
+                                className="text-[10px] text-red-400 hover:text-red-300 font-bold border border-red-500/20 px-2 py-1 rounded-lg transition"
+                                type="button"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                disabled={isChecking}
+                                onClick={() => handleCheckIn(appt.appointment_id)}
+                                className="btn text-[10.5px] py-1 px-3 flex items-center gap-1 font-bold"
+                                style={{ background: "linear-gradient(to right, var(--cyan), var(--violet))" }}
+                              >
+                                {isChecking ? "Checking In..." : <>Check In <ArrowRight size={12} /></>}
+                              </button>
+                            </div>
                           ) : (
                             <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
                               ✓ Arrived
@@ -416,14 +445,24 @@ export default function ReceptionWorkspace() {
                         </div>
 
                         {isBooked ? (
-                          <button
-                            disabled={isChecking}
-                            onClick={() => handleCheckIn(appt.appointment_id, appt.patient_id)}
-                            className="btn text-[10.5px] py-1 px-3 flex items-center gap-1 font-bold shrink-0"
-                            style={{ background: "linear-gradient(to right, var(--cyan), var(--violet))" }}
-                          >
-                            {isChecking ? "Checking In..." : <>Check In <ArrowRight size={12} /></>}
-                          </button>
+                          <div className="flex gap-2 items-center shrink-0">
+                            <button
+                              disabled={cancellingId === appt.appointment_id}
+                              onClick={() => handleCancelAppointment(appt.appointment_id)}
+                              className="text-[10px] text-red-400 hover:text-red-300 font-bold border border-red-500/20 px-2 py-1 rounded-lg transition"
+                              type="button"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              disabled={isChecking}
+                              onClick={() => handleCheckIn(appt.appointment_id, appt.patient_id)}
+                              className="btn text-[10.5px] py-1 px-3 flex items-center gap-1 font-bold"
+                              style={{ background: "linear-gradient(to right, var(--cyan), var(--violet))" }}
+                            >
+                              {isChecking ? "Checking In..." : <>Check In <ArrowRight size={12} /></>}
+                            </button>
+                          </div>
                         ) : (
                           <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
                             ✓ Arrived

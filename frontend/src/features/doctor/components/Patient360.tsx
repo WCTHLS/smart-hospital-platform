@@ -399,6 +399,36 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
           </div>
         </Card>
       </div>
+
+      {/* Uploaded Documents & External Reports */}
+      {data.documents && data.documents.length > 0 && (
+        <Card className="animate-in fade-in duration-300">
+          <h4 className="mb-3 font-bold flex items-center gap-2" style={{ color: "#d7e5ff" }}>
+            <FileText size={18} className="text-[var(--cyan)]" /> External Reports & Uploaded Documents
+          </h4>
+          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+            {data.documents.map((d: any) => (
+              <div 
+                key={d.document_id} 
+                className="p-3 border border-white/5 rounded-xl bg-white/[0.01] flex justify-between items-center text-xs"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-slate-300 truncate">{d.title}</div>
+                  <div className="text-[10px] text-[var(--muted)] mt-1">{d.date} · {d.doc_type}</div>
+                </div>
+                <a 
+                  href={d.uri.startsWith("http") ? d.uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${d.uri}`}
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="btn ghost sm !py-1 !px-2.5 font-bold text-[11px] text-[var(--cyan)] hover:underline shrink-0 ml-2"
+                >
+                  View Report
+                </a>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }

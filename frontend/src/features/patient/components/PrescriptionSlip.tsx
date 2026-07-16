@@ -3,12 +3,12 @@ import { Card, Tag } from "../../../components/ui";
 
 interface PrescriptionSlipProps {
   encounterId: string;
-  items?: { drug_name: string; dose: string; frequency: string; duration_days?: number }[];
+  prescription?: any;
 }
 
 export default function PrescriptionSlip({ 
   encounterId, 
-  items 
+  prescription,
 }: PrescriptionSlipProps) {
   return (
     <Card className="space-y-3 animate-in fade-in duration-300">
@@ -16,7 +16,7 @@ export default function PrescriptionSlip({
         <Stethoscope size={16} className="text-[var(--cyan)]" /> E-Prescription Slip
       </h4>
 
-      {items && items.length > 0 ? (
+      {prescription?.items?.length > 0 ? (
         <div className="space-y-3">
           <div 
             className="border border-dashed p-4 rounded-2xl space-y-3 relative overflow-hidden"
@@ -27,14 +27,15 @@ export default function PrescriptionSlip({
             <div className="flex justify-between items-center pb-2 border-b" style={{ borderColor: "var(--glass-border)" }}>
               <div>
                 <div className="text-[11px] text-[var(--dim)] uppercase font-semibold">PRESCRIPTION ID</div>
-                <div className="text-xs font-bold text-white">RX-{encounterId?.substring(0, 8).toUpperCase()}</div>
+                <div className="text-xs font-bold text-white">{prescription.rx_id}</div>
               </div>
               <div className="text-right">
-                <Tag tone="green">Digital Signature Approved</Tag>
+                <Tag tone={prescription.status === "APPROVED" ? "green" : "amber"}>{prescription.status}</Tag>
               </div>
             </div>
 
-            <table className="w-full text-xs text-left">
+            <div className="overflow-x-auto">
+            <table className="min-w-[560px] w-full text-xs text-left">
               <thead>
                 <tr style={{ color: "var(--dim)" }} className="border-b border-[var(--glass-border)]">
                   <th className="pb-1.5">Medicine Name</th>
@@ -44,20 +45,19 @@ export default function PrescriptionSlip({
                 </tr>
               </thead>
               <tbody>
-                {items.map((item: any, i: number) => {
+                {prescription.items.map((item: any, i: number) => {
                   return (
                     <tr key={i} className="border-b last:border-0 border-[var(--glass-border)] text-slate-300">
                       <td className="py-2.5 font-bold text-white">{item.drug_name}</td>
-                      <td className="py-2.5" style={{ color: "var(--ink)" }}>{item.dose || "—"}</td>
-                      <td className="py-2.5" style={{ color: "var(--muted)" }}>{item.frequency || "As directed"}</td>
-                      <td className="py-2.5 text-right font-medium" style={{ color: "var(--ink)" }}>
-                        {item.duration_days ? `${item.duration_days} days` : "Refilled"}
-                      </td>
+                      <td className="py-2.5" style={{ color: "var(--ink)" }}>{item.dose || "Not recorded"}</td>
+                      <td className="py-2.5" style={{ color: "var(--muted)" }}>{item.frequency || "Not recorded"}</td>
+                      <td className="py-2.5 text-right font-medium" style={{ color: "var(--ink)" }}>{item.duration_days != null ? `${item.duration_days} days` : "Not recorded"}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         </div>
       ) : (

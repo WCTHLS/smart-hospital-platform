@@ -400,6 +400,11 @@ export default function Triage() {
                 <div className="inline-block">
                   <Tag tone="blue">{res.token.room} · {res.token.floor} · ~{res.token.eta_minutes} min</Tag>
                 </div>
+                {res.scheduled_start && (
+                  <div className="text-xs text-[var(--dim)] font-semibold mt-1">
+                    Booked Slot Time: <span className="text-white">{new Date(res.scheduled_start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                )}
                 <button className="btn mt-4 w-full" onClick={backToQueue}>
                   Complete &amp; Return to Queue <ArrowRight size={16} />
                 </button>

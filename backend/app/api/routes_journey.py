@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func, select, case, nulls_last
 from sqlalchemy.orm import Session
@@ -25,11 +25,15 @@ from app.schemas import (
     BookAppointmentRequest,
     IdentityVerifyRequest,
     MobileProfilesRequest,
+    OtpSendRequest,
+    OtpVerifyRequest,
     PatientBasicRegistrationRequest,
+    PatientPhotoUpdateRequest,
     PatientProfileUpdateRequest,
     PatientRegistrationRequest,
     TriageRequest,
 )
+from app.twilio_verify import check_otp, send_otp
 
 router = APIRouter(prefix="/api/v1", tags=["journey"])
 
@@ -51,6 +55,20 @@ def _calculate_live_eta(db: Session, encounter_id: str) -> int:
     encounter = db.get(models.Encounter, encounter_id)
     if not encounter or encounter.status not in ["CHECKED_IN", "TRIAGED", "EMERGENCY"]:
         return 0
+        
+    if getattr(encounter, "visit_type", None) == "LAB":
+        stmt = (
+            select(models.Encounter)
+            .where(models.Encounter.visit_type == "LAB")
+            .where(models.Encounter.status == "CHECKED_IN")
+            .order_by(models.Encounter.arrival_ts.asc())
+        )
+        waiting_labs = db.scalars(stmt).all()
+        try:
+            position = next(i for i, e in enumerate(waiting_labs) if e.encounter_id == encounter_id)
+        except StopIteration:
+            position = 0
+        return position * 5
         
     doctor_id = encounter.doctor_id
     department = encounter.department
@@ -99,6 +117,7 @@ def _patient_brief(p: models.Patient) -> dict:
         "mrn": p.mrn,
         "blood_group": p.blood_group,
         "mobile": p.mobile,
+        "profile_photo": p.profile_photo,
     }
 
 
@@ -115,6 +134,7 @@ def _patient_match(p: models.Patient) -> dict:
         "address": p.address,
         "abha_number": p.abha_number,
         "mrn": p.mrn,
+        "profile_photo": p.profile_photo,
     }
 
 
@@ -135,11 +155,11 @@ def _get_encounter(db: Session, encounter_id: str) -> models.Encounter:
 def _add_profile_details(
     db: Session,
     patient: models.Patient,
-    allergies: list,
+    issues: list,
     documents: list,
 ) -> None:
-    for allergy in allergies:
-        db.add(models.Allergy(patient_id=patient.patient_id, **allergy.model_dump()))
+    for issue in issues:
+        db.add(models.PatientIssue(patient_id=patient.patient_id, **issue.model_dump()))
     for document in documents:
         db.add(models.Document(patient_id=patient.patient_id, **document.model_dump()))
 
@@ -153,7 +173,7 @@ def _parse_hhmm(value: str) -> time:
 
 
 def _combine_local_day(day: date, hhmm: str) -> datetime:
-    return datetime.combine(day, _parse_hhmm(hhmm), tzinfo=timezone.utc)
+    return datetime.combine(day, _parse_hhmm(hhmm), tzinfo=ZoneInfo("Asia/Kolkata"))
 
 
 def _hospital_today() -> date:
@@ -185,6 +205,7 @@ def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | N
         "scheduled_end": appointment.scheduled_end.isoformat(),
         "status": appointment.status,
         "channel": appointment.channel,
+        "opd_fee": doctor.opd_fee if doctor else None,
     }
 
 
@@ -252,6 +273,7 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         appointment_id=appointment.appointment_id if appointment else None,
         doctor_id=appointment.doctor_id if appointment else None,
         department=appointment.department if appointment else None,
+        visit_type=appointment.appointment_type if (appointment and appointment.appointment_type) else "OPD",
         channel=body.channel,
         status="CHECKED_IN",
     )
@@ -307,12 +329,12 @@ def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get
         mobile=body.mobile,
         email=body.email,
         gender=body.gender,
-        blood_group=_blood_group_value(body.blood_group),
+        blood_group=_blood_group_value(body.blood_group) if body.blood_group else "UNK",
         address=body.address,
     )
     db.add(patient)
     db.flush()
-    _add_profile_details(db, patient, body.allergies, body.documents)
+    _add_profile_details(db, patient, body.issues, body.documents)
     audit(
         db,
         actor_id=patient.patient_id,
@@ -373,10 +395,35 @@ def update_patient_profile(
     return {"patient": _patient_brief(patient)}
 
 
+@router.put("/patients/{patient_id}/profile-photo")
+def update_patient_profile_photo(
+    patient_id: str,
+    body: PatientPhotoUpdateRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    patient = _get_patient(db, patient_id)
+    patient.profile_photo = body.profile_photo
+    audit(
+        db,
+        actor_id=patient.patient_id,
+        actor_role="PATIENT",
+        action="PATIENT_PROFILE_PHOTO_UPDATED",
+        entity_type="patient",
+        entity_id=patient.patient_id,
+    )
+    db.commit()
+    return {"patient": _patient_brief(patient)}
+
+
 # --------------------------------------------------------------------------------- Identity
+@router.post("/identity/otp/send")
+def send_mobile_otp(body: OtpSendRequest) -> dict:
+    return {**send_otp(body.mobile), "mobile": body.mobile}
+
+
 @router.post("/identity/otp/verify")
-def verify_mobile_otp(body: MobileProfilesRequest) -> dict:
-    return {"verified": True, "mobile": body.mobile}
+def verify_mobile_otp(body: OtpVerifyRequest) -> dict:
+    return {**check_otp(body.mobile, body.code), "mobile": body.mobile}
 
 
 @router.post("/identity/verify")
@@ -411,6 +458,27 @@ def today_appointments(patient_id: str, db: Session = Depends(get_db)) -> dict:
         .where(models.Appointment.status == "BOOKED")
         .where(models.Appointment.scheduled_start >= day_start)
         .where(models.Appointment.scheduled_start < day_end)
+        .order_by(models.Appointment.scheduled_start)
+    ).all()
+    return {
+        "appointments": [
+            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id))
+            for appointment in appointments
+        ]
+    }
+
+
+@router.get("/patients/{patient_id}/appointments/upcoming")
+def upcoming_appointments(patient_id: str, db: Session = Depends(get_db)) -> dict:
+    """Return booked appointments scheduled today or later in hospital time."""
+    _get_patient(db, patient_id)
+    hospital_tz = ZoneInfo("Asia/Kolkata")
+    day_start = datetime.combine(_hospital_today(), time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
+    appointments = db.scalars(
+        select(models.Appointment)
+        .where(models.Appointment.patient_id == patient_id)
+        .where(models.Appointment.status == "BOOKED")
+        .where(models.Appointment.scheduled_start >= day_start)
         .order_by(models.Appointment.scheduled_start)
     ).all()
     return {
@@ -456,7 +524,10 @@ def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_d
         .where(models.Appointment.scheduled_start >= datetime.combine(body.appointment_date, time.min, tzinfo=timezone.utc))
         .where(models.Appointment.scheduled_start <= datetime.combine(body.appointment_date, time.max, tzinfo=timezone.utc))
     ).all()
-    booked_starts = {(a.doctor_id, a.scheduled_start.isoformat()) for a in booked}
+    booked_starts = {
+        (a.doctor_id, (a.scheduled_start if a.scheduled_start.tzinfo else a.scheduled_start.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).isoformat()) 
+        for a in booked
+    }
 
     slots: list[dict] = []
     for schedule in schedules:
@@ -466,9 +537,15 @@ def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_d
         start = _combine_local_day(body.appointment_date, schedule.start_time)
         end = _combine_local_day(body.appointment_date, schedule.end_time)
         slot_start = start
+        now_local = datetime.now(ZoneInfo("Asia/Kolkata"))
         while slot_start + timedelta(minutes=schedule.slot_duration_minutes) <= end:
+            if body.appointment_date == now_local.date() and slot_start < now_local:
+                slot_start = slot_start + timedelta(minutes=schedule.slot_duration_minutes)
+                continue
             slot_end = slot_start + timedelta(minutes=schedule.slot_duration_minutes)
-            if (doctor.staff_id, slot_start.isoformat()) not in booked_starts:
+            slot_start_utc = slot_start.astimezone(timezone.utc)
+            slot_end_utc = slot_end.astimezone(timezone.utc)
+            if (doctor.staff_id, slot_start_utc.isoformat()) not in booked_starts:
                 slots.append({
                     "doctor_id": doctor.staff_id,
                     "doctor_name": doctor.name,
@@ -476,8 +553,9 @@ def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_d
                     "specialty": doctor.specialty,
                     "location": schedule.location,
                     "room": schedule.room,
-                    "scheduled_start": slot_start.isoformat(),
-                    "scheduled_end": slot_end.isoformat(),
+                    "opd_fee": doctor.opd_fee,
+                    "scheduled_start": slot_start_utc.isoformat(),
+                    "scheduled_end": slot_end_utc.isoformat(),
                 })
             slot_start = slot_end
 
@@ -620,6 +698,22 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
     ):
         active_meds.extend(f"{i.drug_name} {i.dose or ''}".strip() for i in rx.items)
 
+    recent_documents = db.scalars(
+        select(models.Document)
+        .where(models.Document.patient_id == patient_id)
+        .order_by(models.Document.created_ts.desc())
+    ).all()
+    documents_list = [
+        {
+            "document_id": d.document_id,
+            "title": d.title,
+            "uri": d.uri,
+            "doc_type": d.doc_type,
+            "date": d.created_ts.date().isoformat()
+        }
+        for d in recent_documents
+    ]
+
     audit(db, actor_id="copilot", actor_role="SYSTEM", action="PATIENT360_READ",
           entity_type="patient", entity_id=patient_id, consent_id=consent_id)
     db.commit()
@@ -668,6 +762,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
              if e.appointment_id in encounter_appointments else None}
             for e in encounters
         ],
+        "documents": documents_list,
         "consent_id": consent_id,
         "ai_summary": summary_res,
     }
@@ -826,6 +921,7 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
                                           "specialty": tr["specialty"], "red_flag": tr["red_flag"]})
     bus.publish(Topics.TOKEN_ISSUED, {"encounter_id": encounter_id, "token": token.token_number})
 
+    appt = db.get(models.Appointment, encounter.appointment_id) if encounter.appointment_id else None
     return {
         "intake": intake,
         "triage": triage,
@@ -834,6 +930,7 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
         "token": {"number": token.token_number, "department": token.department, "room": token.room,
                   "floor": token.floor, "eta_minutes": _calculate_live_eta(db, encounter_id)},
         "encounter_status": encounter.status,
+        "scheduled_start": appt.scheduled_start.isoformat() if (appt and appt.scheduled_start) else None,
     }
 
 
@@ -841,10 +938,16 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
 def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     e = _get_encounter(db, encounter_id)
     p = _get_patient(db, e.patient_id)
+    appointment = db.get(models.Appointment, e.appointment_id) if e.appointment_id else None
+    appointment_doctor = db.get(models.Staff, appointment.doctor_id) if appointment and appointment.doctor_id else None
     triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id)
                        .order_by(models.Triage.created_ts.desc()))
     token = db.scalar(select(models.Token).where(models.Token.encounter_id == encounter_id)
                       .order_by(models.Token.issued_ts.desc()))
+    recommended_doctor = (
+        db.get(models.Staff, triage.recommended_doctor_id)
+        if triage and triage.recommended_doctor_id else None
+    )
 
     # Fetch vitals
     vitals = db.scalar(select(models.Vitals).where(models.Vitals.encounter_id == encounter_id)
@@ -862,14 +965,27 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         rx_items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)).all()
 
     # Fetch lab orders and results
-    lab_orders = db.scalars(select(models.LabOrder).where(models.LabOrder.encounter_id == encounter_id)).all()
+    # Fetch lab orders and results
+    if e.visit_type == "LAB" and e.notes:
+        order_ids = e.notes.split(",")
+        lab_orders = db.scalars(
+            select(models.LabOrder)
+            .where(models.LabOrder.lab_order_id.in_(order_ids))
+        ).all()
+    else:
+        lab_orders = db.scalars(select(models.LabOrder).where(models.LabOrder.encounter_id == encounter_id)).all()
     labs = []
     for lo in lab_orders:
         results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == lo.lab_order_id)).all()
         labs.append({
             "lab_order_id": lo.lab_order_id,
+            "patient_id": lo.patient_id,
             "test": lo.test_name,
             "status": lo.status,
+            "price": lo.price,
+            "attachment_name": lo.attachment_name,
+            "attachment_uri": lo.attachment_uri,
+            "notes": lo.notes,
             "results": [
                 {"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag}
                 for r in results
@@ -882,9 +998,18 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
         "notes": e.notes,
         "patient": _patient_brief(p),
+        "appointment": _appointment_brief(appointment, appointment_doctor) if appointment else None,
         "triage": None if not triage else {
             "chief_complaint": triage.chief_complaint, "acuity": triage.acuity_level,
-            "specialty": triage.specialty, "red_flag": triage.red_flag},
+            "specialty": triage.specialty, "red_flag": triage.red_flag,
+            "recommended_doctor": None if not recommended_doctor else {
+                "doctor_id": recommended_doctor.staff_id,
+                "name": recommended_doctor.name,
+                "specialty": recommended_doctor.specialty,
+                "room": recommended_doctor.room,
+                "floor": recommended_doctor.floor,
+                "opd_fee": recommended_doctor.opd_fee,
+            }},
         "token": None if not token else {"number": token.token_number, "room": token.room,
                                          "floor": token.floor, "eta_minutes": _calculate_live_eta(db, e.encounter_id)},
         "vitals": None if not vitals else {
@@ -893,12 +1018,16 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         },
         "note": None if not note else {
             "note_id": note.note_id, "note_type": note.note_type, "final_text": note.final_text,
-            "icd10_codes": note.icd10_codes
+            "icd10_codes": note.icd10_codes, "status": note.status,
+            "approved_ts": note.approved_ts.isoformat() if note.approved_ts else None,
         },
         "prescription": None if not rx else {
             "rx_id": rx.rx_id, "status": rx.status,
+            "approved_ts": rx.approved_ts.isoformat() if rx.approved_ts else None,
             "items": [
-                {"drug_name": i.drug_name, "dose": i.dose, "frequency": i.frequency, "duration_days": i.duration_days}
+                {"drug_name": i.drug_name, "dose": i.dose, "route": i.route,
+                 "frequency": i.frequency, "duration_days": i.duration_days,
+                 "quantity": i.quantity}
                 for i in rx_items
             ]
         },
@@ -1002,7 +1131,7 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
                            .order_by(models.Triage.created_ts.desc()))
         has_results = db.scalar(
             select(models.LabOrder)
-            .where(models.LabOrder.encounter_id == e.encounter_id)
+            .where(models.LabOrder.patient_id == e.patient_id)
             .where(models.LabOrder.status == "RESULTED")
             .limit(1)
         ) is not None
@@ -1012,7 +1141,7 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
             "status": e.status,
             "visit_type": e.visit_type,
             "arrival": e.arrival_ts.isoformat(),
-            "is_reconsult": has_results,
+            "is_reconsult": has_results or e.visit_type in ["REVISIT", "E_CONSULT"],
             "patient": {
                 "patient_id": p.patient_id,
                 "name": p.full_name,
@@ -1102,4 +1231,216 @@ def list_hospital_today_appointments(db: Session = Depends(get_db)) -> dict:
             "channel": appt.channel,
         })
     return {"appointments": out}
+
+
+class LabCheckInRequest(BaseModel):
+    patient_id: str
+    booking_date: date
+    booking_slot: str
+
+
+@router.post("/labs/check-in")
+def lab_check_in(body: LabCheckInRequest, db: Session = Depends(get_db)) -> dict:
+    patient = db.get(models.Patient, body.patient_id)
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+
+    try:
+        time_part = datetime.strptime(body.booking_slot, "%I:%M %p").time()
+    except ValueError:
+        time_part = datetime.strptime(body.booking_slot, "%H:%M").time()
+        
+    dt_local = datetime.combine(body.booking_date, time_part, tzinfo=ZoneInfo("Asia/Kolkata"))
+    dt_utc = dt_local.astimezone(timezone.utc)
+
+    # Create a mock appointment for the lab visit to store scheduled time
+    appointment = models.Appointment(
+        patient_id=body.patient_id,
+        scheduled_start=dt_utc,
+        scheduled_end=dt_utc + timedelta(minutes=30),
+        reason="Laboratory Tests",
+        status="CHECKED_IN",
+        channel="PORTAL",
+        department="Laboratory",
+        specialty="Diagnostics",
+    )
+    db.add(appointment)
+    db.flush()
+
+    # Find confirmed lab orders for this patient to track during check-in
+    confirmed_orders = db.scalars(
+        select(models.LabOrder)
+        .where(models.LabOrder.patient_id == body.patient_id)
+        .where(models.LabOrder.status == "CONFIRMED")
+    ).all()
+    confirmed_ids = [o.lab_order_id for o in confirmed_orders]
+
+    # Create a new encounter for the Lab visit
+    encounter = models.Encounter(
+        patient_id=body.patient_id,
+        appointment_id=appointment.appointment_id,
+        visit_type="LAB",
+        department="Laboratory",
+        status="CHECKED_IN",
+        notes=",".join(confirmed_ids) if confirmed_ids else None,
+    )
+    db.add(encounter)
+    db.flush()
+
+    appointment.encounter_id = encounter.encounter_id
+
+    # Generate a unique token for the laboratory, e.g. L-101
+    total_tokens = db.scalar(
+        select(func.count())
+        .select_from(models.Token)
+        .where(models.Token.token_number.like("L-%"))
+    ) or 0
+
+    token = models.Token(
+        encounter_id=encounter.encounter_id,
+        token_number=f"L-{total_tokens + 101:03d}",
+        department="Laboratory",
+        room="Lab Room 1",
+        floor="Ground Floor",
+        eta_minutes=15,
+        status="WAITING",
+    )
+    db.add(token)
+    db.commit()
+
+    return {
+        "encounter_id": encounter.encounter_id,
+        "token_number": token.token_number,
+        "status": encounter.status,
+    }
+
+
+class RevisitBookingPayload(BaseModel):
+    doctor_id: str
+    booking_date: date
+    booking_slot: str
+    attachment_name: str | None = None
+    attachment_uri: str | None = None
+
+
+class EconsultRequestPayload(BaseModel):
+    doctor_id: str
+
+
+@router.post("/patients/{patient_id}/upload-document")
+def upload_patient_document(
+    patient_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+) -> dict:
+    import os
+    import shutil
+    patient = db.get(models.Patient, patient_id)
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+        
+    upload_dir = "uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    file_ext = os.path.splitext(file.filename or "")[1]
+    safe_filename = f"doc_{uuid.uuid4().hex[:12]}{file_ext}"
+    file_path = os.path.join(upload_dir, safe_filename)
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    attachment_uri = f"/uploads/{safe_filename}"
+    
+    doc = models.Document(
+        patient_id=patient_id,
+        doc_type="LAB_REPORT",
+        title=file.filename or "Outside Lab Report",
+        uri=attachment_uri,
+    )
+    db.add(doc)
+    db.commit()
+    
+    return {"document_id": doc.document_id, "title": doc.title, "uri": doc.uri}
+
+
+@router.post("/patients/{patient_id}/revisit/book")
+def book_revisit(patient_id: str, body: RevisitBookingPayload, db: Session = Depends(get_db)) -> dict:
+    patient = db.get(models.Patient, patient_id)
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+    doctor = db.get(models.Staff, body.doctor_id)
+    if not doctor or doctor.role != "DOCTOR":
+        raise HTTPException(404, "Doctor not found")
+        
+    try:
+        time_part = datetime.strptime(body.booking_slot, "%I:%M %p").time()
+    except ValueError:
+        time_part = datetime.strptime(body.booking_slot, "%H:%M").time()
+        
+    dt_local = datetime.combine(body.booking_date, time_part, tzinfo=ZoneInfo("Asia/Kolkata"))
+    dt_utc = dt_local.astimezone(timezone.utc)
+    
+    appointment = models.Appointment(
+        patient_id=patient_id,
+        doctor_id=body.doctor_id,
+        department=doctor.department,
+        specialty=doctor.specialty,
+        reason="Follow-up Re-visit",
+        appointment_type="REVISIT",
+        scheduled_start=dt_utc,
+        scheduled_end=dt_utc + timedelta(minutes=15),
+        status="BOOKED",
+        channel="PORTAL",
+    )
+    db.add(appointment)
+    db.commit()
+    
+    return {
+        "appointment_id": appointment.appointment_id,
+        "status": appointment.status,
+    }
+
+
+@router.post("/patients/{patient_id}/econsult/request")
+def request_econsult(patient_id: str, body: EconsultRequestPayload, db: Session = Depends(get_db)) -> dict:
+    patient = db.get(models.Patient, patient_id)
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+    doctor = db.get(models.Staff, body.doctor_id)
+    if not doctor or doctor.role != "DOCTOR":
+        raise HTTPException(404, "Doctor not found")
+        
+    encounter = models.Encounter(
+        patient_id=patient_id,
+        doctor_id=body.doctor_id,
+        department=doctor.department,
+        visit_type="E_CONSULT",
+        status="CHECKED_IN",
+    )
+    db.add(encounter)
+    db.flush()
+    
+    total_tokens = db.scalar(
+        select(func.count())
+        .select_from(models.Token)
+        .where(models.Token.token_number.like("E-%"))
+    ) or 0
+    
+    token = models.Token(
+        encounter_id=encounter.encounter_id,
+        token_number=f"E-{total_tokens + 501:03d}",
+        department=doctor.department or "Outpatient",
+        room=doctor.room or "Tele-Consult",
+        floor=doctor.floor or "Ground Floor",
+        eta_minutes=10,
+        status="WAITING",
+    )
+    db.add(token)
+    db.commit()
+    
+    return {
+        "encounter_id": encounter.encounter_id,
+        "token_number": token.token_number,
+        "status": encounter.status,
+    }
 

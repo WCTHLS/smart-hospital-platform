@@ -4,15 +4,17 @@ import { Card } from "../../../components/ui";
 interface ConsultationSummaryProps {
   encounterId: string;
   triage?: any;
+  appointment?: any;
   notes?: string | null;      // General advice / consult notes
-  soapNote?: string | null;   // SOAP clinical note
+  note?: any;                 // Clinical SOAP note
 }
 
 export default function ConsultationSummary({ 
   encounterId, 
   triage, 
+  appointment,
   notes,
-  soapNote 
+  note 
 }: ConsultationSummaryProps) {
   return (
     <Card className="space-y-3 animate-in fade-in duration-300">
@@ -21,7 +23,7 @@ export default function ConsultationSummary({
       </h4>
       {triage && (
         <div className="holo p-2 text-xs text-slate-300">
-          <b>Reason for Visit:</b> {triage.chief_complaint}
+          <b>Reason for Visit:</b> {triage.chief_complaint || appointment?.reason || "Not recorded"}
         </div>
       )}
       
@@ -37,19 +39,19 @@ export default function ConsultationSummary({
         </div>
       )}
 
-      {/* SOAP Clinical Note */}
-      {soapNote && (
+      {/* SOAP Clinical Note / Diagnosis */}
+      {note?.status === "APPROVED" && note.final_text && (
         <div className="space-y-2 text-[12.5px]">
           <div className="p-3 rounded-xl border bg-white/5" style={{ borderColor: "var(--glass-border)" }}>
             <div className="font-semibold text-white mb-1">Diagnosis &amp; Assessment:</div>
             <p className="text-slate-200 whitespace-pre-line">
-              {soapNote}
+              {note.final_text}
             </p>
           </div>
         </div>
       )}
 
-      {!notes && !soapNote && (
+      {!notes && (!note || note.status !== "APPROVED") && (
         <div className="text-xs italic text-[var(--dim)]">Consultation note is being finalized by your doctor.</div>
       )}
     </Card>

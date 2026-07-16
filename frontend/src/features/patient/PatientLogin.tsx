@@ -7,10 +7,10 @@ import { useJourney } from "../../lib/store";
 import { Card, Field } from "../../components/ui";
 
 type LoginStep = "mobile" | "otp" | "profiles" | "register" | "medical";
-type AllergyDraft = { substance: string; drug_class: string; severity: string; reaction: string };
+type IssueDraft = { issue_name: string; onset_info: string };
 type DocumentDraft = { title: string; doc_type: string; uri: string; file_name: string };
 
-const emptyAllergy = (): AllergyDraft => ({ substance: "", drug_class: "Unknown", severity: "", reaction: "" });
+const emptyIssue = (): IssueDraft => ({ issue_name: "", onset_info: "" });
 const emptyDocument = (): DocumentDraft => ({ title: "", doc_type: "", uri: "", file_name: "" });
 
 function todayIso() {
@@ -47,16 +47,30 @@ export default function PatientLogin() {
     blood_group: "",
     address: "",
   });
-  const [allergies, setAllergies] = useState<AllergyDraft[]>([emptyAllergy()]);
+  const [issues, setIssues] = useState<IssueDraft[]>([emptyIssue()]);
   const [documents, setDocuments] = useState<DocumentDraft[]>([emptyDocument()]);
 
   if (getPortalPatient()) return <Navigate to={redirect} replace />;
+
+  async function sendOtp() {
+    setBusy(true);
+    setError("");
+    try {
+      await api.sendOtp(mobile.trim());
+      setOtp("");
+      setStep("otp");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Unable to send OTP");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function verifyOtp() {
     setBusy(true);
     setError("");
     try {
-      await api.verifyOtp(mobile.trim());
+      await api.verifyOtp(mobile.trim(), otp);
       const result = await api.mobileProfiles(mobile.trim());
       const matches = result.profiles ?? [];
       setProfiles(matches);
@@ -75,11 +89,10 @@ export default function PatientLogin() {
       const result = await api.registerPatient({
         ...registration,
         mobile: mobile.trim(),
-        allergies: allergies.filter((item) => item.substance.trim()).map((item) => ({
-          substance: item.substance.trim(),
-          drug_class: item.drug_class.trim() || "Unknown",
-          severity: item.severity,
-          reaction: item.reaction.trim() || null,
+        issues: issues.filter((item) => item.issue_name.trim()).map((item) => ({
+          issue_name: item.issue_name.trim(),
+          onset_info: item.onset_info.trim() || null,
+          status: "ACTIVE",
         })),
         documents: documents.filter((item) => item.title.trim() && item.uri).map((item) => ({
           title: item.title.trim(),
@@ -97,6 +110,7 @@ export default function PatientLogin() {
         first_name: registration.first_name,
         last_name: registration.last_name,
         dob: registration.dob,
+        email: registration.email,
       });
       setJourney({ patientId: profile.patient_id, patientName: name });
       nav(redirect, { replace: true });
@@ -125,15 +139,12 @@ export default function PatientLogin() {
     && registration.last_name.trim()
     && registration.dob
     && registration.dob <= todayIso()
-    && validEmail(registration.email)
+    && (!registration.email.trim() || validEmail(registration.email))
     && registration.gender
-    && registration.blood_group
-    && registration.address.trim()
     && /^\d{10}$/.test(mobile.trim())
   );
 
-  const medicalDetailsValid = allergies.every((item) => !item.substance.trim() || Boolean(item.severity))
-    && documents.every((item) => (!item.title.trim() && !item.uri && !item.doc_type)
+  const medicalDetailsValid = documents.every((item) => (!item.title.trim() && !item.uri && !item.doc_type)
       || Boolean(item.title.trim() && item.doc_type && item.uri));
 
   async function login(profile: any) {
@@ -153,7 +164,7 @@ export default function PatientLogin() {
   }
 
   return (
-    <div className={`mx-auto my-12 ${step === "register" || step === "medical" ? "max-w-3xl" : "max-w-md"}`}>
+    <div className={`patient-page mx-auto my-2 sm:my-8 lg:my-12 ${step === "register" || step === "medical" ? "max-w-3xl" : "max-w-md"}`}>
       <Card className="space-y-6">
         <div className="space-y-2 text-center">
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl" style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))" }}>
@@ -171,15 +182,18 @@ export default function PatientLogin() {
             <Phone size={15} className="absolute left-3 top-3" color="var(--dim)" />
             <input className="input pl-9" inputMode="numeric" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="6281116923" />
           </div>
-          <button className="btn w-full" disabled={!/^\d{10}$/.test(mobile)} onClick={() => setStep("otp")}>Send OTP</button>
+          <button className="btn w-full" disabled={busy || !/^\d{10}$/.test(mobile)} onClick={sendOtp}>{busy ? "Sending..." : "Send OTP"}</button>
         </div>}
 
         {step === "otp" && <div className="space-y-4">
           <div className="flex items-center gap-2"><LockKeyhole size={16} /> OTP sent to {mobile}</div>
-          <input className="input" inputMode="numeric" maxLength={4} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="Enter 4 digit OTP" />
-          <div className="flex items-center justify-between gap-3">
-            <button className="btn-link" onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
-            <button className="btn g" disabled={busy || otp.length !== 4} onClick={verifyOtp}>{busy ? "Verifying..." : "Verify OTP"}</button>
+          <input className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="Enter OTP" />
+          <div className="actions-row between !mt-0 !border-0 !pt-0">
+            <button className="btn-link" disabled={busy} onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <button className="btn ghost sm" disabled={busy} onClick={sendOtp}>Resend OTP</button>
+              <button className="btn g" disabled={busy || otp.length < 1} onClick={verifyOtp}>{busy ? "Verifying..." : "Verify OTP"}</button>
+            </div>
           </div>
         </div>}
 
@@ -190,11 +204,16 @@ export default function PatientLogin() {
             <b>{profile.first_name} {profile.last_name}</b>
             <span className="mt-1 block text-xs" style={{ color: "var(--muted)" }}>DOB: {profile.dob ?? "Not available"}</span>
           </button>)}
+          <button className="btn ghost w-full" disabled={busy} onClick={() => setStep("register")}>
+            <UserPlus size={16} /> Register new patient
+          </button>
         </div>}
 
         {step === "register" && <div className="space-y-4">
           <div className="holo text-sm">
-            No patient profile was found for {mobile}. Register a new patient to continue.
+            {profiles.length
+              ? `Register another patient with mobile number ${mobile}.`
+              : `No patient profile was found for ${mobile}. Register a new patient to continue.`}
           </div>
           <div className="flex items-center gap-2 font-bold"><UserPlus size={18} /> New patient registration</div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -202,13 +221,15 @@ export default function PatientLogin() {
             <Field label="Last name"><input className="input" value={registration.last_name} onChange={(e) => setRegistration({ ...registration, last_name: e.target.value })} /></Field>
             <Field label="Date of birth"><input className="input" type="date" max={todayIso()} value={registration.dob} onChange={(e) => setRegistration({ ...registration, dob: e.target.value })} /></Field>
             <Field label="Mobile number"><input className="input" value={mobile} disabled /></Field>
-            <Field label="Email"><input className="input" type="email" value={registration.email} onChange={(e) => setRegistration({ ...registration, email: e.target.value })} placeholder="patient@example.com" /></Field>
+            <Field label="Email (Optional)"><input className="input" type="email" value={registration.email} onChange={(e) => setRegistration({ ...registration, email: e.target.value })} placeholder="patient@example.com" /></Field>
             <Field label="Gender"><select className="input" value={registration.gender} onChange={(e) => setRegistration({ ...registration, gender: e.target.value })}><option value="">Select gender</option><option>Female</option><option>Male</option><option>Other</option><option>Unknown</option></select></Field>
-            <Field label="Blood group"><select className="input" value={registration.blood_group} onChange={(e) => setRegistration({ ...registration, blood_group: e.target.value })}><option value="">Select blood group</option><option value="UNK">Unknown</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></Field>
-            <Field label="Address"><input className="input" value={registration.address} onChange={(e) => setRegistration({ ...registration, address: e.target.value })} /></Field>
+            <Field label="Blood group (Optional)"><select className="input" value={registration.blood_group} onChange={(e) => setRegistration({ ...registration, blood_group: e.target.value })}><option value="">Select blood group</option><option value="UNK">Unknown</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></Field>
+            <Field label="Address (Optional)"><input className="input" value={registration.address} onChange={(e) => setRegistration({ ...registration, address: e.target.value })} /></Field>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <button className="btn-link" disabled={busy} onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
+          <div className="actions-row between">
+            <button className="btn-link" disabled={busy} onClick={() => setStep(profiles.length ? "profiles" : "mobile")}>
+              <ArrowLeft size={14} /> {profiles.length ? "Back to profiles" : "Change number"}
+            </button>
             <button
               className="btn g"
               disabled={busy || !demographicsValid}
@@ -221,25 +242,23 @@ export default function PatientLogin() {
 
         {step === "medical" && <div className="space-y-6">
           <div>
-            <h3 className="font-bold">Allergies and documents</h3>
-            <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>Add any known allergies and relevant medical documents. Leave a section blank if none apply.</p>
+            <h3 className="font-bold">Medical History & Documents</h3>
+            <p className="mt-1 text-xs" style={{ color: "var(--muted)" }}>Add any existing health conditions, previous major surgeries, or relevant medical files. Leave empty if none apply.</p>
           </div>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="font-bold">Allergies</h4>
-              <button className="btn ghost sm" onClick={() => setAllergies((items) => [...items, emptyAllergy()])}><Plus size={14} /> Add allergy</button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-bold">Medical History & Previous Surgeries</h4>
+              <button className="btn ghost sm" onClick={() => setIssues((items) => [...items, emptyIssue()])}><Plus size={14} /> Add condition / surgery</button>
             </div>
-            {allergies.map((allergy, index) => <div className="holo grid gap-3 sm:grid-cols-2" key={index}>
-              <Field label="Substance"><input className="input" value={allergy.substance} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, substance: e.target.value } : item))} placeholder="e.g. Penicillin" /></Field>
-              <Field label="Drug class"><input className="input" value={allergy.drug_class} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, drug_class: e.target.value } : item))} placeholder="Unknown if not known" /></Field>
-              <Field label="Severity"><select className="input" value={allergy.severity} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, severity: e.target.value } : item))}><option value="">Select severity</option><option value="MILD">Mild</option><option value="MODERATE">Moderate</option><option value="SEVERE">Severe</option></select></Field>
-              <Field label="Reaction"><input className="input" value={allergy.reaction} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, reaction: e.target.value } : item))} placeholder="e.g. Rash or swelling" /></Field>
+            {issues.map((issue, index) => <div className="holo grid gap-3 sm:grid-cols-2" key={index}>
+              <Field label="Condition or Surgery"><input className="input" value={issue.issue_name} onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, issue_name: e.target.value } : item))} placeholder="e.g. Diabetes, BP, Heart surgery" /></Field>
+              <Field label="How long ago / onset info (Optional)"><input className="input" value={issue.onset_info} onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, onset_info: e.target.value } : item))} placeholder="e.g. 5 years, 3 months ago, 2024" /></Field>
             </div>)}
           </div>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="font-bold">Documents</h4>
               <button className="btn ghost sm" onClick={() => setDocuments((items) => [...items, emptyDocument()])}><Plus size={14} /> Add document</button>
             </div>
@@ -251,7 +270,7 @@ export default function PatientLogin() {
             </div>)}
           </div>
 
-          <div className="flex items-center justify-between gap-3">
+          <div className="actions-row between">
             <button className="btn-link" disabled={busy} onClick={() => setStep("register")}><ArrowLeft size={14} /> Back</button>
             <button className="btn g" disabled={busy || !medicalDetailsValid} onClick={registerPatient}>{busy ? "Registering..." : "Register and continue"}</button>
           </div>
