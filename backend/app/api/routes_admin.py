@@ -17,7 +17,7 @@ def register_doctor(body: schemas.DoctorRegisterRequest, db: Session = Depends(g
     hpr_id = f"HPR-{1000 + db.query(models.Staff).count()}"
     new_doc = models.Staff(
         name=body.name,
-        role="DOCTOR",
+        role=body.role or "DOCTOR",
         department=body.department or body.specialty or "General Medicine",
         specialty=body.specialty or "General Medicine",
         hpr_id=hpr_id,
@@ -35,6 +35,7 @@ def register_doctor(body: schemas.DoctorRegisterRequest, db: Session = Depends(g
     return {
         "doctor_id": new_doc.staff_id,
         "name": new_doc.name,
+        "role": new_doc.role,
         "specialty": new_doc.specialty,
         "room": new_doc.room,
         "floor": new_doc.floor,
@@ -46,7 +47,9 @@ def register_doctor(body: schemas.DoctorRegisterRequest, db: Session = Depends(g
 @router.get("/admin/doctors")
 def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
     doctors = db.scalars(
-        select(models.Staff).where(models.Staff.role == "DOCTOR").order_by(models.Staff.name.asc())
+        select(models.Staff)
+        .where(models.Staff.role.in_(["DOCTOR", "NURSE"]))
+        .order_by(models.Staff.role.asc(), models.Staff.name.asc())
     ).all()
     
     out = []
@@ -54,6 +57,7 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
         out.append({
             "doctor_id": d.staff_id,
             "name": d.name,
+            "role": d.role,
             "specialty": d.specialty,
             "department": d.department,
             "experience_years": d.experience_years or 0,
@@ -117,11 +121,13 @@ def verify_triage_pin(body: schemas.TriageStaffVerifyPinRequest, db: Session = D
 @router.put("/admin/doctors/{doctor_id}")
 def update_doctor(doctor_id: str, body: schemas.DoctorUpdateRequest, db: Session = Depends(get_db)) -> dict:
     doc = db.get(models.Staff, doctor_id)
-    if not doc or doc.role != "DOCTOR":
-        raise HTTPException(404, "Doctor not found")
+    if not doc or doc.role not in ["DOCTOR", "NURSE"]:
+        raise HTTPException(404, "Practitioner not found")
         
     if body.name is not None:
         doc.name = body.name
+    if body.role is not None:
+        doc.role = body.role
     if body.department is not None:
         doc.department = body.department
     if body.specialty is not None:
@@ -143,6 +149,7 @@ def update_doctor(doctor_id: str, body: schemas.DoctorUpdateRequest, db: Session
     return {
         "doctor_id": doc.staff_id,
         "name": doc.name,
+        "role": doc.role,
         "specialty": doc.specialty,
         "room": doc.room,
         "floor": doc.floor,

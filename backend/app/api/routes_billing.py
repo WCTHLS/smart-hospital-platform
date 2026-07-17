@@ -7,6 +7,7 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 import razorpay
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -102,6 +103,237 @@ def create_razorpay_order(body: RazorpayOrderRequest, db: Session = Depends(get_
             "contact": f"+91{patient.mobile}" if patient.mobile and len(patient.mobile) == 10 else patient.mobile,
         },
     }
+
+
+class RazorpayLabOrderRequest(BaseModel):
+    patient_id: str
+    amount: float
+    lab_order_ids: list[str]
+
+
+class RazorpayLabVerifyRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
+    lab_order_ids: list[str]
+
+
+@router.post("/payments/razorpay/create-lab-order")
+def create_razorpay_lab_order(body: RazorpayLabOrderRequest, db: Session = Depends(get_db)) -> dict:
+    patient = db.get(models.Patient, body.patient_id)
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+        
+    amount_paise = round(body.amount * 100)
+    receipt = f"lab_{uuid.uuid4().hex[:24]}"
+    
+    is_mock = not settings.razorpay_configured
+    if is_mock:
+        order = {
+            "id": f"order_mock_{uuid.uuid4().hex[:14]}",
+            "amount": amount_paise,
+            "currency": "INR",
+        }
+    else:
+        try:
+            order = _razorpay_client().order.create(data={
+                "amount": amount_paise,
+                "currency": "INR",
+                "receipt": receipt,
+                "notes": {"patient_id": body.patient_id, "lab_order_ids": ",".join(body.lab_order_ids)},
+            })
+        except Exception as exc:
+            logger.exception("Razorpay lab order creation failed")
+            raise HTTPException(500, "Unable to create Razorpay order") from exc
+            
+    # Save a temporary record so we can verify the order_id later
+    first_doc_id = db.scalars(select(models.Staff.staff_id).where(models.Staff.role == "DOCTOR")).first()
+    if not first_doc_id:
+        first_doc_id = db.scalars(select(models.Staff.staff_id)).first()
+        
+    payment_order = models.RazorpayOrder(
+        order_id=order["id"], patient_id=body.patient_id, doctor_id=first_doc_id,
+        amount_paise=amount_paise, currency="INR", receipt=receipt,
+        scheduled_start=datetime.now(timezone.utc), scheduled_end=datetime.now(timezone.utc),
+        reason=f"Lab orders payment: {','.join(body.lab_order_ids)}", specialty="Clinical Lab",
+        appointment_type="LAB", channel="PORTAL",
+    )
+    db.add(payment_order)
+    db.commit()
+    
+    checkout_email = (patient.email or "").strip()
+    if not checkout_email:
+        checkout_email = f"{patient.mobile or 'patient'}@example.com"
+        
+    return {
+        "order_id": order["id"], "amount": order["amount"], "currency": order["currency"],
+        "key_id": "mock_sandbox_key" if is_mock else settings.razorpay_key_id,
+        "prefill": {
+            "name": patient.full_name,
+            "email": checkout_email,
+            "contact": f"+91{patient.mobile}" if patient.mobile and len(patient.mobile) == 10 else patient.mobile,
+        },
+    }
+
+
+@router.post("/payments/razorpay/verify-lab-payment")
+def verify_razorpay_lab_payment(body: RazorpayLabVerifyRequest, db: Session = Depends(get_db)) -> dict:
+    values = (body.razorpay_payment_id, body.razorpay_order_id, body.razorpay_signature)
+    if not all(value and value.strip() for value in values):
+        raise HTTPException(400, "razorpay_payment_id, razorpay_order_id and razorpay_signature are required")
+        
+    payment_order = db.get(models.RazorpayOrder, body.razorpay_order_id)
+    if not payment_order:
+        raise HTTPException(400, "Razorpay order was not created by this server")
+        
+    is_mock = payment_order.order_id.startswith("order_mock_")
+    if not is_mock:
+        client = _razorpay_client()
+        try:
+            client.utility.verify_payment_signature({
+                "razorpay_payment_id": body.razorpay_payment_id,
+                "razorpay_order_id": payment_order.order_id,
+                "razorpay_signature": body.razorpay_signature,
+            })
+        except Exception as exc:
+            raise HTTPException(400, "Payment signature verification failed") from exc
+            
+    payment_order.status = "PAID"
+    payment_order.payment_id = body.razorpay_payment_id
+    payment_order.payment_signature = body.razorpay_signature
+    
+    # Confirm each lab order
+    for order_id in body.lab_order_ids:
+        order = db.get(models.LabOrder, order_id)
+        if order:
+            order.status = "CONFIRMED"
+            
+    db.commit()
+    return {"success": True}
+
+
+class RazorpayPrescriptionOrderRequest(BaseModel):
+    patient_id: str
+    amount: float
+    rx_id: str
+
+
+class RazorpayPrescriptionVerifyRequest(BaseModel):
+    razorpay_payment_id: str
+    razorpay_order_id: str
+    razorpay_signature: str
+    rx_id: str
+
+
+@router.post("/payments/razorpay/create-prescription-order")
+def create_razorpay_prescription_order(body: RazorpayPrescriptionOrderRequest, db: Session = Depends(get_db)) -> dict:
+    patient = db.get(models.Patient, body.patient_id)
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+        
+    amount_paise = round(body.amount * 100)
+    receipt = f"rx_{uuid.uuid4().hex[:24]}"
+    
+    is_mock = not settings.razorpay_configured
+    if is_mock:
+        order = {
+            "id": f"order_mock_{uuid.uuid4().hex[:14]}",
+            "amount": amount_paise,
+            "currency": "INR",
+        }
+    else:
+        try:
+            order = _razorpay_client().order.create(data={
+                "amount": amount_paise,
+                "currency": "INR",
+                "receipt": receipt,
+                "notes": {"patient_id": body.patient_id, "rx_id": body.rx_id},
+            })
+        except Exception as exc:
+            logger.exception("Razorpay prescription order creation failed")
+            raise HTTPException(500, "Unable to create Razorpay order") from exc
+            
+    first_doc_id = db.scalars(select(models.Staff.staff_id).where(models.Staff.role == "DOCTOR")).first()
+    if not first_doc_id:
+        first_doc_id = db.scalars(select(models.Staff.staff_id)).first()
+        
+    payment_order = models.RazorpayOrder(
+        order_id=order["id"], patient_id=body.patient_id, doctor_id=first_doc_id,
+        amount_paise=amount_paise, currency="INR", receipt=receipt,
+        scheduled_start=datetime.now(timezone.utc), scheduled_end=datetime.now(timezone.utc),
+        reason=f"Prescription payment: {body.rx_id}", specialty="Pharmacy",
+        appointment_type="PHARMACY", channel="PORTAL",
+    )
+    db.add(payment_order)
+    db.commit()
+    
+    checkout_email = (patient.email or "").strip()
+    if not checkout_email:
+        checkout_email = f"{patient.mobile or 'patient'}@example.com"
+        
+    return {
+        "order_id": order["id"], "amount": order["amount"], "currency": order["currency"],
+        "key_id": "mock_sandbox_key" if is_mock else settings.razorpay_key_id,
+        "prefill": {
+            "name": patient.full_name,
+            "email": checkout_email,
+            "contact": f"+91{patient.mobile}" if patient.mobile and len(patient.mobile) == 10 else patient.mobile,
+        },
+    }
+
+
+@router.post("/payments/razorpay/verify-prescription-payment")
+def verify_razorpay_prescription_payment(body: RazorpayPrescriptionVerifyRequest, db: Session = Depends(get_db)) -> dict:
+    values = (body.razorpay_payment_id, body.razorpay_order_id, body.razorpay_signature)
+    if not all(value and value.strip() for value in values):
+        raise HTTPException(400, "razorpay_payment_id, razorpay_order_id and razorpay_signature are required")
+        
+    payment_order = db.get(models.RazorpayOrder, body.razorpay_order_id)
+    if not payment_order:
+        raise HTTPException(400, "Razorpay order was not created by this server")
+        
+    is_mock = payment_order.order_id.startswith("order_mock_")
+    if not is_mock:
+        client = _razorpay_client()
+        try:
+            client.utility.verify_payment_signature({
+                "razorpay_payment_id": body.razorpay_payment_id,
+                "razorpay_order_id": payment_order.order_id,
+                "razorpay_signature": body.razorpay_signature,
+            })
+        except Exception as exc:
+            raise HTTPException(400, "Payment signature verification failed") from exc
+            
+    payment_order.status = "PAID"
+    payment_order.payment_id = body.razorpay_payment_id
+    payment_order.payment_signature = body.razorpay_signature
+    
+    # Process prescription payment (generate token, mark prepaid, Counter assignment)
+    rx = db.get(models.Prescription, body.rx_id)
+    if not rx:
+        raise HTTPException(404, "Prescription not found")
+        
+    rx.status = "PREPAID"
+    
+    # Generate PHA token
+    total_tokens = db.scalar(
+        select(func.count())
+        .select_from(models.Token)
+        .where(models.Token.token_number.like("PHA-%"))
+    ) or 0
+    
+    token = models.Token(
+        encounter_id=rx.encounter_id,
+        token_number=f"PHA-{total_tokens + 101}",
+        department="Pharmacy",
+        room="Pharmacy Counter 3",
+        floor="Ground Floor",
+        status="ACTIVE",
+    )
+    db.add(token)
+    db.commit()
+    
+    return {"success": True}
 
 
 @router.post("/payments/razorpay/verify-payment")

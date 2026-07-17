@@ -9,6 +9,7 @@ const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "S
 export default function AdminPortal() {
   const qc = useQueryClient();
   const [name, setName] = useState("");
+  const [role, setRole] = useState<"DOCTOR" | "NURSE">("DOCTOR");
   const [specialty, setSpecialty] = useState("General Medicine");
   const [experience, setExperience] = useState("");
   const [room, setRoom] = useState("");
@@ -20,7 +21,7 @@ export default function AdminPortal() {
   // Roster States
   const [schedulingDoctor, setSchedulingDoctor] = useState<any | null>(null);
   const [scheduleDays, setScheduleDays] = useState<Record<number, { active: boolean; start: string; end: string; duration: string }>>({});
-
+  
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -33,6 +34,7 @@ export default function AdminPortal() {
   const handleStartEdit = (d: any) => {
     setEditingDoctorId(d.doctor_id);
     setName(d.name);
+    setRole(d.role || "DOCTOR");
     setSpecialty(d.specialty);
     setExperience(String(d.experience_years));
     setRoom(d.room);
@@ -47,6 +49,7 @@ export default function AdminPortal() {
   const handleCancelEdit = () => {
     setEditingDoctorId(null);
     setName("");
+    setRole("DOCTOR");
     setExperience("");
     setRoom("");
     setFloor("");
@@ -149,30 +152,35 @@ export default function AdminPortal() {
     setErrorMsg("");
     setSuccessMsg("");
 
+    const payloadDept = role === "NURSE" ? "Triage" : specialty;
+    const payloadSpec = role === "NURSE" ? "Triage Nursing" : specialty;
+    const payloadFee = role === "NURSE" ? 0.0 : parseFloat(fee || "0");
+
     try {
       if (editingDoctorId) {
         await api.updateDoctor(editingDoctorId, {
           name,
-          department: specialty,
-          specialty,
+          role,
+          department: payloadDept,
+          specialty: payloadSpec,
           experience_years: parseInt(experience, 10),
           room,
           floor,
           access_pin: pin,
-          opd_fee: parseFloat(fee),
+          opd_fee: payloadFee,
         });
         setSuccessMsg(`Successfully updated ${name}!`);
       } else {
         await api.registerDoctor({
           name,
-          role: "DOCTOR",
-          department: specialty,
-          specialty,
+          role,
+          department: payloadDept,
+          specialty: payloadSpec,
           experience_years: parseInt(experience, 10),
           room,
           floor,
           access_pin: pin,
-          opd_fee: parseFloat(fee),
+          opd_fee: payloadFee,
         });
         setSuccessMsg(`Successfully registered ${name}!`);
       }
@@ -235,10 +243,24 @@ export default function AdminPortal() {
 
                 <form onSubmit={handleSubmit} className="space-y-3.5 text-xs">
                   <div className="space-y-1">
-                    <label className="block font-bold text-slate-300">Doctor Full Name *</label>
+                    <label className="block font-bold text-slate-300">Staff Role *</label>
+                    <select
+                      className="input text-xs select"
+                      value={role}
+                      onChange={(e) => setRole(e.target.value as "DOCTOR" | "NURSE")}
+                    >
+                      <option value="DOCTOR">Doctor</option>
+                      <option value="NURSE">Nurse</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block font-bold text-slate-300">
+                      {role === "NURSE" ? "Nurse Full Name *" : "Doctor Full Name *"}
+                    </label>
                     <input
                       type="text"
-                      placeholder="e.g. Dr. Ananya Mehta"
+                      placeholder={role === "NURSE" ? "e.g. Priya Sharma" : "e.g. Dr. Ananya Mehta"}
                       className="input text-xs"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
@@ -246,36 +268,63 @@ export default function AdminPortal() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="block font-bold text-slate-300">Specialty Department</label>
-                      <select
-                        className="input text-xs select"
-                        value={specialty}
-                        onChange={(e) => setSpecialty(e.target.value)}
-                      >
-                        <option value="General Medicine">General Medicine</option>
-                        <option value="Cardiology">Cardiology</option>
-                        <option value="Pulmonology">Pulmonology</option>
-                        <option value="Paediatrics">Paediatrics</option>
-                        <option value="Orthopaedics">Orthopaedics</option>
-                        <option value="Dermatology">Dermatology</option>
-                      </select>
-                    </div>
+                  {role === "DOCTOR" ? (
+                    <div className="grid grid-cols-2 gap-3 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Specialty Department</label>
+                        <select
+                          className="input text-xs select"
+                          value={specialty}
+                          onChange={(e) => setSpecialty(e.target.value)}
+                        >
+                          <option value="General Medicine">General Medicine</option>
+                          <option value="Cardiology">Cardiology</option>
+                          <option value="Pulmonology">Pulmonology</option>
+                          <option value="Paediatrics">Paediatrics</option>
+                          <option value="Orthopaedics">Orthopaedics</option>
+                          <option value="Dermatology">Dermatology</option>
+                        </select>
+                      </div>
 
-                    <div className="space-y-1">
-                      <label className="block font-bold text-slate-300">Experience (Years) *</label>
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="e.g. 10"
-                        className="input text-xs"
-                        value={experience}
-                        onChange={(e) => setExperience(e.target.value)}
-                        required
-                      />
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Experience (Years) *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="e.g. 10"
+                          className="input text-xs"
+                          value={experience}
+                          onChange={(e) => setExperience(e.target.value)}
+                          required
+                        />
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-3 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="block font-bold text-[var(--dim)]">Role Specialty</label>
+                        <input
+                          type="text"
+                          className="input text-xs cursor-not-allowed opacity-60"
+                          value="Triage Nursing (Triage)"
+                          disabled
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Experience (Years) *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="e.g. 6"
+                          className="input text-xs"
+                          value={experience}
+                          onChange={(e) => setExperience(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1">
@@ -304,17 +353,29 @@ export default function AdminPortal() {
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="block font-bold text-slate-300">OPD Consultation Fee (₹)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="500"
-                        className="input text-xs"
-                        value={fee}
-                        onChange={(e) => setFee(e.target.value)}
-                      />
-                    </div>
+                    {role === "DOCTOR" ? (
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">OPD Consultation Fee (₹)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="500"
+                          className="input text-xs"
+                          value={fee}
+                          onChange={(e) => setFee(e.target.value)}
+                        />
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        <label className="block font-bold text-[var(--dim)]">OPD Consultation Fee</label>
+                        <input
+                          type="text"
+                          className="input text-xs cursor-not-allowed opacity-60"
+                          value="N/A (Free)"
+                          disabled
+                        />
+                      </div>
+                    )}
 
                     <div className="space-y-1">
                       <label className="block font-bold text-slate-300">Security Login PIN *</label>
@@ -326,7 +387,7 @@ export default function AdminPortal() {
                         value={pin}
                         onChange={(e) => setPin(e.target.value)}
                         required
-                  />
+                      />
                     </div>
                   </div>
 
@@ -491,7 +552,7 @@ export default function AdminPortal() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-white/5 text-[10px] uppercase tracking-wider text-[var(--dim)] font-bold">
-                      <th className="pb-3">Doctor</th>
+                      <th className="pb-3">Practitioner</th>
                       <th className="pb-3">Specialty</th>
                       <th className="pb-3">Room / Location</th>
                       <th className="pb-3 text-right">OPD Fee</th>
@@ -503,11 +564,14 @@ export default function AdminPortal() {
                     {doctors.map((d: any) => (
                       <tr key={d.doctor_id} className={`border-b border-white/5 last:border-0 hover:bg-white/[0.01] transition-colors ${editingDoctorId === d.doctor_id || schedulingDoctor?.doctor_id === d.doctor_id ? "bg-white/[0.02]" : ""}`}>
                         <td className="py-3.5 flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-violet-500/10 border border-violet-500/25 flex items-center justify-center text-violet-400 font-extrabold text-[11px]">
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center font-extrabold text-[11px] ${d.role === "NURSE" ? "bg-cyan-500/10 border border-cyan-500/25 text-cyan-400" : "bg-violet-500/10 border border-violet-500/25 text-violet-400"}`}>
                             {d.name.split(" ").slice(-1)[0][0]}
                           </div>
                           <div>
-                            <div className="font-bold text-slate-200">{d.name}</div>
+                            <div className="font-bold text-slate-200 flex items-center gap-1.5">
+                              {d.name}
+                              {d.role === "NURSE" && <Tag tone="blue">Nurse</Tag>}
+                            </div>
                             <div className="text-[10px] text-[var(--muted)]">{d.experience_years} years exp</div>
                           </div>
                         </td>
@@ -519,7 +583,7 @@ export default function AdminPortal() {
                           <div className="text-[10px] text-[var(--muted)]">{d.floor}</div>
                         </td>
                         <td className="py-3.5 text-right font-mono font-bold text-slate-200">
-                          ₹{d.opd_fee}
+                          {d.role === "NURSE" ? "N/A" : `₹${d.opd_fee}`}
                         </td>
                         <td className="py-3.5 text-center font-mono font-bold text-violet-400">
                           {d.access_pin}
@@ -532,12 +596,14 @@ export default function AdminPortal() {
                             >
                               <Edit size={10.5} /> Profile
                             </button>
-                            <button
-                              onClick={() => handleOpenRoster(d)}
-                              className="btn ghost !py-1 !px-2 text-[10.5px] font-bold inline-flex items-center gap-0.5 text-[var(--cyan)] hover:text-cyan-300"
-                            >
-                              <Calendar size={10.5} /> Roster
-                            </button>
+                            {d.role !== "NURSE" && (
+                              <button
+                                onClick={() => handleOpenRoster(d)}
+                                className="btn ghost !py-1 !px-2 text-[10.5px] font-bold inline-flex items-center gap-0.5 text-[var(--cyan)] hover:text-cyan-300"
+                              >
+                                <Calendar size={10.5} /> Roster
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

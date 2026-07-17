@@ -1120,7 +1120,6 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         rx_items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)).all()
 
     # Fetch lab orders and results
-    # Fetch lab orders and results
     if e.visit_type == "LAB" and e.notes:
         order_ids = e.notes.split(",")
         lab_orders = db.scalars(
@@ -1147,12 +1146,23 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
             ]
         })
 
+    # Parse parent_encounter_id if stored in notes
+    parent_id = None
+    clean_notes = e.notes
+    if e.notes and "parent:" in e.notes:
+        for part in e.notes.split(";"):
+            if part.strip().startswith("parent:"):
+                parent_id = part.strip().split("parent:")[-1].strip()
+        parts = [p.strip() for p in e.notes.split(";") if not p.strip().startswith("parent:")]
+        clean_notes = "; ".join(parts) if parts else None
+
     return {
         "encounter_id": e.encounter_id, "appointment_id": e.appointment_id,
+        "parent_encounter_id": parent_id,
         "doctor_id": e.doctor_id or (appointment.doctor_id if appointment else None),
         "status": e.status, "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
-        "notes": e.notes,
+        "notes": clean_notes,
         "patient": _patient_brief(p),
         "appointment": _appointment_brief(appointment, appointment_doctor) if appointment else None,
         "triage": None if not triage else {

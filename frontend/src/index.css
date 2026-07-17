@@ -371,6 +371,11 @@ a {
     color: var(--ink);
   }
   .input:focus { border-color: var(--lit); box-shadow: 0 0 0 3px rgba(52, 225, 232, 0.12); }
+  
+  select option {
+    background-color: #0a0f1d;
+    color: #dce9ff;
+  }
 
   .bar-tk { @apply h-2 overflow-hidden rounded-md; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); }
   .bar-tk i { @apply block h-full transition-all duration-500 ease-out; background: linear-gradient(90deg, var(--cyan), var(--blue)); box-shadow: 0 0 12px rgba(52, 225, 232, 0.5); }

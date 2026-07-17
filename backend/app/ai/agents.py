@@ -215,16 +215,18 @@ def suggest_orders_agent(
     
     prompt = (
         "You are an expert clinical triage assistant. Evaluate the patient's clinical presentation below "
-        "to determine if any diagnostic laboratory or imaging tests are strongly indicated.\n\n"
+        "to determine if any diagnostic laboratory or imaging tests are indicated.\n\n"
         f"Chief Complaint: {chief_complaint}\n"
         f"Symptom Summary: {symptom_summary}\n"
         f"Vitals: {vitals_str}\n"
         f"Medical History: {history_str}\n\n"
         "Guidelines:\n"
-        "1. Suggest tests ONLY if there is a clear, strong clinical justification based on the provided symptoms, vitals, or history.\n"
-        "2. Do NOT suggest tests (like CBC or CRP) for minor acute infections like a simple sore throat, common cold, simple cough, or mild fever under 101.5°F unless there are red flags (e.g., respiratory distress, chest pain, heart rate > 115 bpm, SpO2 < 95%) or chronic disease history. For simple sore throats, return an empty list [].\n"
-        "3. Output MUST be a JSON array of objects, where each object has:\n"
-        "   - 'test': exact name of the diagnostic test (e.g., 'CBC', 'Chest X-ray', 'LFT', 'Urinalysis', 'Widal Test', etc.)\n"
+        "1. Suggest 2-3 relevant diagnostic tests (such as CBC, CRP, HbA1c, Lipid Profile, TSH, RFT, LFT, Urinalysis, Widal Test, Chest X-ray, ECG, etc.) that are clinically reasonable to confirm the diagnosis, check severity, or rule out complications.\n"
+        "2. For respiratory symptoms (like cough, cold, breathlessness), consider CBC and Chest X-ray.\n"
+        "3. For febrile symptoms (like high fever, chills), consider CBC, CRP, and Widal Test.\n"
+        "4. For metabolic symptoms or checkups (fatigue, diabetes), consider HbA1c, RFT, and Lipid Profile.\n"
+        "5. Output MUST be a JSON array of objects, where each object has:\n"
+        "   - 'test': exact name of the diagnostic test (e.g., 'CBC', 'Chest X-ray', 'TSH', etc.)\n"
         "   - 'reason': a brief clinical explanation (5-10 words) of why it is indicated.\n\n"
         "Do not include any markdown formatting, code block backticks, or surrounding text. Return only the raw JSON array."
     )

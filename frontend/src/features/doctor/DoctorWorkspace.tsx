@@ -193,7 +193,7 @@ export default function DoctorWorkspace() {
           </div>
 
           <div className={tab === "labs" ? "" : "hidden"} key={`labs-${journey.encounterId}`}>
-            <OrdersAndLabs encounterId={journey.encounterId} />
+            <OrdersAndLabs encounterId={journey.encounterId} sel={sel} setSel={setSel} />
           </div>
           
           <div className={tab === "rx" ? "" : "hidden"} key={`rx-${journey.encounterId}`}>

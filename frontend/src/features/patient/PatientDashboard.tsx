@@ -556,7 +556,7 @@ export default function PatientDashboard() {
           </button>
         )}
 
-        {showEncounterId && encDetails && encDetails.status !== "DISCHARGED" && (
+        {showEncounterId && encDetails && encDetails.status !== "DISCHARGED" && encDetails.visit_type !== "E_CONSULT" && (
           <StageTracker stage={stage} token={token} />
         )}
 
@@ -665,8 +665,79 @@ export default function PatientDashboard() {
           </Card>
         )}
 
+        {/* Remote E-Consultation Review State */}
+        {showEncounterId && encDetails && encDetails.visit_type === "E_CONSULT" && encDetails.status !== "DISCHARGED" && (
+          <Card 
+            className="space-y-4 animate-in fade-in duration-300 relative overflow-hidden"
+            style={{ 
+              background: "linear-gradient(135deg, rgba(6,182,212,0.06), rgba(139,92,246,0.06))",
+              borderColor: "rgba(6,182,212,0.25)" 
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--glass-border)] pb-3">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Remote consultation</span>
+                <h3 className="text-lg font-extrabold text-white">E-Consultation Review</h3>
+              </div>
+              <div className="flex gap-2">
+                <Tag tone="blue">Queue Active</Tag>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 rounded-xl text-xs flex gap-2.5 items-start">
+              <CheckCircle2 size={18} className="shrink-0 text-cyan-400 mt-0.5" />
+              <div>
+                <span className="font-bold block mb-0.5 text-white">Reports Sent to Doctor!</span>
+                Your lab results and vitals have been successfully sent to the doctor. The doctor will review your reports shortly and update your consultation advice.
+              </div>
+            </div>
+
+            {/* Token Badge */}
+            <div 
+              className="token-highlight relative flex flex-col items-center justify-center space-y-2 overflow-hidden rounded-2xl border p-3.5 text-center shadow-md max-w-sm mx-auto w-full"
+              style={{ 
+                background: "rgba(6,182,212,0.03)",
+                borderColor: "rgba(6,182,212,0.2)" 
+              }}
+            >
+              <div className="rounded-full border border-cyan-400/20 bg-cyan-400/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
+                E-Consultation Token
+              </div>
+              <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]">
+                {encDetails.token?.number || "E-PENDING"}
+              </div>
+              
+              <div className="text-xs space-y-1">
+                <div className="text-slate-200 font-bold flex items-center justify-center gap-1">
+                  <MapPin size={12} className="text-[var(--cyan)]" /> Tele-Consult / Online Review
+                </div>
+                <div className="text-[10px] text-cyan-300/80 bg-cyan-900/30 px-2 py-0.5 rounded-full border border-cyan-500/20 mt-2 inline-block">
+                  Waiting for doctor review...
+                </div>
+              </div>
+            </div>
+
+            {/* Visit Summary info */}
+            <div className="space-y-2 text-xs border-t border-white/5 pt-3">
+              <div className="font-semibold text-slate-100 flex items-center gap-1.5 pb-1 mb-1">
+                <Clipboard size={14} className="text-[var(--cyan)]" /> E-Consult Details
+              </div>
+              <div className="kv"><span>Consulting Doctor</span><b>{encDetails.appointment?.doctor?.name || parentEncDetails?.appointment?.doctor?.name || parentEncDetails?.triage?.recommended_doctor?.name || "Assigned Doctor"}</b></div>
+              <div className="kv"><span>Department</span><b>{encDetails.department || parentEncDetails?.department || "General Medicine"}</b></div>
+              <div className="kv"><span>Status</span><b className="text-cyan-400">Under Doctor Review</b></div>
+            </div>
+          </Card>
+        )}
+
+        {showEncounterId && encDetails && encDetails.visit_type === "E_CONSULT" && encDetails.status !== "DISCHARGED" && (
+          <VitalsAndLabs 
+            latestVitals={encDetails.vitals} 
+            orders={encDetails.labs || []} 
+          />
+        )}
+
         {/* State 2: Checked in but not triaged (stage === 0) */}
-        {showEncounterId && stage === 0 && encDetails && (
+        {showEncounterId && stage === 0 && encDetails && encDetails.visit_type !== "E_CONSULT" && (
           <Card className="space-y-4 animate-in fade-in duration-300">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--glass-border)] pb-3">
               <div>
@@ -689,12 +760,16 @@ export default function PatientDashboard() {
               <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-400" />
               <div>
                 <span className="font-bold block mb-0.5">Check-in Complete!</span>
-                Your check-in is complete. You have been placed in the triage queue.
+                {encDetails.visit_type === "E_CONSULT" 
+                  ? "Your check-in is complete. Your e-consultation is queued for doctor review."
+                  : "Your check-in is complete. You have been placed in the triage queue."}
               </div>
             </div>
 
             {(() => {
               const isLab = encDetails.visit_type === "LAB" || encDetails.department === "Laboratory";
+              const isEconsult = encDetails.visit_type === "E_CONSULT";
+
               if (isLab) {
                 const labTokenNum = encDetails.token?.number || "L-PENDING";
                 const patientsAhead = Math.floor((encDetails.token?.eta_minutes || 0) / 5);
@@ -732,6 +807,35 @@ export default function PatientDashboard() {
                       </div>
                       <div className="text-[11px] text-[var(--dim)]">
                         Estimated wait time: <span className="font-semibold text-emerald-400">{estWaitMins} mins</span> <span className="text-[10px] text-[var(--muted)]">(5m per patient)</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              if (isEconsult) {
+                const tokenNum = encDetails.token?.number || "E-PENDING";
+                return (
+                  <div 
+                    className="token-highlight relative flex flex-col items-center justify-center space-y-2 overflow-hidden rounded-2xl border p-3.5 text-center shadow-md max-w-sm mx-auto w-full"
+                    style={{ 
+                      background: "linear-gradient(135deg, rgba(6,182,212,0.06), rgba(139,92,246,0.06))",
+                      borderColor: "rgba(6,182,212,0.25)" 
+                    }}
+                  >
+                    <div className="rounded-full border border-cyan-400/20 bg-cyan-400/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
+                      E-Consultation Token
+                    </div>
+                    <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]">
+                      {tokenNum}
+                    </div>
+                    
+                    <div className="text-xs space-y-1">
+                      <div className="text-slate-200 font-bold flex items-center justify-center gap-1">
+                        <MapPin size={12} className="text-[var(--cyan)]" /> Tele-Consult / Online Review
+                      </div>
+                      <div className="text-[10px] text-cyan-300/80 bg-cyan-900/30 px-2 py-0.5 rounded-full border border-cyan-500/20 mt-2 inline-block">
+                        Waiting for doctor review...
                       </div>
                     </div>
                   </div>
@@ -808,8 +912,7 @@ export default function PatientDashboard() {
           </Card>
         )}
 
-        {/* State 3: Triaged (stage === 1) */}
-        {showEncounterId && stage === 1 && encDetails && (
+        {showEncounterId && stage === 1 && encDetails && encDetails.visit_type !== "E_CONSULT" && (
           <div className="space-y-4 animate-in fade-in duration-300">
             <Card className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--glass-border)] pb-3">
@@ -897,8 +1000,7 @@ export default function PatientDashboard() {
           </div>
         )}
 
-        {/* Stage >= 2: Standard workflow */}
-        {showEncounterId && stage >= 2 && encDetails && (
+        {showEncounterId && stage >= 2 && encDetails && (encDetails.visit_type !== "E_CONSULT" || encDetails.status === "DISCHARGED") && (
           <>
             {currentEpisode && (
               <Card 
@@ -1007,18 +1109,24 @@ export default function PatientDashboard() {
               <PrescriptionSlip 
                 encounterId={parentEncounterId!} 
                 prescription={parentEncDetails?.prescription || encDetails.prescription}
+                patientId={portalPatientId}
+                refetchEnc={refetchEnc}
+                refetchP360={refetchP360}
               />
             )}
 
             {(() => {
-              const followUpRx = currentEpisode?.followups?.find((f: any) => f.prescription)?.prescription;
-              if (!followUpRx) return null;
+              const fUp = currentEpisode?.followups?.find((f: any) => f.prescription);
+              if (!fUp) return null;
               
               return (
                 <PrescriptionSlip 
-                  encounterId={currentEpisode?.followups?.find((f: any) => f.prescription)?.encounter_id} 
-                  prescription={followUpRx}
+                  encounterId={fUp.encounter_id} 
+                  prescription={fUp.prescription}
                   title="📋 Follow-Up Prescription Slip"
+                  patientId={portalPatientId}
+                  refetchEnc={refetchEnc}
+                  refetchP360={refetchP360}
                 />
               );
             })()}

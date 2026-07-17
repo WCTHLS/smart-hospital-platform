@@ -9,32 +9,23 @@ interface PrescriptionSlipProps {
   encounterId: string;
   prescription?: any;
   title?: string;
+  patientId: string;
+  refetchEnc?: () => void;
+  refetchP360?: () => void;
 }
 
 export default function PrescriptionSlip({ 
   encounterId, 
   prescription,
   title,
+  patientId,
+  refetchEnc,
+  refetchP360,
 }: PrescriptionSlipProps) {
   const qc = useQueryClient();
   const [showPayModal, setShowPayModal] = useState(false);
   const [paymentDone, setPaymentDone] = useState(false);
-
-  const payMutation = useMutation({
-    mutationFn: (rxId: string) => api.payPrescription(rxId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["portal-encounter"] });
-      qc.invalidateQueries({ queryKey: ["p360"] });
-      setPaymentDone(true);
-      setTimeout(() => {
-        setPaymentDone(false);
-        setShowPayModal(false);
-      }, 1500);
-    },
-    onError: (err: any) => {
-      alert(err.message || "Failed to make payment");
-    }
-  });
+  const [paying, setPaying] = useState(false);
 
   if (!prescription || !prescription.items || prescription.items.length === 0) {
     return (
@@ -57,8 +48,91 @@ export default function PrescriptionSlip({
   const gst = subtotal * 0.18;
   const total = subtotal + gst;
 
-  const handlePay = () => {
-    payMutation.mutate(prescription.rx_id);
+  interface RazorpaySuccess {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+  }
+
+  const handlePay = async () => {
+    setPaying(true);
+    try {
+      const order = await api.createRazorpayPrescriptionOrder({
+        patient_id: patientId,
+        amount: total,
+        rx_id: prescription.rx_id,
+      });
+
+      let payment: RazorpaySuccess;
+      if (order.key_id === "mock_sandbox_key") {
+        payment = {
+          razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
+          razorpay_order_id: order.order_id,
+          razorpay_signature: "mock_signature_sandbox",
+        };
+      } else {
+        const Razorpay = (window as any).Razorpay;
+        if (!Razorpay) {
+          throw new Error("Razorpay Checkout is not available. Refresh the page and try again.");
+        }
+        payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
+          let settled = false;
+          const checkout = new Razorpay({
+            key: order.key_id,
+            amount: order.amount,
+            currency: order.currency,
+            name: "Aarogya AI",
+            description: `Medication Checkout (Rx: ${prescription.rx_id.slice(0, 8)})`,
+            order_id: order.order_id,
+            prefill: order.prefill,
+            readonly: {
+              name: true,
+              email: Boolean(order.prefill?.email),
+              contact: Boolean(order.prefill?.contact),
+            },
+            retry: { enabled: true },
+            theme: { color: "#34e1e8" },
+            modal: {
+              confirm_close: true,
+              ondismiss: () => {
+                if (!settled) reject(new Error("Payment was cancelled. Order not prepaid."));
+              },
+            },
+            handler: (response: RazorpaySuccess) => {
+              settled = true;
+              resolve(response);
+            },
+          });
+          checkout.on("payment.failed", (response: any) => {
+            settled = true;
+            reject(new Error(response?.error?.description || "Payment failed. Please try again."));
+          });
+          checkout.open();
+        });
+      }
+
+      await api.verifyRazorpayPrescriptionPayment({
+        ...payment,
+        rx_id: prescription.rx_id,
+      });
+
+      qc.invalidateQueries({ queryKey: ["portal-encounter"] });
+      qc.invalidateQueries({ queryKey: ["portal-encounter-parent"] });
+      qc.invalidateQueries({ queryKey: ["p360"] });
+      if (refetchEnc) refetchEnc();
+      if (refetchP360) refetchP360();
+
+      setPaymentDone(true);
+      setTimeout(() => {
+        setPaymentDone(false);
+        setShowPayModal(false);
+      }, 1500);
+
+    } catch (err: any) {
+      alert(err.message || "Failed to make payment");
+    } finally {
+      setPaying(false);
+    }
   };
 
   const getStatusTone = (status: string) => {
@@ -221,7 +295,7 @@ export default function PrescriptionSlip({
               <button 
                 onClick={() => setShowPayModal(false)}
                 className="text-[var(--dim)] hover:text-white transition text-sm font-semibold"
-                disabled={payMutation.isPending}
+                disabled={paying}
               >
                 ✕
               </button>
@@ -282,18 +356,18 @@ export default function PrescriptionSlip({
                 <div className="flex gap-2 justify-end pt-2 border-t border-white/5">
                   <button
                     onClick={() => setShowPayModal(false)}
-                    disabled={payMutation.isPending}
+                    disabled={paying}
                     className="btn ghost font-bold text-xs px-4"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handlePay}
-                    disabled={payMutation.isPending}
+                    disabled={paying}
                     className="btn font-bold text-xs px-6 flex items-center gap-1.5"
                     style={{ background: "linear-gradient(135deg, var(--mint), #059669)", color: "#011c10", border: "none" }}
                   >
-                    {payMutation.isPending ? "Processing..." : `Pay ₹${total.toFixed(2)} & Pre-Order`}
+                    {paying ? "Processing..." : `Pay ₹${total.toFixed(2)} & Pre-Order`}
                   </button>
                 </div>
               </>

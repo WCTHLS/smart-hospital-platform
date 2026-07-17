@@ -174,7 +174,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
     refetchOnWindowFocus: false,
   });
 
-  useQuery({
+  const { data: activeEncounter } = useQuery({
     queryKey: ["active-encounter", encounterId],
     queryFn: async () => {
       if (!encounterId) return null;
@@ -185,6 +185,14 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
       return res;
     },
     enabled: !!encounterId,
+  });
+
+  const parentEncounterId = activeEncounter?.parent_encounter_id;
+
+  const { data: parentEncounter } = useQuery({
+    queryKey: ["parent-encounter-notes", parentEncounterId],
+    queryFn: () => api.encounter(parentEncounterId!),
+    enabled: !!parentEncounterId,
   });
 
   const handleSaveNotes = async () => {
@@ -320,6 +328,23 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                 </button>
               ))}
             </div>
+            {parentEncounter && (
+              <div 
+                className="p-3 rounded-xl border text-[11px] space-y-1 mb-2.5 animate-in fade-in duration-200"
+                style={{ 
+                  background: "rgba(139, 92, 246, 0.05)", 
+                  borderColor: "rgba(139, 92, 246, 0.25)",
+                  color: "#dce9ff"
+                }}
+              >
+                <div className="font-bold flex items-center gap-1.5 text-violet-300">
+                  <span>📝</span> Parent Visit Diagnosis & Advice ({parentEncounter.arrival?.slice(0, 10)})
+                </div>
+                <div className="text-[11px] whitespace-pre-line text-slate-300 text-left">
+                  {parentEncounter.notes || "No diagnosis or advice recorded in parent visit."}
+                </div>
+              </div>
+            )}
 
             <textarea
               className="input w-full"
