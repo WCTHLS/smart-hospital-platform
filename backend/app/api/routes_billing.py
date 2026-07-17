@@ -9,7 +9,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import razorpay
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import models, services
@@ -315,22 +315,31 @@ def verify_razorpay_prescription_payment(body: RazorpayPrescriptionVerifyRequest
         
     rx.status = "PREPAID"
     
-    # Generate PHA token
-    total_tokens = db.scalar(
-        select(func.count())
-        .select_from(models.Token)
-        .where(models.Token.token_number.like("PHA-%"))
-    ) or 0
-    
-    token = models.Token(
-        encounter_id=rx.encounter_id,
-        token_number=f"PHA-{total_tokens + 101}",
-        department="Pharmacy",
-        room="Pharmacy Counter 3",
-        floor="Ground Floor",
-        status="ACTIVE",
+    # Generate one pharmacy pickup token and use the same WAITING -> READY
+    # lifecycle as the pharmacy workspace.
+    token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == rx.encounter_id)
+        .where(models.Token.department == "Pharmacy")
     )
-    db.add(token)
+    if not token:
+        total_tokens = db.scalar(
+            select(func.count())
+            .select_from(models.Token)
+            .where(models.Token.token_number.like("PHA-%"))
+        ) or 0
+        token = models.Token(
+            encounter_id=rx.encounter_id,
+            token_number=f"PHA-{total_tokens + 101:03d}",
+            department="Pharmacy",
+            room="Pharmacy Counter 3",
+            floor="Ground Floor",
+            eta_minutes=10,
+            status="WAITING",
+        )
+        db.add(token)
+    else:
+        token.status = "WAITING"
     db.commit()
     
     return {"success": True}
@@ -427,14 +436,72 @@ def _appointment_payment_dict(appointment: models.Appointment, doctor: models.St
     }
 
 
-def _invoice_dict(inv: models.Invoice) -> dict:
+def _invoice_dict(inv: models.Invoice, db: Session) -> dict:
+    encounter = db.get(models.Encounter, inv.encounter_id)
+    paid_categories: set[str] = set()
+    if encounter:
+        if encounter.appointment_id and db.scalar(
+            select(models.RazorpayOrder.order_id)
+            .where(models.RazorpayOrder.appointment_id == encounter.appointment_id)
+            .where(models.RazorpayOrder.status == "PAID")
+        ):
+            paid_categories.add("CONSULT")
+
+        lab_order_ids = db.scalars(
+            select(models.LabOrder.lab_order_id)
+            .where(models.LabOrder.encounter_id == encounter.encounter_id)
+        ).all()
+        paid_lab_reasons = db.scalars(
+            select(models.RazorpayOrder.reason)
+            .where(models.RazorpayOrder.patient_id == encounter.patient_id)
+            .where(models.RazorpayOrder.appointment_type == "LAB")
+            .where(models.RazorpayOrder.status == "PAID")
+        ).all()
+        if any(order_id in reason for order_id in lab_order_ids for reason in paid_lab_reasons):
+            paid_categories.add("LAB")
+
+        prescription_ids = db.scalars(
+            select(models.Prescription.rx_id)
+            .where(models.Prescription.encounter_id == encounter.encounter_id)
+        ).all()
+        paid_rx_reasons = db.scalars(
+            select(models.RazorpayOrder.reason)
+            .where(models.RazorpayOrder.patient_id == encounter.patient_id)
+            .where(models.RazorpayOrder.appointment_type == "PHARMACY")
+            .where(models.RazorpayOrder.status == "PAID")
+        ).all()
+        if any(rx_id in reason for rx_id in prescription_ids for reason in paid_rx_reasons):
+            paid_categories.add("PHARMACY")
+
+    unapplied_payment = sum(p.amount for p in inv.payments if p.status == "COMPLETED")
+    line_rows = []
+    paid_amount = 0.0
+    for line in inv.lines:
+        line_paid = float(line.amount) if line.category in paid_categories else min(float(line.amount), unapplied_payment)
+        if line.category not in paid_categories:
+            unapplied_payment = max(0.0, unapplied_payment - line_paid)
+        paid_amount += line_paid
+        payment_status = "PAID" if line_paid >= float(line.amount) - 0.01 else "PARTIAL" if line_paid > 0 else "UNPAID"
+        line_rows.append({
+            "category": line.category, "description": line.description,
+            "amount": line.amount, "quantity": line.quantity,
+            "payment_status": payment_status, "paid_amount": round(line_paid, 2),
+            "unpaid_amount": round(max(float(line.amount) - line_paid, 0.0), 2),
+        })
+
+    # Any completed payment left after line allocation covers invoice-level
+    # charges such as tax or adjustments that do not have their own line.
+    paid_amount = min(paid_amount + unapplied_payment, float(inv.total))
+    unpaid_amount = round(max(float(inv.total) - paid_amount, 0.0), 2)
+    display_status = "PAID" if unpaid_amount <= 0.01 else "PARTIALLY_PAID" if paid_amount > 0 else "OPEN"
     return {
-        "invoice_id": inv.invoice_id, "status": inv.status,
+        "invoice_id": inv.invoice_id, "status": display_status,
         "consultation_amt": inv.consultation_amt, "lab_amt": inv.lab_amt,
         "pharmacy_amt": inv.pharmacy_amt, "insurance_adj": inv.insurance_adj,
-        "package_adj": inv.package_adj, "tax": inv.tax, "total": inv.total, "balance": inv.balance,
-        "lines": [{"category": l.category, "description": l.description, "amount": l.amount,
-                   "quantity": l.quantity} for l in inv.lines],
+        "package_adj": inv.package_adj, "tax": inv.tax, "total": inv.total,
+        "paid_amount": round(paid_amount, 2),
+        "unpaid_amount": unpaid_amount, "balance": unpaid_amount,
+        "lines": line_rows,
     }
 
 
@@ -445,7 +512,7 @@ def get_invoice(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         raise HTTPException(404, "Encounter not found")
     inv = services.get_or_create_invoice(db, encounter)
     db.commit()
-    return _invoice_dict(inv)
+    return _invoice_dict(inv, db)
 
 
 @router.post("/invoices/{invoice_id}/pay")
@@ -469,7 +536,7 @@ def pay_invoice(invoice_id: str, body: PayRequest, db: Session = Depends(get_db)
                                            "encounter_id": inv.encounter_id})
     bus.publish(Topics.PAYMENT_COMPLETED, {"invoice_id": invoice_id, "amount": amount, "method": body.method,
                                            "encounter_id": inv.encounter_id})
-    return {"payment_id": payment.payment_id, **_invoice_dict(inv)}
+    return {"payment_id": payment.payment_id, **_invoice_dict(inv, db)}
 
 
 @router.post("/invoices/{invoice_id}/claim")
@@ -492,7 +559,7 @@ def start_claim(invoice_id: str, body: ClaimRequest, db: Session = Depends(get_d
     bus.publish(Topics.CLAIM_INITIATED, {"claim_id": claim.claim_id, "payer": body.payer, "amount": covered,
                                          "encounter_id": inv.encounter_id})
     return {"claim_id": claim.claim_id, "preauth_no": claim.preauth_no, "covered": covered,
-            "invoice": _invoice_dict(inv)}
+            "invoice": _invoice_dict(inv, db)}
 
 
 @router.put("/encounters/{encounter_id}/discharge")
@@ -557,5 +624,5 @@ def discharge(encounter_id: str, db: Session = Depends(get_db)) -> dict:
             "phr_uri": doc.uri,
         },
         "compliance": compliance,
-        "invoice": None if not invoice else _invoice_dict(invoice),
+        "invoice": None if not invoice else _invoice_dict(invoice, db),
     }

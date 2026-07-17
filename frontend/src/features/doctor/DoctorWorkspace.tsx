@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { FileText, Mic, FlaskConical, Pill, Receipt } from "lucide-react";
+import { FileText, Mic, FlaskConical, Pill } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useJourney } from "../../lib/store";
 import { Tag } from "../../components/ui";
@@ -10,7 +9,6 @@ import Patient360 from "./components/Patient360";
 import AmbientSoap from "./components/AmbientSoap";
 import OrdersAndLabs from "./components/OrdersAndLabs";
 import Prescription from "./components/Prescription";
-import BillingDischarge from "./components/BillingDischarge";
 import CopilotSidepane from "./components/CopilotSidepane";
 
 const TABS = [
@@ -18,12 +16,10 @@ const TABS = [
   { id: "soap", label: "Ambient SOAP", icon: Mic },
   { id: "labs", label: "Orders & Labs", icon: FlaskConical },
   { id: "rx", label: "Prescription", icon: Pill },
-  { id: "bill", label: "Billing & Discharge", icon: Receipt },
 ] as const;
 
 export default function DoctorWorkspace() {
   const journey = useJourney();
-  const qc = useQueryClient();
   const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("p360");
   
   const [sel, setSel] = useState<string[]>([]);
@@ -212,16 +208,7 @@ export default function DoctorWorkspace() {
               setErr={setRxErr}
               runCds={runCds}
               approveNoMeds={approveNoMeds}
-            />
-          </div>
-          
-          <div className={tab === "bill" ? "" : "hidden"} key={`bill-${journey.encounterId}`}>
-            <BillingDischarge 
-              encounterId={journey.encounterId} 
-              onDischarged={() => {
-                qc.invalidateQueries({ queryKey: ["doctor-queue"] });
-              }}
-              onBack={handleResetJourney} 
+              onDischarged={handleResetJourney}
             />
           </div>
         </div>

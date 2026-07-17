@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Plus, CheckCircle2, Pill, BadgeCheck } from "lucide-react";
 import { api } from "../../../lib/api";
 import { useJourney } from "../../../lib/store";
@@ -21,6 +22,7 @@ interface PrescriptionProps {
   setErr: (err: string | null) => void;
   runCds: (items: Item[]) => void;
   approveNoMeds: () => void;
+  onDischarged: () => void;
 }
 
 export default function Prescription({ 
@@ -37,15 +39,29 @@ export default function Prescription({
   err, 
   setErr, 
   runCds, 
-  approveNoMeds 
+  approveNoMeds,
+  onDischarged,
 }: PrescriptionProps) {
   const journey = useJourney();
+  const queryClient = useQueryClient();
+  const [activeDrugInput, setActiveDrugInput] = useState<number | null>(null);
+  const [discharging, setDischarging] = useState(false);
+  const [dischargeError, setDischargeError] = useState<string | null>(null);
 
   const { data: stock } = useQuery({
     queryKey: ["pharmacy-stock"],
     queryFn: () => api.stock(),
     refetchInterval: 10000,
   });
+
+  const { data: encounterPrescription } = useQuery({
+    queryKey: ["doctor-encounter-prescription", encounterId],
+    queryFn: () => api.encounter(encounterId),
+    enabled: Boolean(encounterId),
+    refetchInterval: 5000,
+  });
+  const savedPrescription = encounterPrescription?.prescription;
+  const canDischarge = Boolean(done || savedPrescription?.status === "APPROVED");
 
   const setItem = (i: number, k: keyof Item, val: string) => {
     setItems((s) => s.map((it, idx) => (idx === i ? { ...it, [k]: val } : it)));
@@ -71,6 +87,25 @@ export default function Prescription({
     setErr(null);
   };
 
+  const selectDrug = (i: number, drugName: string) => {
+    setItem(i, "drug_name", drugName);
+    setActiveDrugInput(null);
+  };
+
+  const completeAndDischarge = async () => {
+    setDischarging(true);
+    setDischargeError(null);
+    try {
+      await api.discharge(encounterId);
+      await queryClient.invalidateQueries({ queryKey: ["doctor-queue"] });
+      onDischarged();
+    } catch (error: any) {
+      setDischargeError(error?.message || "Failed to complete and discharge this visit.");
+    } finally {
+      setDischarging(false);
+    }
+  };
+
   return (
     <div className="w-full animate-in fade-in duration-300">
       <Card className="space-y-4">
@@ -89,6 +124,11 @@ export default function Prescription({
         ) : (
           items.map((it, i) => {
             const searchVal = it.drug_name.toLowerCase().trim();
+            const drugSuggestions = searchVal.length >= 2
+              ? (stock || [])
+                  .filter((s: any) => s.drug_name.toLowerCase().startsWith(searchVal))
+                  .slice(0, 8)
+              : [];
             const matched = stock?.find((s: any) => {
               const nameLower = s.drug_name.toLowerCase();
               return nameLower === searchVal || nameLower.includes(searchVal) || searchVal.includes(nameLower);
@@ -98,7 +138,50 @@ export default function Prescription({
             return (
               <div key={i} className="mb-3 p-3 rounded-xl border" style={{ borderColor: "var(--glass-border)", background: "rgba(255,255,255,0.01)" }}>
                 <div className="grid grid-cols-[1fr_70px_70px_60px_28px] gap-2">
-                  <input className="input" value={it.drug_name} placeholder="Drug (e.g. Paracetamol)" onChange={(e) => setItem(i, "drug_name", e.target.value)} />
+                  <div className="relative min-w-0">
+                    <input
+                      className="input w-full"
+                      value={it.drug_name}
+                      placeholder="Type 2 letters to search"
+                      autoComplete="off"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      aria-expanded={activeDrugInput === i && drugSuggestions.length > 0}
+                      onFocus={() => setActiveDrugInput(i)}
+                      onBlur={() => setActiveDrugInput((active) => active === i ? null : active)}
+                      onChange={(e) => {
+                        setItem(i, "drug_name", e.target.value);
+                        setActiveDrugInput(i);
+                      }}
+                    />
+                    {activeDrugInput === i && drugSuggestions.length > 0 && (
+                      <div
+                        role="listbox"
+                        className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-950 shadow-2xl"
+                      >
+                        {drugSuggestions.map((suggestion: any) => (
+                          <button
+                            type="button"
+                            role="option"
+                            key={suggestion.drug_name}
+                            className="flex w-full items-center justify-between gap-3 border-b border-white/5 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-white/10"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              selectDrug(i, suggestion.drug_name);
+                            }}
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-semibold text-white">{suggestion.drug_name}</span>
+                              <span className="block truncate text-[10px] text-[var(--dim)]">{suggestion.salt || suggestion.drug_class || "Medicine"}</span>
+                            </span>
+                            <span className={suggestion.available > 0 ? "shrink-0 text-[var(--mint)]" : "shrink-0 text-rose-400"}>
+                              {suggestion.available > 0 ? `${suggestion.available} available` : "Out of stock"}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <input className="input" value={it.dose} placeholder="Dose" onChange={(e) => setItem(i, "dose", e.target.value)} />
                   <input className="input" value={it.frequency} placeholder="Freq" onChange={(e) => setItem(i, "frequency", e.target.value)} />
                   <input className="input" type="number" value={it.duration_days ?? ""} placeholder="Days" onChange={(e) => setItem(i, "duration_days", e.target.value)} />
@@ -141,12 +224,67 @@ export default function Prescription({
             <div className="flex items-center gap-2 font-bold text-sm" style={{ color: "var(--mint)" }}>
               <CheckCircle2 size={18} /> Approved &amp; e-signed. Prescription finalized.
             </div>
-            <div className="p-3 rounded-xl bg-[var(--cyan)]/10 border border-[var(--cyan)]/25 text-[var(--cyan)] text-center text-xs font-bold">
-              👉 Proceed to the "Billing &amp; Discharge" tab to finalize the consultation.
-            </div>
           </div>
         )}
+
       </Card>
+
+      {savedPrescription?.items?.length > 0 && (
+        <Card className="mt-4 space-y-3 border border-[var(--cyan)]/20">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 className="font-bold text-slate-100">Saved Prescription — This Visit</h4>
+              <p className="mt-0.5 text-[11px] text-[var(--dim)]">
+                Persisted against the current encounter only.
+              </p>
+            </div>
+            <span className="tag blue">{savedPrescription.status}</span>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-white/5">
+            <table className="w-full min-w-[560px] text-left text-xs">
+              <thead className="bg-white/[0.03] text-[var(--dim)]">
+                <tr>
+                  <th className="px-3 py-2">Medicine</th>
+                  <th className="px-3 py-2">Dose</th>
+                  <th className="px-3 py-2">Frequency</th>
+                  <th className="px-3 py-2">Duration</th>
+                  <th className="px-3 py-2">Quantity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {savedPrescription.items.map((item: any, index: number) => (
+                  <tr key={`${item.drug_name}-${index}`} className="border-t border-white/5 text-slate-200">
+                    <td className="px-3 py-2.5 font-semibold text-white">{item.drug_name}</td>
+                    <td className="px-3 py-2.5">{item.dose || "—"}</td>
+                    <td className="px-3 py-2.5">{item.frequency || "—"}</td>
+                    <td className="px-3 py-2.5">{item.duration_days ? `${item.duration_days} days` : "—"}</td>
+                    <td className="px-3 py-2.5">{item.quantity ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {canDischarge && (
+        <Card className="mt-4 space-y-2 border border-emerald-500/20">
+          <div className="flex items-center gap-2 text-sm font-bold text-emerald-400">
+            <CheckCircle2 size={17} /> Consultation and prescription are complete.
+          </div>
+          <button
+            type="button"
+            className="btn w-full justify-center"
+            disabled={discharging}
+            onClick={completeAndDischarge}
+          >
+            <CheckCircle2 size={17} />
+            {discharging ? "Completing Visit..." : "Complete & Discharge"}
+          </button>
+          {dischargeError && <div className="alertbox text-rose-400">{dischargeError}</div>}
+        </Card>
+      )}
     </div>
   );
 }
