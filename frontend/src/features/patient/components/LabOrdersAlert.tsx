@@ -72,18 +72,84 @@ export default function LabOrdersAlert({
     return slots;
   };
 
+  interface RazorpaySuccess {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+  }
+
   const handleConfirmBooking = async () => {
+    if (!patientId) {
+      alert("Error: patient context not loaded");
+      return;
+    }
     setBookingBusy(true);
     try {
-      for (const o of pendingOrders) {
-        await api.confirmLabOrder(o.lab_order_id);
+      const order = await api.createRazorpayLabOrder({
+        patient_id: patientId,
+        amount: totalCharges,
+        lab_order_ids: pendingOrders.map((o: any) => o.lab_order_id),
+      });
+
+      let payment: RazorpaySuccess;
+      if (order.key_id === "mock_sandbox_key") {
+        payment = {
+          razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
+          razorpay_order_id: order.order_id,
+          razorpay_signature: "mock_signature_sandbox",
+        };
+      } else {
+        const Razorpay = (window as any).Razorpay;
+        if (!Razorpay) {
+          throw new Error("Razorpay Checkout is not available. Refresh the page and try again.");
+        }
+        payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
+          let settled = false;
+          const checkout = new Razorpay({
+            key: order.key_id,
+            amount: order.amount,
+            currency: order.currency,
+            name: "Aarogya AI",
+            description: `Lab Tests: ${pendingOrders.map((o: any) => o.test).join(", ")}`,
+            order_id: order.order_id,
+            prefill: order.prefill,
+            readonly: {
+              name: true,
+              email: Boolean(order.prefill?.email),
+              contact: Boolean(order.prefill?.contact),
+            },
+            retry: { enabled: true },
+            theme: { color: "#34e1e8" },
+            modal: {
+              confirm_close: true,
+              ondismiss: () => {
+                if (!settled) reject(new Error("Payment was cancelled. Lab booking not confirmed."));
+              },
+            },
+            handler: (response: RazorpaySuccess) => {
+              settled = true;
+              resolve(response);
+            },
+          });
+          checkout.on("payment.failed", (response: any) => {
+            settled = true;
+            reject(new Error(response?.error?.description || "Payment failed. Please try again."));
+          });
+          checkout.open();
+        });
       }
+
+      await api.verifyRazorpayLabPayment({
+        ...payment,
+        lab_order_ids: pendingOrders.map((o: any) => o.lab_order_id),
+      });
+
       await refetchLab();
       await refetchEnc();
       await refetchP360();
       setStep("success");
-    } catch (err) {
-      alert("Failed to confirm booking.");
+    } catch (err: any) {
+      alert(err.message || "Failed to confirm booking.");
     } finally {
       setBookingBusy(false);
     }
@@ -256,7 +322,7 @@ export default function LabOrdersAlert({
               onClick={handleConfirmBooking}
               disabled={bookingBusy}
             >
-              {bookingBusy ? "Processing payment..." : `Pay ₹${totalCharges} (Simulate)`}
+              {bookingBusy ? "Processing payment..." : `Pay ₹${totalCharges}`}
             </button>
           </div>
         </div>

@@ -614,10 +614,33 @@ def update_encounter_notes_advice(
     )
     chief_complaint = triage.chief_complaint if triage else "not specified"
     
+    # Extract parent:UUID if present in notes to preserve it
+    parent_part = None
+    if e.notes:
+        for part in e.notes.split(";"):
+            if part.strip().startswith("parent:"):
+                parent_part = part.strip()
+                break
+                
     refined_notes = agents.refine_notes_agent(body.notes, chief_complaint)
-    e.notes = refined_notes
+    if parent_part:
+        # Prepend the parent metadata
+        if refined_notes:
+            e.notes = f"{parent_part}; {refined_notes}"
+        else:
+            e.notes = parent_part
+    else:
+        e.notes = refined_notes
+        
     db.commit()
-    return {"status": "success", "notes": e.notes}
+    
+    # Return stripped notes to the frontend
+    clean_notes = e.notes
+    if e.notes and "parent:" in e.notes:
+        parts = [p.strip() for p in e.notes.split(";") if not p.strip().startswith("parent:")]
+        clean_notes = "; ".join(parts) if parts else None
+        
+    return {"status": "success", "notes": clean_notes}
 
 
 @router.put("/doctors/{doctor_id}/availability")

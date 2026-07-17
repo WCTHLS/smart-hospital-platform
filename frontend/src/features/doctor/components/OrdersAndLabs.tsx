@@ -7,11 +7,12 @@ const TEST_MENU = ["CBC", "CRP", "HbA1c", "Lipid Profile", "TSH", "RFT", "Chest 
 
 interface OrdersAndLabsProps {
   encounterId: string;
+  sel: string[];
+  setSel: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
-export default function OrdersAndLabs({ encounterId }: OrdersAndLabsProps) {
+export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLabsProps) {
   const qc = useQueryClient();
-  const [sel, setSel] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [ai, setAi] = useState<Record<string, any>>({});
   const [customTest, setCustomTest] = useState("");

@@ -35,6 +35,12 @@ export default function VitalsAndLabs({ latestVitals, orders }: VitalsAndLabsPro
                   <b>{r.value} {r.unit} {r.flag !== "N" && `(${r.flag})`}</b>
                 </div>
               ))}
+              {o.notes && (
+                <div className="mt-1.5 p-2 rounded-lg bg-white/[0.02] border border-white/5 text-[11px] text-slate-300">
+                  <span className="font-semibold text-slate-400 block mb-0.5">Lab Findings:</span>
+                  <span className="whitespace-pre-line text-slate-200">{o.notes}</span>
+                </div>
+              )}
               {o.attachment_uri && (
                 <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between">
                   <span className="text-[10px] text-[var(--muted)] flex items-center gap-1 truncate max-w-[180px]">

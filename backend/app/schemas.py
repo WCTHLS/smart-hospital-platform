@@ -299,6 +299,7 @@ class TriageStaffVerifyPinRequest(BaseModel):
 
 class DoctorUpdateRequest(BaseModel):
     name: str | None = None
+    role: str | None = None
     department: str | None = None
     specialty: str | None = None
     experience_years: int | None = None

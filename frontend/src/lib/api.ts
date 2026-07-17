@@ -123,6 +123,28 @@ export const api = {
     razorpay_order_id: string;
     razorpay_signature: string;
   }) => post<any>("/api/v1/payments/razorpay/verify-payment", body),
+  createRazorpayLabOrder: (body: {
+    patient_id: string;
+    amount: number;
+    lab_order_ids: string[];
+  }) => post<any>("/api/v1/payments/razorpay/create-lab-order", body),
+  verifyRazorpayLabPayment: (body: {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+    lab_order_ids: string[];
+  }) => post<any>("/api/v1/payments/razorpay/verify-lab-payment", body),
+  createRazorpayPrescriptionOrder: (body: {
+    patient_id: string;
+    amount: number;
+    rx_id: string;
+  }) => post<any>("/api/v1/payments/razorpay/create-prescription-order", body),
+  verifyRazorpayPrescriptionPayment: (body: {
+    razorpay_payment_id: string;
+    razorpay_order_id: string;
+    razorpay_signature: string;
+    rx_id: string;
+  }) => post<any>("/api/v1/payments/razorpay/verify-prescription-payment", body),
   claim: (invoice_id: string, body: any) => post<any>(`/api/v1/invoices/${invoice_id}/claim`, body),
   discharge: (encounter_id: string) => put<any>(`/api/v1/encounters/${encounter_id}/discharge`),
 
