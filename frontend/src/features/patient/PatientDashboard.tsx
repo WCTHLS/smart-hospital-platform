@@ -1104,11 +1104,11 @@ export default function PatientDashboard() {
               </Card>
             )}
 
-            {/* Prescription Slip directly at the top when discharged */}
-            {(parentEncDetails?.prescription || encDetails.prescription) && (
+            {/* Prescription Slip directly at the top when discharged and not yet collected */}
+            {parentEncDetails?.prescription && parentEncDetails.prescription.status !== "DISPENSED" && (
               <PrescriptionSlip 
                 encounterId={parentEncounterId!} 
-                prescription={parentEncDetails?.prescription || encDetails.prescription}
+                prescription={parentEncDetails.prescription}
                 patientId={portalPatientId}
                 refetchEnc={refetchEnc}
                 refetchP360={refetchP360}
@@ -1117,7 +1117,7 @@ export default function PatientDashboard() {
 
             {(() => {
               const fUp = currentEpisode?.followups?.find((f: any) => f.prescription);
-              if (!fUp) return null;
+              if (!fUp || fUp.prescription?.status === "DISPENSED") return null;
               
               return (
                 <PrescriptionSlip 

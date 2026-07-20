@@ -315,22 +315,31 @@ def verify_razorpay_prescription_payment(body: RazorpayPrescriptionVerifyRequest
         
     rx.status = "PREPAID"
     
-    # Generate PHA token
-    total_tokens = db.scalar(
-        select(func.count())
-        .select_from(models.Token)
-        .where(models.Token.token_number.like("PHA-%"))
-    ) or 0
-    
-    token = models.Token(
-        encounter_id=rx.encounter_id,
-        token_number=f"PHA-{total_tokens + 101}",
-        department="Pharmacy",
-        room="Pharmacy Counter 3",
-        floor="Ground Floor",
-        status="ACTIVE",
+    # Check if a Pharmacy pickup token already exists for this encounter
+    token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == rx.encounter_id)
+        .where(models.Token.department == "Pharmacy")
     )
-    db.add(token)
+    if not token:
+        total_tokens = db.scalar(
+            select(func.count())
+            .select_from(models.Token)
+            .where(models.Token.token_number.like("PHA-%"))
+        ) or 0
+        token = models.Token(
+            encounter_id=rx.encounter_id,
+            token_number=f"PHA-{total_tokens + 101:03d}",
+            department="Pharmacy",
+            room="Pharmacy Counter 3",
+            floor="Ground Floor",
+            eta_minutes=10,
+            status="WAITING",
+        )
+        db.add(token)
+    else:
+        token.status = "WAITING"
+        
     db.commit()
     
     return {"success": True}
