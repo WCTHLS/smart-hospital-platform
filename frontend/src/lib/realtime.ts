@@ -38,6 +38,9 @@ function wsUrl(): string {
   const base = import.meta.env.VITE_API_BASE_URL as string | undefined;
   if (base) return base.replace(/^http/, "ws") + "/ws/stream";
   const proto = location.protocol === "https:" ? "wss" : "ws";
+  if (location.port === "5173") {
+    return `${proto}://${location.hostname}:8000/ws/stream`;
+  }
   return `${proto}://${location.host}/ws/stream`;
 }
 
