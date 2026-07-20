@@ -2,6 +2,7 @@ export type PortalPatient = {
   patient_id: string;
   name: string;
   mobile?: string;
+  mrn?: string;
   first_name?: string;
   last_name?: string;
   dob?: string;

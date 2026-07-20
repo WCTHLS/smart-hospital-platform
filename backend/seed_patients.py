@@ -25,10 +25,6 @@ def seed_patients():
             )
             db.add(swagath)
             db.flush()
-            db.add(models.Allergy(patient_id=swagath.patient_id, substance="Penicillin",
-                                  drug_class="penicillin", severity="SEVERE", reaction="Urticaria"))
-            db.add(models.PatientIssue(patient_id=swagath.patient_id, issue_name="Hypertension",
-                                       onset_info="1 year ago", status="ACTIVE"))
             print("Seeded Swagath Reddy.")
         else:
             print("Swagath Reddy already exists in DB.")
@@ -51,9 +47,7 @@ def seed_patients():
             )
             db.add(rohan)
             db.flush()
-            db.add(models.PatientIssue(patient_id=rohan.patient_id, issue_name="Knee pain",
-                                       onset_info="2 weeks ago", status="ACTIVE"))
-            print("Seeded Rohan Reddy (Knee pain).")
+            print("Seeded Rohan Reddy.")
         else:
             print("Rohan Reddy already exists in DB.")
 
@@ -75,9 +69,7 @@ def seed_patients():
             )
             db.add(divya)
             db.flush()
-            db.add(models.PatientIssue(patient_id=divya.patient_id, issue_name="Migraine",
-                                       onset_info="3 months ago", status="ACTIVE"))
-            print("Seeded Divya Reddy (Migraine).")
+            print("Seeded Divya Reddy.")
         else:
             print("Divya Reddy already exists in DB.")
 
@@ -99,9 +91,7 @@ def seed_patients():
             )
             db.add(sunita)
             db.flush()
-            db.add(models.PatientIssue(patient_id=sunita.patient_id, issue_name="High fever",
-                                       onset_info="3 days ago", status="ACTIVE"))
-            print("Seeded Sunita Sharma (High fever).")
+            print("Seeded Sunita Sharma.")
         else:
             print("Sunita Sharma already exists in DB.")
 
@@ -123,9 +113,7 @@ def seed_patients():
             )
             db.add(amit)
             db.flush()
-            db.add(models.PatientIssue(patient_id=amit.patient_id, issue_name="Chest congestion",
-                                       onset_info="5 days ago", status="ACTIVE"))
-            print("Seeded Amit Kumar (Chest congestion).")
+            print("Seeded Amit Kumar.")
         else:
             print("Amit Kumar already exists in DB.")
 

@@ -111,13 +111,18 @@ def _patient_brief(p: models.Patient) -> dict:
     return {
         "patient_id": p.patient_id,
         "name": p.full_name,
+        "first_name": p.first_name,
+        "last_name": p.last_name,
         "age": p.age,
+        "dob": p.dob.isoformat() if p.dob else None,
         "gender": p.gender,
         "abha_number": p.abha_number,
         "abha_address": p.abha_address,
         "mrn": p.mrn,
         "blood_group": p.blood_group,
         "mobile": p.mobile,
+        "email": p.email,
+        "address": p.address,
         "profile_photo": p.profile_photo,
     }
 
@@ -127,14 +132,16 @@ def _patient_match(p: models.Patient) -> dict:
         "patient_id": p.patient_id,
         "first_name": p.first_name,
         "last_name": p.last_name,
+        "name": p.full_name,
         "dob": p.dob.isoformat() if p.dob else None,
         "mobile": p.mobile,
         "email": p.email,
         "gender": p.gender,
         "blood_group": p.blood_group,
         "address": p.address,
-        "abha_number": p.abha_number,
         "mrn": p.mrn,
+        "abha_number": p.abha_number,
+        "abha_address": p.abha_address,
         "profile_photo": p.profile_photo,
     }
 
@@ -234,6 +241,17 @@ def _default_schedules_for_specialty(db: Session, specialty: str, day_of_week: i
     db.flush()
 
 
+def _generate_unique_mrn(db: Session) -> str:
+    """Generate a unique, sequential Medical Record Number (MRN)."""
+    total = db.scalar(select(func.count()).select_from(models.Patient)) or 0
+    while True:
+        candidate = f"MRN-{date.today().year}-{total + 10001:05d}"
+        exists = db.scalar(select(models.Patient).where(models.Patient.mrn == candidate))
+        if not exists:
+            return candidate
+        total += 1
+
+
 # --------------------------------------------------------------------------------- Check-in
 @router.post("/checkin")
 def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
@@ -247,7 +265,6 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
     if not patient and body.mobile:
         patient = db.scalar(select(models.Patient).where(models.Patient.mobile == body.mobile))
 
-    created = False
     if not patient:
         created = True
         patient = models.Patient(
@@ -255,7 +272,7 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
             last_name="Patient" if not body.first_name else None,
             abha_number=body.abha_number,
             mobile=body.mobile,
-            mrn=body.mrn,
+            mrn=body.mrn or _generate_unique_mrn(db),
         )
         db.add(patient)
         db.flush()
@@ -338,6 +355,7 @@ def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get
         gender=body.gender,
         blood_group=_blood_group_value(body.blood_group) if body.blood_group else "UNK",
         address=body.address,
+        mrn=body.mrn or _generate_unique_mrn(db),
     )
     db.add(patient)
     db.flush()
@@ -362,6 +380,7 @@ def register_basic_patient(body: PatientBasicRegistrationRequest, db: Session = 
         last_name=body.last_name,
         dob=body.dob,
         mobile=body.mobile,
+        mrn=_generate_unique_mrn(db),
     )
     db.add(patient)
     db.flush()

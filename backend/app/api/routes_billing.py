@@ -315,6 +315,7 @@ def verify_razorpay_prescription_payment(body: RazorpayPrescriptionVerifyRequest
         
     rx.status = "PREPAID"
     
+    # Check if a Pharmacy pickup token already exists for this encounter.
     # Generate one pharmacy pickup token and use the same WAITING -> READY
     # lifecycle as the pharmacy workspace.
     token = db.scalar(
