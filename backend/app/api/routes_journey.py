@@ -5,6 +5,7 @@ Maps to services: Identity & Consent, Registration/EMPI, Patient 360, Intake & T
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+import uuid
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
@@ -201,6 +202,7 @@ def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | N
         "department": appointment.department,
         "specialty": appointment.specialty,
         "reason": appointment.reason,
+        "appointment_type": appointment.appointment_type,
         "scheduled_start": appointment.scheduled_start.isoformat(),
         "scheduled_end": appointment.scheduled_end.isoformat(),
         "status": appointment.status,

@@ -145,6 +145,7 @@ export default function PrescriptionSlip({
   };
 
   const pickupToken = prescription.pickup_token;
+  const displayStatus = pickupToken?.status === "READY" ? "READY FOR PICKUP" : prescription.status;
 
   return (
     <Card className="space-y-4 animate-in fade-in duration-300">
@@ -152,8 +153,33 @@ export default function PrescriptionSlip({
         <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#d7e5ff" }}>
           <Stethoscope size={16} className="text-[var(--cyan)]" /> {title || "E-Prescription Slip"}
         </h4>
-        <Tag tone={getStatusTone(prescription.status)}>{prescription.status}</Tag>
+        <Tag tone={pickupToken?.status === "READY" ? "green" : getStatusTone(prescription.status)}>{displayStatus}</Tag>
       </div>
+
+      {pickupToken?.status === "READY" && (
+        <div className="space-y-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/[0.07] p-4">
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-5 text-center">
+            <div className="text-[10px] font-extrabold uppercase tracking-[0.22em] text-emerald-300">
+              Pharmacy Pickup Token
+            </div>
+            <div className="mt-1 text-5xl font-black font-mono tracking-[0.16em] text-white drop-shadow-[0_0_16px_rgba(52,211,153,0.65)] sm:text-6xl">
+              {pickupToken.number}
+            </div>
+            <div className="mt-1 text-[10px] font-semibold text-emerald-300">Medicines packed — show this token at pickup</div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-emerald-500/10 bg-slate-950/40 p-3 text-[11px] font-medium">
+            <div>
+              <span className="block text-[9px] uppercase tracking-wider text-[var(--dim)]">Pickup Counter</span>
+              <span className="font-bold text-slate-100">{pickupToken.room || "Pharmacy Counter 3"}</span>
+            </div>
+            <div>
+              <span className="block text-[9px] uppercase tracking-wider text-[var(--dim)]">Floor Location</span>
+              <span className="font-bold text-slate-100">{pickupToken.floor || "Ground Floor"}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div 
         className="border border-dashed p-4 rounded-2xl space-y-3 relative overflow-hidden"
@@ -209,7 +235,7 @@ export default function PrescriptionSlip({
         </div>
       )}
 
-      {prescription.status === "PREPAID" && pickupToken && (
+      {prescription.status === "PREPAID" && pickupToken && pickupToken.status !== "READY" && (
         <div className="mt-3 p-3.5 rounded-xl border space-y-3" style={{
           background: pickupToken.status === "READY" ? "rgba(16,185,129,0.06)" : "rgba(52,225,232,0.06)",
           borderColor: pickupToken.status === "READY" ? "rgba(16,185,129,0.2)" : "rgba(52,225,232,0.2)"
@@ -243,6 +269,16 @@ export default function PrescriptionSlip({
 
           {pickupToken.status === "READY" && (
             <div className="space-y-3">
+              <div className="rounded-2xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-4 text-center">
+                <div className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-emerald-300">
+                  Pharmacy Pickup Token
+                </div>
+                <div className="mt-1 text-5xl font-black font-mono tracking-[0.16em] text-white drop-shadow-[0_0_16px_rgba(52,211,153,0.65)] sm:text-6xl">
+                  {pickupToken.number}
+                </div>
+                <div className="mt-1 text-[10px] font-semibold text-emerald-300">Show this token at the counter</div>
+              </div>
+
               <div className="flex items-start gap-2.5 text-xs text-emerald-300">
                 <PackageCheck size={18} className="shrink-0 text-emerald-400" />
                 <div>
@@ -259,10 +295,6 @@ export default function PrescriptionSlip({
                 <div>
                   <span className="text-[var(--dim)] block text-[9px] uppercase tracking-wider">Floor Location</span>
                   <span className="text-slate-100 font-bold">{pickupToken.floor || "Ground Floor"}</span>
-                </div>
-                <div className="col-span-2 pt-1 border-t border-white/5 flex justify-between items-center">
-                  <span className="text-[var(--dim)] text-[9px] uppercase tracking-wider">Show Token at Counter</span>
-                  <span className="text-white font-black text-sm font-mono tracking-wider">{pickupToken.number}</span>
                 </div>
               </div>
             </div>

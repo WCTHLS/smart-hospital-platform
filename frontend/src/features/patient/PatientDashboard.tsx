@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { 
   LogOut, Clipboard, Camera, UserRound, ArrowLeft, CheckCircle2, 
-  AlertCircle, Download, Clock, MapPin, Ticket 
+  AlertCircle, Download, Clock, MapPin, Ticket, Receipt
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useJourney } from "../../lib/store";
@@ -51,6 +51,7 @@ export default function PatientDashboard() {
   const [checkInError, setCheckInError] = useState("");
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  const [episodeTimelineTab, setEpisodeTimelineTab] = useState<"care" | "billing">("care");
 
   // Follow-up consultation state variables
   const [showRevisitModal, setShowRevisitModal] = useState(false);
@@ -205,7 +206,18 @@ export default function PatientDashboard() {
     queryKey: ["portal-encounter-parent", parentEncounterId],
     queryFn: () => api.encounter(parentEncounterId!),
     enabled: !!parentEncounterId,
+    refetchInterval: 5000,
   });
+
+  const { data: episodeInvoice, isLoading: episodeInvoiceLoading } = useQuery({
+    queryKey: ["portal-episode-invoice", parentEncounterId],
+    queryFn: () => api.invoice(parentEncounterId!),
+    enabled: Boolean(parentEncounterId && currentEpisode),
+  });
+
+  useEffect(() => {
+    setEpisodeTimelineTab("care");
+  }, [parentEncounterId]);
 
   const { data: encDetails, refetch: refetchEnc } = useQuery({
     queryKey: ["portal-encounter", showEncounterId],
@@ -372,6 +384,23 @@ export default function PatientDashboard() {
     const link = document.createElement("a");
     link.href = url;
     link.download = `Invoice_${invId}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadEpisodeInvoice(invoice: any) {
+    if (!invoice) return;
+    const lineText = (invoice.lines || []).map((line: any) =>
+      `${line.description} | Qty ${line.quantity} | ₹${Number(line.amount || 0).toFixed(2)} | ${line.payment_status || "UNPAID"}`
+    ).join("\n");
+    const invoiceContent = `SMART HOSPITAL PLATFORM\nEPISODE INVOICE\n\nInvoice: ${invoice.invoice_id}\nPatient: ${portalPatientName}\nPatient ID: ${portalPatientId}\nStatus: ${invoice.status}\n\nITEMS\n${lineText || "No billed items"}\n\nTotal: ₹${Number(invoice.total || 0).toFixed(2)}\nPaid: ₹${Number(invoice.paid_amount || 0).toFixed(2)}\nUnpaid: ₹${Number(invoice.unpaid_amount ?? invoice.balance ?? 0).toFixed(2)}\n`;
+    const blob = new Blob([invoiceContent], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Invoice_${invoice.invoice_id}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1010,14 +1039,32 @@ export default function PatientDashboard() {
                   borderColor: "rgba(255,255,255,0.05)"
                 }}
               >
-                <div className="flex items-center justify-between border-b border-white/5 pb-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-2.5">
                   <h4 className="font-extrabold text-[12px] text-white uppercase tracking-wider flex items-center gap-1.5">
                     ✨ Unified Care Episode Timeline
                   </h4>
-                  <span className="text-[10px] text-[var(--dim)] font-medium">Episode Date: {currentEpisode.date}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="hidden text-[10px] text-[var(--dim)] font-medium sm:inline">Episode Date: {currentEpisode.date}</span>
+                    <div className="flex rounded-lg border border-white/10 bg-white/[0.02] p-1">
+                      <button
+                        type="button"
+                        onClick={() => setEpisodeTimelineTab("care")}
+                        className={`rounded-lg px-4 py-2 text-xs font-bold transition sm:px-5 ${episodeTimelineTab === "care" ? "bg-white/10 text-white" : "text-[var(--muted)]"}`}
+                      >
+                        Care Timeline
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEpisodeTimelineTab("billing")}
+                        className={`flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-bold transition sm:px-5 ${episodeTimelineTab === "billing" ? "bg-white/10 text-white" : "text-[var(--muted)]"}`}
+                      >
+                        <Receipt size={14} /> Billing Details
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 
-                <div className="relative flex flex-col md:flex-row md:items-start gap-6 md:gap-4 pl-4 md:pl-0 pt-2 pb-1">
+                <div className={`${episodeTimelineTab === "care" ? "flex" : "hidden"} relative flex-col md:flex-row md:items-start gap-6 md:gap-4 pl-4 md:pl-0 pt-2 pb-1`}>
                   {/* Step 1: Doctor Consult */}
                   <div className="flex-1 relative flex gap-3.5 items-start">
                     <div className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] bg-emerald-500 text-white shrink-0 mt-0.5 border-4 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]">
@@ -1101,6 +1148,72 @@ export default function PatientDashboard() {
                     );
                   })()}
                 </div>
+
+                {episodeTimelineTab === "billing" && (
+                  <div className="space-y-3 pt-1 animate-in fade-in duration-200">
+                    {episodeInvoiceLoading ? (
+                      <Empty>Loading billing details...</Empty>
+                    ) : episodeInvoice ? (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Invoice</div>
+                            <div className="text-xs font-semibold text-white">{episodeInvoice.invoice_id}</div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => downloadEpisodeInvoice(episodeInvoice)}
+                              className="btn ghost sm flex items-center gap-1.5 text-xs"
+                            >
+                              <Download size={13} /> Download Invoice
+                            </button>
+                            <Tag tone={episodeInvoice.status === "PAID" ? "green" : "amber"}>{episodeInvoice.status}</Tag>
+                          </div>
+                        </div>
+
+                        <div className="overflow-hidden rounded-xl border border-white/5">
+                          {episodeInvoice.lines?.length ? episodeInvoice.lines.map((line: any, index: number) => (
+                            <div key={`${line.description}-${index}`} className="flex items-center justify-between gap-3 border-b border-white/5 px-3 py-2 text-xs last:border-b-0">
+                              <div className="min-w-0">
+                                <div className="truncate font-semibold text-slate-200">{line.description}</div>
+                                <div className="text-[10px] text-[var(--dim)]">{line.category} · Qty {line.quantity}</div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <Tag tone={line.payment_status === "PAID" ? "green" : line.payment_status === "PARTIAL" ? "amber" : "red"}>
+                                  {line.payment_status || "UNPAID"}
+                                </Tag>
+                                <b className="text-white">₹{Number(line.amount || 0).toFixed(2)}</b>
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="px-3 py-4 text-center text-xs text-[var(--dim)]">No billed items recorded for this visit.</div>
+                          )}
+                        </div>
+
+                        <div className="hidden">
+                          <div className="kv"><span>Consultation</span><b>₹{Number(episodeInvoice.consultation_amt || 0).toFixed(2)}</b></div>
+                          <div className="kv"><span>Laboratory</span><b>₹{Number(episodeInvoice.lab_amt || 0).toFixed(2)}</b></div>
+                          <div className="kv"><span>Pharmacy</span><b>₹{Number(episodeInvoice.pharmacy_amt || 0).toFixed(2)}</b></div>
+                          <div className="kv"><span>Tax</span><b>₹{Number(episodeInvoice.tax || 0).toFixed(2)}</b></div>
+                        </div>
+
+                        <div className="flex items-center justify-between border-t border-white/10 pt-3">
+                          <span className="text-xs font-bold text-slate-300">Total</span>
+                          <b className="text-base text-white">₹{Number(episodeInvoice.total || 0).toFixed(2)}</b>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-300">Unpaid Amount</span>
+                          <b className={Number(episodeInvoice.unpaid_amount ?? episodeInvoice.balance ?? 0) > 0 ? "text-amber-400" : "text-emerald-400"}>
+                            ₹{Number(episodeInvoice.unpaid_amount ?? episodeInvoice.balance ?? 0).toFixed(2)}
+                          </b>
+                        </div>
+                      </>
+                    ) : (
+                      <Empty>No billing details are available for this episode.</Empty>
+                    )}
+                  </div>
+                )}
               </Card>
             )}
 
@@ -1174,6 +1287,10 @@ export default function PatientDashboard() {
                   const activeLab = currentEpisode?.labs?.find((l: any) => l.status !== "DISCHARGED");
                   const activeFollowup = currentEpisode?.followups?.find((f: any) => f.status !== "DISCHARGED");
                   const completedFollowup = currentEpisode?.followups?.find((f: any) => f.status === "DISCHARGED");
+                  const bookedRevisit = appointments.find((appointment: any) =>
+                    appointment.appointment_type === "REVISIT" &&
+                    appointment.reason?.includes(parentEncounterId)
+                  );
 
                   if (completedFollowup) {
                     return (
@@ -1193,6 +1310,32 @@ export default function PatientDashboard() {
                         <div>
                           <strong>Follow-up Consultation Active:</strong> You are currently in the doctor's queue for report review. Token: <strong>{activeFollowup.token?.number}</strong>.
                         </div>
+                      </div>
+                    );
+                  }
+
+                  if (bookedRevisit) {
+                    return (
+                      <div className="space-y-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs">
+                        <div className="flex gap-2 text-cyan-300">
+                          <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
+                          <div>
+                            <strong className="block text-white">Follow-up appointment booked</strong>
+                            {new Date(bookedRevisit.scheduled_start).toLocaleDateString()} at {timeLabel(bookedRevisit.scheduled_start)} with {bookedRevisit.doctor?.name || "the consulting doctor"}.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn w-full justify-center sm:w-auto"
+                          onClick={() => {
+                            setSelectedAppointmentId(bookedRevisit.appointment_id);
+                            setSelectedEncounterId(null);
+                            setShowMobileVisitList(false);
+                            window.scrollTo({ top: 0, behavior: "smooth" });
+                          }}
+                        >
+                          View Appointment
+                        </button>
                       </div>
                     );
                   }

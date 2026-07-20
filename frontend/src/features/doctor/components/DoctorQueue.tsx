@@ -96,6 +96,73 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
     setPinError("");
   };
 
+  const renderQueueRow = (title: string, encounters: any[], emptyMessage: string) => (
+    <section className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h4 className="text-sm font-extrabold text-slate-100">{title}</h4>
+        <Tag tone={encounters.length ? "blue" : "gray"}>{encounters.length}</Tag>
+      </div>
+
+      {encounters.length === 0 ? (
+        <Empty>{emptyMessage}</Empty>
+      ) : (
+        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3">
+          {encounters.map((enc: any) => {
+            const isRedFlag = enc.triage?.red_flag;
+
+            return (
+              <Card
+                key={enc.encounter_id}
+                className={`hover-border relative w-[300px] shrink-0 snap-start overflow-hidden flex flex-col justify-between transition sm:w-[340px] ${
+                  isRedFlag ? "border-red-500/30" : ""
+                }`}
+                style={{ border: isRedFlag ? "1px solid rgba(239, 68, 68, 0.4)" : "" }}
+              >
+                {isRedFlag && <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 rounded-full blur-2xl" />}
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-start">
+                    <span className="text-[12px] font-bold uppercase tracking-wider text-[var(--dim)]">
+                      Token: <b className="text-white text-base">{enc.token?.number || "—"}</b>
+                    </span>
+                    {isRedFlag && <Tag tone="red">RED FLAG</Tag>}
+                  </div>
+
+                  <div>
+                    <h4 className="text-base font-extrabold text-slate-100">{enc.patient?.name}</h4>
+                    <p className="text-[12px]" style={{ color: "var(--muted)" }}>
+                      {enc.patient?.age} yrs · {enc.patient?.gender} · {enc.patient?.mobile}
+                    </p>
+                  </div>
+
+                  <div className="holo p-2 text-[12px] whitespace-pre-line text-slate-300">
+                    <b>Chief Complaint:</b><br />
+                    {enc.triage?.chief_complaint || "Routine consultation."}
+                  </div>
+
+                  {enc.token?.room && (
+                    <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--dim)]">
+                      <MapPin size={12} className="text-[var(--cyan)]" />
+                      <span>{enc.token.room} ({enc.token.floor})</span>
+                      {enc.token.eta_minutes != null && <span className="ml-auto">Est: ~{enc.token.eta_minutes}m</span>}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => onSelectPatient(enc)}
+                  className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
+                >
+                  Consult Patient <ArrowRight size={14} />
+                </button>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+
   const renderSessionToolbar = () => {
     if (!activeDoc || !isUnlocked) return null;
     return (
@@ -244,6 +311,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
             <span className="live">LIVE REFRESH</span>
           </div>
 
+          {false && <>
           <div className="flex gap-2 p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit">
             <button
               onClick={() => setQueueTab("first")}
@@ -343,6 +411,21 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
               </div>
             );
           })()}
+          </>}
+
+          {renderQueueRow(
+            "First Consultations",
+            queue?.filter((enc: any) => !enc.is_reconsult) || [],
+            "No patients waiting for their first consultation.",
+          )}
+
+          <div className="h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+
+          {renderQueueRow(
+            "Report Reviews",
+            queue?.filter((enc: any) => enc.is_reconsult) || [],
+            "No patients waiting for report review.",
+          )}
         </div>
       )}
     </div>
