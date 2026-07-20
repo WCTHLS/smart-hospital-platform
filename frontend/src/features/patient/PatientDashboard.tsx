@@ -1253,6 +1253,33 @@ export default function PatientDashboard() {
               );
             })()}
 
+            {isLabVisit && encDetails.token?.number && (
+              <Card
+                className="relative overflow-hidden border-emerald-500/25 bg-emerald-500/[0.06] text-center"
+              >
+                <div className="absolute right-0 top-0 p-2 opacity-5">
+                  <Ticket size={100} />
+                </div>
+                <div className="relative flex flex-col items-center gap-2">
+                  <div className="rounded-full border border-emerald-400/20 bg-emerald-400/5 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.18em] text-emerald-400">
+                    Laboratory Queue Token
+                  </div>
+                  <div className="text-5xl font-black tracking-wider text-white drop-shadow-[0_0_14px_rgba(16,185,129,0.65)]">
+                    {encDetails.token.number}
+                  </div>
+                  <div className="flex items-center justify-center gap-1 text-xs font-bold text-slate-200">
+                    <MapPin size={13} className="text-emerald-400" />
+                    {[encDetails.token.room, encDetails.token.floor].filter(Boolean).join(" / ") || "Laboratory location pending"}
+                  </div>
+                  {encDetails.token.eta_minutes != null && (
+                    <div className="text-[11px] text-[var(--muted)]">
+                      Estimated wait: <span className="font-semibold text-emerald-400">{encDetails.token.eta_minutes} minutes</span>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+
             <Card className="space-y-2 text-xs">
               <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-2 mb-1">
                 <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary

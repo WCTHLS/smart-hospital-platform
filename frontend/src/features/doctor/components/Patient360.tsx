@@ -170,8 +170,9 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
     queryKey: ["p360", patientId],
     queryFn: () => api.patient360(patientId),
     retry: false,
-    staleTime: 300000,
-    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchInterval: 5000,
+    refetchOnWindowFocus: true,
   });
 
   const { data: activeEncounter } = useQuery({
@@ -226,6 +227,20 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
   }
 
   const flag = (f: string) => (f === "N" ? "green" : f === "H" || f === "L" ? "amber" : "red");
+  const recentLabSections = Array.from(
+    (data.recent_results || []).reduce((groups: Map<string, any>, result: any) => {
+      const key = result.lab_order_id || `${result.test || "Lab Test"}-${result.date}`;
+      const existing = groups.get(key);
+      if (existing) existing.results.push(result);
+      else groups.set(key, {
+        lab_order_id: key,
+        test: result.test || "Lab Test",
+        date: result.date,
+        results: [result],
+      });
+      return groups;
+    }, new Map<string, any>()).values()
+  );
 
   return (
     <div className="space-y-4">
@@ -391,28 +406,33 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
         {/* Column 1: Recent Results */}
         <Card className="flex flex-col h-full">
           <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Recent results</h4>
-          <div className="flex-1 overflow-auto">
-            {data.recent_results.length ? (
-              <table className="w-full text-[13px]">
-                <thead>
-                  <tr style={{ color: "var(--dim)" }} className="border-b border-[var(--glass-border)]">
-                    <th className="text-left pb-2">Analyte</th>
-                    <th className="text-left pb-2">Value</th>
-                    <th className="text-left pb-2">Flag</th>
-                    <th className="text-left pb-2">Date</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {data.recent_results.map((r: any, i: number) => (
-                    <tr key={i} className="hover:bg-white/5 transition-colors">
-                      <td className="py-2.5 font-medium text-slate-300">{r.analyte}</td>
-                      <td className="py-2.5">{r.value} {r.unit}</td>
-                      <td className="py-2.5"><Tag tone={flag(r.flag)}>{r.flag}</Tag></td>
-                      <td className="py-2.5" style={{ color: "var(--dim)" }}>{r.date}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">Lab Diagnostics</div>
+          <div className="max-h-[360px] flex-1 space-y-2 overflow-y-auto pr-1">
+            {recentLabSections.length ? (
+              recentLabSections.map((lab: any) => (
+                <div key={lab.lab_order_id} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+                    <b className="text-xs text-slate-200">{lab.test}</b>
+                    <span className="text-[10px] text-[var(--dim)]">{lab.date}</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {lab.results.map((r: any, i: number) => (
+                      r.analyte === "Lab Findings" ? (
+                        <div key={`${r.analyte}-${i}`} className="rounded-lg border border-white/5 bg-black/10 p-2 text-[11px] leading-relaxed text-slate-300">
+                          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-[var(--dim)]">Lab Findings</span>
+                          {r.value || "Result completed"}
+                        </div>
+                      ) : (
+                        <div key={`${r.analyte}-${i}`} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-[12px]">
+                          <span className="text-slate-300">{r.analyte}</span>
+                          <span>{r.value} {r.unit}</span>
+                          <Tag tone={flag(r.flag)}>{r.flag}</Tag>
+                        </div>
+                      )
+                    ))}
+                  </div>
+                </div>
+              ))
             ) : <Empty>No results</Empty>}
           </div>
         </Card>

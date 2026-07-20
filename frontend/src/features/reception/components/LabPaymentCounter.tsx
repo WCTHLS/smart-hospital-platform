@@ -66,6 +66,9 @@ export default function LabPaymentCounter() {
             const isProcessing = busyId === o.lab_order_id;
             const price = o.price ?? 450.00; // default mock price if not set
             const currentMethod = getPaymentMethod(o.lab_order_id);
+            const patientReference = typeof o.patient_id === "string" && o.patient_id
+              ? `${o.patient_id.substring(0, 8)}...`
+              : "Unavailable";
 
             return (
               <div
@@ -76,7 +79,7 @@ export default function LabPaymentCounter() {
                 <div className="flex items-start justify-between">
                   <div>
                     <span className="text-[10px] uppercase font-bold tracking-wider text-[var(--cyan)]">
-                      Patient ID: {o.patient_id.substring(0, 8)}...
+                      Patient ID: {patientReference}
                     </span>
                     <h4 className="text-xs font-bold text-white mt-0.5">
                       {o.test_name || "Diagnostic Panel"}

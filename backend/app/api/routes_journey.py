@@ -256,6 +256,7 @@ def _generate_unique_mrn(db: Session) -> str:
 @router.post("/checkin")
 def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
     patient: models.Patient | None = None
+    created = False
     if body.patient_id:
         patient = _get_patient(db, body.patient_id)
     if not patient and body.abha_number:
@@ -282,6 +283,28 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         appointment = db.get(models.Appointment, body.appointment_id)
         if not appointment or appointment.patient_id != patient.patient_id:
             raise HTTPException(404, "Appointment not found for this patient")
+        if appointment.status == "CHECKED_IN" and appointment.encounter_id:
+            existing_encounter = db.get(models.Encounter, appointment.encounter_id)
+            if existing_encounter:
+                triage_staff = db.scalar(
+                    select(models.Staff)
+                    .where(models.Staff.role == "NURSE")
+                    .where(models.Staff.department == "Triage")
+                    .where(models.Staff.available.is_(True))
+                    .order_by(models.Staff.name)
+                )
+                return {
+                    "patient": _patient_brief(patient),
+                    "encounter_id": existing_encounter.encounter_id,
+                    "appointment_id": appointment.appointment_id,
+                    "status": existing_encounter.status,
+                    "new_patient": False,
+                    "reason": body.reason or appointment.reason,
+                    "triage_location": {
+                        "room": triage_staff.room if triage_staff else "Triage Room",
+                        "floor": triage_staff.floor if triage_staff else "Ground Floor",
+                    },
+                }
         if appointment.status != "BOOKED":
             raise HTTPException(409, f"Appointment cannot be checked in from {appointment.status} status")
         if _appointment_local_date(appointment.scheduled_start) != _hospital_today():
@@ -355,7 +378,7 @@ def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get
         gender=body.gender,
         blood_group=_blood_group_value(body.blood_group) if body.blood_group else "UNK",
         address=body.address,
-        mrn=body.mrn or _generate_unique_mrn(db),
+        mrn=_generate_unique_mrn(db),
     )
     db.add(patient)
     db.flush()
@@ -710,10 +733,13 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         .order_by(models.ClinicalNote.created_ts.desc()).limit(5)
     ).all()
 
-    recent_results = db.scalars(
-        select(models.LabResult).join(models.LabOrder, models.LabResult.lab_order_id == models.LabOrder.lab_order_id)
+    recent_results = db.execute(
+        select(models.LabOrder, models.LabResult)
+        .outerjoin(models.LabResult, models.LabResult.lab_order_id == models.LabOrder.lab_order_id)
         .where(models.LabOrder.patient_id == patient_id)
-        .order_by(models.LabResult.resulted_ts.desc()).limit(8)
+        .where(models.LabOrder.status == "RESULTED")
+        .order_by(func.coalesce(models.LabResult.resulted_ts, models.LabOrder.ordered_ts).desc())
+        .limit(50)
     ).all()
 
     active_meds: list[str] = []
@@ -925,9 +951,18 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "latest_vitals": vitals_payload,
         "recent_notes": formatted_notes,
         "recent_results": [
-            {"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag,
-             "date": r.resulted_ts.date().isoformat()}
-            for r in recent_results
+            {
+                "lab_order_id": order.lab_order_id,
+                "test": order.test_name,
+                "analyte": result.analyte if result else "Lab Findings",
+                "value": result.value if result else (order.notes or "Result completed"),
+                "unit": result.unit if result else "",
+                "flag": result.abnormal_flag if result else "N",
+                "date": (result.resulted_ts if result else order.ordered_ts).date().isoformat(),
+                "attachment_name": order.attachment_name,
+                "attachment_uri": order.attachment_uri,
+            }
+            for order, result in recent_results
         ],
         "encounters": [
             {"encounter_id": e.encounter_id, "date": e.arrival_ts.date().isoformat(),

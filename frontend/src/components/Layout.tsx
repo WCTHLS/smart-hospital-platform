@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart, Cpu,
-  Smartphone, BellRing, User, ShieldAlert, FlaskConical, Menu, X, Pill,
+  Smartphone, BellRing, User, ShieldAlert, FlaskConical, Pill,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useJourney, Role } from "../lib/store";
@@ -69,7 +69,6 @@ export default function Layout({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const nav = useNavigate();
   const connected = useRealtime((s) => s.connected);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const activeRole = journey.activeRole;
 
@@ -96,10 +95,6 @@ export default function Layout({ children }: { children: ReactNode }) {
     }
   }, [loc.pathname, activeRole, journey]);
 
-  useEffect(() => {
-    setMobileMenuOpen(false);
-  }, [loc.pathname]);
-
   const handleRoleChange = (newRole: Role) => {
     journey.reset();
     journey.setRole(newRole);
@@ -113,20 +108,20 @@ export default function Layout({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen overflow-x-hidden">
       {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 z-20 hidden w-[236px] flex-col gap-1 p-4 lg:flex"
         style={{ borderRight: "1px solid var(--line)", background: "rgba(6,9,18,.7)", backdropFilter: "blur(14px)" }}>
-        <div className="mb-4 flex items-center gap-2.5 px-1" onClick={() => nav("/")} style={{ cursor: "pointer" }}>
-          <div className="grid h-9 w-9 place-items-center rounded-xl"
+        <button type="button" className="mb-4 flex items-center gap-2.5 px-1 text-left" onClick={() => nav("/")} aria-label="Go to home">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
             style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))", boxShadow: "0 0 18px rgba(52,225,232,.5)" }}>
             <HeartPulse size={18} color="#04121a" />
-          </div>
-          <div>
-            <div className="grad-text text-[15px] font-extrabold leading-tight">Aarogya AI</div>
-            <div className="text-[10px]" style={{ color: "var(--dim)" }}>Smart Hospital OS</div>
-          </div>
-        </div>
+          </span>
+          <span>
+            <span className="grad-text block text-[15px] font-extrabold leading-tight">Aarogya AI</span>
+            <span className="block text-[10px] text-[var(--dim)]">Smart Hospital OS</span>
+          </span>
+        </button>
 
         {visibleNav.map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end}
@@ -167,17 +162,10 @@ export default function Layout({ children }: { children: ReactNode }) {
       </aside>
 
       {/* Main */}
-      <div className="ml-0 lg:ml-[236px]">
+      <div className="ml-0 min-w-0 lg:ml-[236px]">
         <header className="sticky top-0 z-10 flex items-center justify-between gap-3 px-4 py-3 sm:px-5 lg:px-7"
           style={{ borderBottom: "1px solid var(--line)", background: "rgba(6,9,18,.55)", backdropFilter: "blur(14px)" }}>
           <div className="flex min-w-0 items-center gap-2">
-            {activeRole === "patient" && loc.pathname !== "/patient/login" && (
-              <button className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border lg:hidden"
-                style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--cyan)" }}
-                onClick={() => setMobileMenuOpen((open) => !open)} aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}>
-                {mobileMenuOpen ? <X size={19} /> : <Menu size={19} />}
-              </button>
-            )}
             <div className="hidden min-w-0 truncate text-[11px] uppercase tracking-[0.12em] min-[430px]:block sm:text-[12px] sm:tracking-[0.2em]" style={{ color: "var(--dim)" }}>
               {NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
             </div>
@@ -217,33 +205,10 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </header>
         <motion.main key={loc.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.25 }} className="mx-auto max-w-[1520px] px-3 py-4 pb-6 sm:px-5 sm:py-5 lg:px-7 lg:py-6">
+          transition={{ duration: 0.25 }} className="mx-auto w-full min-w-0 max-w-[1520px] px-3 py-4 pb-6 sm:px-5 sm:py-5 lg:px-7 lg:py-6">
           {children}
         </motion.main>
       </div>
-
-      <AnimatePresence>
-        {activeRole === "patient" && loc.pathname !== "/patient/login" && mobileMenuOpen && (
-          <>
-            <motion.button className="fixed inset-0 z-20 bg-black/55 lg:hidden" aria-label="Close navigation menu"
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMobileMenuOpen(false)} />
-            <motion.nav className="fixed left-3 right-3 top-[68px] z-30 space-y-2 rounded-2xl border p-3 shadow-2xl backdrop-blur-xl lg:hidden"
-              initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
-              style={{ background: "rgba(6,9,18,.97)", borderColor: "var(--glass-border)" }} aria-label="Patient navigation">
-              {visibleNav.map((item) => (
-                <NavLink key={item.to} to={item.to} end={item.end}
-                  className={({ isActive }) => `flex min-h-12 items-center gap-3 rounded-xl px-4 text-sm font-bold ${isActive ? "text-white" : "text-[var(--muted)]"}`}
-                  style={({ isActive }) => ({
-                    background: isActive ? "linear-gradient(90deg, rgba(52,225,232,.18), rgba(167,139,250,.18))" : "transparent",
-                    border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
-                  })}>
-                  <item.icon size={18} /> {item.label}
-                </NavLink>
-              ))}
-            </motion.nav>
-          </>
-        )}
-      </AnimatePresence>
 
       <CriticalToast />
     </div>

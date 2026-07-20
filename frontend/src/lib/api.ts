@@ -4,7 +4,13 @@ export class ApiError extends Error {
   status: number;
   detail: unknown;
   constructor(status: number, detail: unknown) {
-    super(typeof detail === "string" ? detail : `Request failed (${status})`);
+    const validationMessage = Array.isArray(detail)
+      ? detail.map((item) => {
+          const field = Array.isArray(item?.loc) ? item.loc.filter((part: unknown) => part !== "body").join(".") : "";
+          return [field, item?.msg].filter(Boolean).join(": ");
+        }).filter(Boolean).join("; ")
+      : "";
+    super(typeof detail === "string" ? detail : validationMessage || `Request failed (${status})`);
     this.status = status;
     this.detail = detail;
   }
@@ -28,6 +34,7 @@ const post = <T>(p: string, body?: unknown) =>
   request<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined });
 const put = <T>(p: string, body?: unknown) =>
   request<T>(p, { method: "PUT", body: body ? JSON.stringify(body) : undefined });
+const del = <T>(p: string) => request<T>(p, { method: "DELETE" });
 
 export const api = {
   // meta / ai
@@ -157,6 +164,7 @@ export const api = {
   adminDoctors: () => get<any[]>("/api/v1/admin/doctors"),
   registerDoctor: (body: any) => post<any>("/api/v1/admin/doctors", body),
   updateDoctor: (doctor_id: string, body: any) => put<any>(`/api/v1/admin/doctors/${doctor_id}`, body),
+  removeDoctor: (doctor_id: string) => del<any>(`/api/v1/admin/doctors/${doctor_id}`),
   verifyDoctorPin: (doctor_id: string, access_pin: string) => post<any>("/api/v1/doctors/verify-pin", { doctor_id, access_pin }),
   listDoctorSchedule: (doctor_id: string) => get<any[]>(`/api/v1/admin/doctors/${doctor_id}/schedule`),
   updateDoctorSchedule: (doctor_id: string, body: any[]) => post<any>(`/api/v1/admin/doctors/${doctor_id}/schedule`, body),

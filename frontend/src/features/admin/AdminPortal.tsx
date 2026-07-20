@@ -1,10 +1,25 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, ShieldAlert, BadgeCheck, Stethoscope, Landmark, Edit, X, Calendar, Clock } from "lucide-react";
+import { Users, Plus, ShieldAlert, BadgeCheck, Stethoscope, Landmark, Edit, X, Calendar, Clock, Search, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card, Tag, SectionTitle, Empty } from "../../components/ui";
 
 const DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const SPECIALTY_DEPARTMENTS = [
+  "General Medicine",
+  "Cardiology",
+  "Pulmonology",
+  "Dermatology",
+  "Orthopaedics",
+  "Gastroenterology",
+  "Paediatrics",
+  "Obstetrics & Gynaecology",
+  "Ophthalmology",
+  "ENT",
+  "Dentistry",
+  "Psychiatry",
+  "Endocrinology",
+];
 
 export default function AdminPortal() {
   const qc = useQueryClient();
@@ -25,11 +40,38 @@ export default function AdminPortal() {
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [directorySearch, setDirectorySearch] = useState("");
+  const [removingDoctorId, setRemovingDoctorId] = useState<string | null>(null);
 
   const { data: doctors, isLoading } = useQuery({
     queryKey: ["admin-doctors"],
     queryFn: api.adminDoctors,
   });
+
+  const normalizedSearch = directorySearch.trim().toLowerCase();
+  const filteredDoctors = doctors?.filter((doctor: any) =>
+    [doctor.name, doctor.specialty, doctor.department, doctor.role, doctor.room, doctor.floor]
+      .some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch))
+  );
+
+  const handleRemoveDoctor = async (doctor: any) => {
+    if (!window.confirm(`Remove ${doctor.name} from the Clinical Directory? Their historical clinical records will be preserved.`)) return;
+
+    setRemovingDoctorId(doctor.doctor_id);
+    setErrorMsg("");
+    setSuccessMsg("");
+    try {
+      await api.removeDoctor(doctor.doctor_id);
+      if (editingDoctorId === doctor.doctor_id) setEditingDoctorId(null);
+      if (schedulingDoctor?.doctor_id === doctor.doctor_id) setSchedulingDoctor(null);
+      setSuccessMsg(`${doctor.name} was removed from the Clinical Directory.`);
+      await qc.invalidateQueries({ queryKey: ["admin-doctors"] });
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to remove practitioner.");
+    } finally {
+      setRemovingDoctorId(null);
+    }
+  };
 
   const handleStartEdit = (d: any) => {
     setEditingDoctorId(d.doctor_id);
@@ -277,12 +319,9 @@ export default function AdminPortal() {
                           value={specialty}
                           onChange={(e) => setSpecialty(e.target.value)}
                         >
-                          <option value="General Medicine">General Medicine</option>
-                          <option value="Cardiology">Cardiology</option>
-                          <option value="Pulmonology">Pulmonology</option>
-                          <option value="Paediatrics">Paediatrics</option>
-                          <option value="Orthopaedics">Orthopaedics</option>
-                          <option value="Dermatology">Dermatology</option>
+                          {SPECIALTY_DEPARTMENTS.map((department) => (
+                            <option key={department} value={department}>{department}</option>
+                          ))}
                         </select>
                       </div>
 
@@ -543,10 +582,27 @@ export default function AdminPortal() {
         <div className="space-y-4">
           <SectionTitle>Clinical Directory</SectionTitle>
           <Card className="min-h-[400px]">
+            <div className="mb-4 flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--dim)]" />
+                <input
+                  type="search"
+                  className="input w-full !pl-9 text-xs"
+                  placeholder="Search by name, specialty, role, room or floor"
+                  value={directorySearch}
+                  onChange={(event) => setDirectorySearch(event.target.value)}
+                />
+              </div>
+              <button type="button" className="btn ghost inline-flex items-center gap-1.5 text-xs" onClick={() => setDirectorySearch(directorySearch.trim())}>
+                <Search size={13} /> Search
+              </button>
+            </div>
             {isLoading ? (
               <div className="text-center py-12 text-xs text-[var(--dim)]">Loading doctor records...</div>
             ) : !doctors?.length ? (
               <Empty>No doctors registered in the system yet.</Empty>
+            ) : !filteredDoctors?.length ? (
+              <Empty>No practitioners match “{directorySearch}”.</Empty>
             ) : (
               <div className="overflow-x-auto text-[12px]">
                 <table className="w-full text-left border-collapse">
@@ -561,7 +617,7 @@ export default function AdminPortal() {
                     </tr>
                   </thead>
                   <tbody>
-                    {doctors.map((d: any) => (
+                    {filteredDoctors.map((d: any) => (
                       <tr key={d.doctor_id} className={`border-b border-white/5 last:border-0 hover:bg-white/[0.01] transition-colors ${editingDoctorId === d.doctor_id || schedulingDoctor?.doctor_id === d.doctor_id ? "bg-white/[0.02]" : ""}`}>
                         <td className="py-3.5 flex items-center gap-2">
                           <div className={`w-7 h-7 rounded-full flex items-center justify-center font-extrabold text-[11px] ${d.role === "NURSE" ? "bg-cyan-500/10 border border-cyan-500/25 text-cyan-400" : "bg-violet-500/10 border border-violet-500/25 text-violet-400"}`}>
@@ -604,6 +660,16 @@ export default function AdminPortal() {
                                 <Calendar size={10.5} /> Roster
                               </button>
                             )}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveDoctor(d)}
+                              disabled={removingDoctorId === d.doctor_id}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-500/25 bg-rose-500/10 text-rose-400 transition-colors hover:border-rose-400/40 hover:bg-rose-500/20 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label={`Remove ${d.name}`}
+                              title={removingDoctorId === d.doctor_id ? "Removing practitioner" : `Remove ${d.name}`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </div>
                         </td>
                       </tr>
