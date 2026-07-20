@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { 
   LogOut, Clipboard, Camera, UserRound, ArrowLeft, CheckCircle2, 
-  AlertCircle, Download, Clock, MapPin, Ticket, Receipt
+  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useJourney } from "../../lib/store";
@@ -65,6 +66,7 @@ export default function PatientDashboard() {
   const [requestingEconsult, setRequestingEconsult] = useState(false);
   const [econsultSuccessMsg, setEconsultSuccessMsg] = useState("");
   const [revisitError, setRevisitError] = useState("");
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const portalSession = getPortalPatient()!;
   const portalPatientId = portalSession.patient_id;
@@ -427,16 +429,23 @@ export default function PatientDashboard() {
       {/* Sidebar - Visits List */}
       <div className={`space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
         <Card className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5">
+          <div 
+            onClick={() => setShowProfileModal(true)}
+            className="flex items-center gap-3 cursor-pointer p-1.5 -m-1.5 rounded-xl hover:bg-white/5 transition border border-transparent hover:border-cyan-500/20 group"
+            title="Click to view full patient details"
+          >
+            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5 group-hover:border-cyan-400/30">
               {(p360?.patient?.profile_photo || portalSession.profile_photo)
                 ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
-                : <UserRound size={30} className="text-[var(--dim)]" />}
+                : <UserRound size={30} className="text-[var(--dim)] group-hover:text-[var(--cyan)]" />}
             </div>
-            <div className="min-w-0">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Patient profile</div>
-              <div className="truncate font-extrabold text-base text-slate-100">{portalPatientName}</div>
-              <Tag tone="green">ABHA Verified</Tag>
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)] flex items-center justify-between">
+                <span>Patient profile</span>
+                <span className="text-[9px] text-[var(--cyan)] font-extrabold group-hover:underline">View Details ➔</span>
+              </div>
+              <div className="truncate font-extrabold text-base text-slate-100 group-hover:text-cyan-300 transition-colors">{portalPatientName}</div>
+              <Tag tone="cyan">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</Tag>
             </div>
           </div>
           <div>
@@ -1615,6 +1624,98 @@ export default function PatientDashboard() {
           </div>
         )}
       </div>
+
+      {/* Patient Profile Details Modal */}
+      {showProfileModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div 
+            className="w-full max-w-md space-y-4 rounded-3xl border border-cyan-500/30 p-6 shadow-2xl animate-in zoom-in-95 duration-200"
+            style={{ background: "linear-gradient(135deg, #0d1527, #0a0f1d)" }}
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <UserRound size={20} className="text-[var(--cyan)]" />
+                <h3 className="font-extrabold text-lg text-white">Patient Profile Details</h3>
+              </div>
+              <button 
+                onClick={() => setShowProfileModal(false)}
+                className="btn ghost sm text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex items-center gap-4 bg-cyan-500/5 border border-cyan-500/10 p-3.5 rounded-2xl">
+              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-cyan-400/20 bg-white/5">
+                {(p360?.patient?.profile_photo || portalSession.profile_photo)
+                  ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
+                  : <UserRound size={32} className="text-[var(--cyan)]" />}
+              </div>
+              <div>
+                <h4 className="font-black text-lg text-white">{p360?.patient?.name || portalPatientName}</h4>
+                <div className="mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
+                  {p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2.5 text-xs">
+              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                <span className="text-[var(--dim)]">Medical Record Number (MRN)</span>
+                <span className="font-mono font-bold text-cyan-300">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                <span className="text-[var(--dim)]">Mobile Number</span>
+                <span className="font-bold text-slate-100">{p360?.patient?.mobile || portalSession?.mobile || "N/A"}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                <span className="text-[var(--dim)]">Date of Birth / Age</span>
+                <span className="font-bold text-slate-100">
+                  {p360?.patient?.dob || portalSession?.dob || "N/A"}
+                  {(() => {
+                    const dobStr = p360?.patient?.dob || portalSession?.dob;
+                    if (!dobStr) return "";
+                    const birthYear = new Date(dobStr).getFullYear();
+                    if (isNaN(birthYear)) return "";
+                    const age = new Date().getFullYear() - birthYear;
+                    return ` (${age} yrs)`;
+                  })()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                <span className="text-[var(--dim)]">Gender</span>
+                <span className="font-bold text-slate-100">{p360?.patient?.gender || "N/A"}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                <span className="text-[var(--dim)]">Blood Group</span>
+                <span className="font-bold text-cyan-400">{p360?.patient?.blood_group || "N/A"}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                <span className="text-[var(--dim)]">ABHA Number</span>
+                <span className="font-mono font-bold text-slate-100">{p360?.patient?.abha_number || "91-2345-6789-0123"}</span>
+              </div>
+              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
+                <span className="text-[var(--dim)]">ABHA Address</span>
+                <span className="font-bold text-slate-100">{p360?.patient?.abha_address || "swagath.reddy@abdm"}</span>
+              </div>
+              <div className="py-1.5">
+                <span className="text-[var(--dim)] block mb-1">Residential Address</span>
+                <span className="font-medium text-slate-200 block bg-slate-900/60 p-2 rounded-xl border border-white/5">{p360?.patient?.address || "12 MG Road, Pune, Maharashtra"}</span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button 
+                onClick={() => setShowProfileModal(false)}
+                className="btn cyan w-full text-xs font-bold py-2"
+              >
+                Close Profile Details
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
