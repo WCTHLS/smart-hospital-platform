@@ -70,7 +70,7 @@ export default function LabWorkspace() {
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,480px)] 2xl:gap-6">
         <LabOrdersQueue
           pending={pending}
           completed={completed}

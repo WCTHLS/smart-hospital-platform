@@ -106,14 +106,14 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
       {encounters.length === 0 ? (
         <Empty>{emptyMessage}</Empty>
       ) : (
-        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3">
+        <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-3 sm:grid sm:snap-none sm:grid-cols-2 sm:overflow-visible sm:pb-0 xl:grid-cols-3 2xl:grid-cols-4">
           {encounters.map((enc: any) => {
             const isRedFlag = enc.triage?.red_flag;
 
             return (
               <Card
                 key={enc.encounter_id}
-                className={`hover-border relative w-[300px] shrink-0 snap-start overflow-hidden flex flex-col justify-between transition sm:w-[340px] ${
+                className={`hover-border relative flex w-[82vw] max-w-[320px] shrink-0 snap-start flex-col justify-between overflow-hidden transition sm:w-auto sm:max-w-none sm:min-w-0 sm:snap-none ${
                   isRedFlag ? "border-red-500/30" : ""
                 }`}
                 style={{ border: isRedFlag ? "1px solid rgba(239, 68, 68, 0.4)" : "" }}

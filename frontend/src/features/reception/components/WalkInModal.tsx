@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { User, Calendar, CreditCard, Shield, X, Scan } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Field } from "../../../components/ui";
@@ -30,16 +29,25 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
 
   // Step 2: Doctor and Slots
-  const { data: doctors } = useQuery({
-    queryKey: ["reception-doctors"],
-    queryFn: api.doctors,
-  });
-
   const [selectedDoctorId, setSelectedDoctorId] = useState("");
   const [selectedDoctor, setSelectedDoctor] = useState<any | null>(null);
   const [reason, setReason] = useState("General consultation");
+  const [specialty, setSpecialty] = useState("");
   const [slots, setSlots] = useState<any[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+
+  const availableDoctors = Array.from(
+    new Map(
+      slots.map((slot: any) => [slot.doctor_id, {
+        doctor_id: slot.doctor_id,
+        name: slot.doctor_name,
+        specialty: slot.specialty,
+        opd_fee: slot.opd_fee,
+      }])
+    ).values()
+  );
+  const selectedDoctorSlots = slots.filter((slot: any) => slot.doctor_id === selectedDoctorId);
 
   // Step 3: Payment
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "UPI" | "CARD">("CASH");
@@ -102,38 +110,57 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
     setError("");
   };
 
-  // Fetch slots when doctor is selected
+  // Route the chief complaint to a specialty and load today's available doctors/slots.
   useEffect(() => {
-    if (selectedDoctorId && doctors) {
-      const doc = doctors.find((d: any) => d.doctor_id === selectedDoctorId);
-      setSelectedDoctor(doc);
-      setSelectedSlot(null);
+    if (step !== 2 || !reason.trim()) return;
 
-      const fetchSlots = async () => {
-        try {
-          setError("");
-          const todayStr = new Date().toISOString().substring(0, 10);
-          const res = await api.appointmentSlots({
-            doctor_id: selectedDoctorId,
-            appointment_date: todayStr,
-            reason: reason,
-          });
-          setSlots(res.slots || []);
-        } catch (err: any) {
-          setError("Failed to fetch slots");
-        }
-      };
-      fetchSlots();
-    } else {
-      setSelectedDoctor(null);
-      setSlots([]);
-    }
-  }, [selectedDoctorId, doctors]);
+    const fetchSlots = async () => {
+      try {
+        setSlotsLoading(true);
+        setError("");
+        setSelectedDoctorId("");
+        setSelectedDoctor(null);
+        setSelectedSlot(null);
+        const todayStr = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).format(new Date());
+        const res = await api.appointmentSlots({ appointment_date: todayStr, reason: reason.trim() });
+        setSpecialty(res.specialty || "General Medicine");
+        setSlots(res.slots || []);
+      } catch (err: any) {
+        setSpecialty("");
+        setSlots([]);
+        setError(err.message || "Failed to fetch today's specialty doctors and slots");
+      } finally {
+        setSlotsLoading(false);
+      }
+    };
+    fetchSlots();
+  }, [step, reason]);
+
+  const handleDoctorChange = (doctorId: string) => {
+    setSelectedDoctorId(doctorId);
+    setSelectedDoctor(availableDoctors.find((doctor: any) => doctor.doctor_id === doctorId) || null);
+    setSelectedSlot(null);
+  };
 
   // Complete Walk-in check-in
   const handleSubmit = async () => {
     if (!selectedSlot) {
       setError("Please select an appointment slot");
+      return;
+    }
+    if (!selectedPatientId && !/^\d{10}$/.test(mobile)) {
+      setError("Enter a valid 10-digit mobile number");
+      setStep(1);
+      return;
+    }
+    if (!selectedPatientId && (!firstName.trim() || !lastName.trim() || !dob)) {
+      setError("First name, last name, and date of birth are required for registration");
+      setStep(1);
       return;
     }
 
@@ -146,19 +173,19 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
       // 1. Register patient if they don't exist
       if (!patientId) {
         const regRes = await api.registerPatient({
-          first_name: firstName,
-          last_name: lastName || "Patient",
-          dob: dob || new Date().toISOString().substring(0, 10),
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          dob,
           mobile,
-          email: email || `${firstName.toLowerCase()}@example.com`,
+          email: email.trim() || null,
           gender,
           blood_group: bloodGroup,
-          address: address || "Hospital Walk-in Address",
+          address: address.trim() || null,
           issues: allergies
             ? [{ issue_name: allergies, onset_info: "Unknown", status: "ACTIVE" }]
             : [],
         });
-        patientId = regRes.patient_id;
+        patientId = regRes.patient?.patient_id || regRes.patient_id;
       }
 
       if (!patientId) throw new Error("Patient ID missing after registration");
@@ -170,7 +197,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
         scheduled_start: selectedSlot.scheduled_start,
         scheduled_end: selectedSlot.scheduled_end,
         reason: reason,
-        specialty: selectedDoctor?.specialty || "General Medicine",
+        specialty: selectedSlot.specialty || specialty || "General Medicine",
         appointment_type: "OPD",
         channel: "WALKIN",
       });
@@ -178,20 +205,23 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
       const appointmentId = bookRes.appointment?.appointment_id || bookRes.appointment_id;
       if (!appointmentId) throw new Error("Appointment booking failed");
 
-      // 3. Collect payment (mock backend invoice/pay)
-      if (bookRes.encounter_id) {
-        const invRes = await api.invoice(bookRes.encounter_id);
-        if (invRes && invRes.invoice_id) {
-          await api.pay(invRes.invoice_id, paymentMethod);
-        }
-      }
-
-      // 4. Perform check-in
+      // 3. Perform check-in so the encounter exists before creating its invoice.
       const checkinRes = await api.checkin({
         appointment_id: appointmentId,
         patient_id: patientId,
         channel: "WALKIN",
       });
+
+      // 4. Persist the amount collected at Reception against the encounter invoice.
+      // Reception payments use the Payment table; RazorpayOrder is only for
+      // online Razorpay checkout and is intentionally not required for cash.
+      if (!checkinRes.encounter_id) throw new Error("Encounter ID missing after check-in");
+      const invRes = await api.invoice(checkinRes.encounter_id);
+      if (!invRes?.invoice_id) throw new Error("Invoice creation failed after check-in");
+      const unpaidAmount = Number(invRes.unpaid_amount ?? invRes.balance ?? 0);
+      if (unpaidAmount > 0.01) {
+        await api.pay(invRes.invoice_id, paymentMethod);
+      }
 
       onSuccess(
         checkinRes.token?.number || "A-000",
@@ -256,7 +286,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                 </button>
               </div>
 
-              <div className="grid gap-3 grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Mobile Number (10 digits)">
                   <input
                     type="tel"
@@ -265,6 +295,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                     placeholder="Enter mobile number"
                     value={mobile}
                     onChange={(e) => setMobile(e.target.value.replace(/\D/g, ""))}
+                    required
                   />
                 </Field>
                 <Field label="Email Address">
@@ -302,13 +333,14 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                 </div>
               )}
 
-              <div className="grid gap-3 grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="First Name">
                   <input
                     className="input"
                     placeholder="First name"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
+                    required
                   />
                 </Field>
                 <Field label="Last Name">
@@ -317,17 +349,20 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                     placeholder="Last name"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
+                    required
                   />
                 </Field>
               </div>
 
-              <div className="grid gap-3 grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Date of Birth">
                   <input
                     type="date"
                     className="input"
                     value={dob}
                     onChange={(e) => setDob(e.target.value)}
+                    max={new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date())}
+                    required
                   />
                 </Field>
                 <Field label="Gender">
@@ -390,14 +425,21 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
 
           {step === 2 && (
             <div className="space-y-4 animate-in fade-in duration-150">
-              <Field label="Select Department &amp; Doctor">
+              <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.06] p-3">
+                <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">Mapped specialty</div>
+                <div className="mt-1 text-sm font-extrabold text-[var(--cyan)]">{specialty || (slotsLoading ? "Mapping complaint..." : "Not available")}</div>
+                <div className="mt-1 text-[11px] text-[var(--muted)]">Based on: “{reason}”</div>
+              </div>
+
+              <Field label="Available Specialty Doctor (Today)">
                 <select
                   className="input"
                   value={selectedDoctorId}
-                  onChange={(e) => setSelectedDoctorId(e.target.value)}
+                  onChange={(e) => handleDoctorChange(e.target.value)}
+                  disabled={slotsLoading || availableDoctors.length === 0}
                 >
-                  <option value="">-- Choose Doctor --</option>
-                  {doctors?.map((d: any) => (
+                  <option value="">{slotsLoading ? "Loading available doctors..." : "-- Choose Doctor --"}</option>
+                  {availableDoctors.map((d: any) => (
                     <option key={d.doctor_id} value={d.doctor_id}>
                       {d.name} ({d.specialty} · OPD: ₹{d.opd_fee ?? 500})
                     </option>
@@ -405,18 +447,24 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                 </select>
               </Field>
 
+              {!slotsLoading && availableDoctors.length === 0 && (
+                <div className="text-center text-xs p-6 bg-white/[0.01] border border-dashed border-white/5 rounded-xl text-[var(--muted)]">
+                  No {specialty || "matching specialty"} doctors or slots are available today.
+                </div>
+              )}
+
               {selectedDoctorId && (
                 <div className="space-y-2">
                   <label className="text-[12px]" style={{ color: "var(--muted)" }}>
                     Available Appointment Slots (Today)
                   </label>
-                  {slots.length === 0 ? (
+                  {selectedDoctorSlots.length === 0 ? (
                     <div className="text-center text-xs p-6 bg-white/[0.01] border border-dashed border-white/5 rounded-xl text-[var(--muted)]">
                       No slots available for today. Please verify doctor schedule.
                     </div>
                   ) : (
                     <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
-                      {slots.map((s, idx) => {
+                      {selectedDoctorSlots.map((s, idx) => {
                         const startLocal = new Date(s.scheduled_start).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
@@ -468,7 +516,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
               </div>
 
               <Field label="Choose Payment Channel">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-3 sm:grid-cols-3">
                   {[
                     { id: "CASH", label: "💵 Cash Collected" },
                     { id: "UPI", label: "📱 QR Scan / UPI" },
@@ -520,7 +568,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                 type="button"
                 disabled={
                   busy ||
-                  (step === 1 && (!mobile || mobile.length < 10 || !firstName || !reason)) ||
+                  (step === 1 && (!/^\d{10}$/.test(mobile) || !firstName.trim() || !lastName.trim() || !dob || !reason.trim())) ||
                   (step === 2 && (!selectedDoctorId || !selectedSlot))
                 }
                 onClick={() => setStep((s) => (s + 1) as any)}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FileText } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Tag, Empty, AgentBadge } from "../../../components/ui";
 
@@ -305,15 +306,21 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                 {o.attachment_uri && (
                   <div>
                     <a
-                      href={`${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`}
+                      href={o.attachment_uri.startsWith("http") ? o.attachment_uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-[11px] text-[var(--cyan)] hover:underline inline-flex items-center gap-1 font-semibold"
+                      className="btn ghost inline-flex !px-2 !py-1 text-[10px] font-bold text-[var(--cyan)]"
+                      title={o.attachment_name || "View uploaded lab document"}
                     >
-                      📄 View Uploaded Diagnostic Scan
+                      <FileText size={11} /> View
                     </a>
                   </div>
                 )}
+              </div>
+            )}
+            {!o.attachment_uri && (
+              <div className="mt-2.5 rounded-lg border border-dashed border-white/10 bg-white/[0.01] p-2.5 text-[11px] text-[var(--muted)]">
+                Document: <span className="font-semibold text-slate-400">No document uploaded.</span>
               </div>
             )}
           </Card>

@@ -212,7 +212,7 @@ export default function Prescription({
 
             return (
               <div key={i} className="mb-3 p-3 rounded-xl border" style={{ borderColor: "var(--glass-border)", background: "rgba(255,255,255,0.01)" }}>
-                <div className="grid grid-cols-[1fr_70px_70px_60px_28px] gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_70px_70px_60px_28px]">
                   <div className="relative min-w-0">
                     <input
                       className="input w-full"
