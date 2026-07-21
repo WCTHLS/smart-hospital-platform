@@ -67,7 +67,6 @@ source .venv/bin/activate
 # Install all dependencies (including PyTorch vision, MONAI, and DICOM parsers)
 pip install -r requirements.txt
 
-python -m app.seed            # creates database + demo seed data
 python -m uvicorn app.main:app --reload # http://localhost:8000 (docs at /docs)
 
 # 2) Frontend Setup (new terminal)
