@@ -41,7 +41,7 @@ class ModelGateway:
 
     def active_model_name(self) -> str:
         if settings.gemini_api_key:
-            return "gemini-2.5-flash"
+            return "gemini-flash-latest"
         gkey = settings.grok_api_key or settings.grok_api
         if gkey:
             if gkey.startswith("gsk_"):
@@ -110,8 +110,8 @@ class ModelGateway:
 
         # --- Google Gemini Integration ---
         if settings.gemini_api_key:
-            # Use gemini-2.5-flash (which is the recommended default and free)
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={settings.gemini_api_key}"
+            # Use gemini-flash-latest (points to Google's current active stable Flash model)
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={settings.gemini_api_key}"
             payload = {
                 "contents": [
                     {
