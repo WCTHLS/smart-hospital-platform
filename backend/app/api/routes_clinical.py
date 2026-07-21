@@ -264,6 +264,7 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
 
         out.append({
             "lab_order_id": order.lab_order_id,
+            "patient_id": order.patient_id,
             "test_name": order.test_name,
             "status": order.status,
             "qr_code": order.qr_code,

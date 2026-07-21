@@ -49,6 +49,7 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
     doctors = db.scalars(
         select(models.Staff)
         .where(models.Staff.role.in_(["DOCTOR", "NURSE"]))
+        .where(models.Staff.available.is_(True))
         .order_by(models.Staff.role.asc(), models.Staff.name.asc())
     ).all()
     
@@ -156,6 +157,19 @@ def update_doctor(doctor_id: str, body: schemas.DoctorUpdateRequest, db: Session
         "access_pin": doc.access_pin,
         "opd_fee": doc.opd_fee,
     }
+
+
+@router.delete("/admin/doctors/{doctor_id}")
+def remove_doctor(doctor_id: str, db: Session = Depends(get_db)) -> dict:
+    practitioner = db.get(models.Staff, doctor_id)
+    if not practitioner or practitioner.role not in ["DOCTOR", "NURSE"] or not practitioner.available:
+        raise HTTPException(404, "Practitioner not found")
+
+    # Preserve historical appointments, billing, and clinical records while
+    # removing the practitioner from active directories and login workflows.
+    practitioner.available = False
+    db.commit()
+    return {"status": "success", "message": f"{practitioner.name} removed from the clinical directory"}
 
 
 @router.get("/admin/doctors/{doctor_id}/schedule")

@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
@@ -13,8 +14,16 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
-# SQLite needs check_same_thread=False for FastAPI's threadpool.
-_connect_args = {"check_same_thread": False} if settings.is_sqlite else {}
+# SQLite needs check_same_thread=False for FastAPI's threadpool. Supabase's
+# transaction pooler (port 6543) cannot safely retain psycopg named prepared
+# statements because server connections are shared between clients.
+_database_url = make_url(settings.database_url)
+if settings.is_sqlite:
+    _connect_args = {"check_same_thread": False}
+elif _database_url.drivername == "postgresql+psycopg" and _database_url.port == 6543:
+    _connect_args = {"prepare_threshold": None}
+else:
+    _connect_args = {}
 
 engine = create_engine(
     settings.database_url,

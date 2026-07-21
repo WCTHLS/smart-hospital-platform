@@ -125,11 +125,13 @@ class PatientProfileUpdateRequest(BaseModel):
 
 
 class PatientPhotoUpdateRequest(BaseModel):
-    profile_photo: str
+    profile_photo: str | None = None
 
     @field_validator("profile_photo")
     @classmethod
-    def validate_profile_photo(cls, value: str) -> str:
+    def validate_profile_photo(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         allowed = ("data:image/jpeg;base64,", "data:image/png;base64,", "data:image/webp;base64,")
         if not value.startswith(allowed):
             raise ValueError("profile photo must be a JPEG, PNG or WebP image")

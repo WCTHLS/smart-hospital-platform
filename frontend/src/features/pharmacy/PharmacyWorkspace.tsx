@@ -105,7 +105,7 @@ export default function PharmacyWorkspace() {
   const activePrepaid = prepaidOrders.find((rx: any) => rx.rx_id === activePrepaidRxId) || prepaidOrders[0];
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_360px] animate-in fade-in duration-300">
+    <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_clamp(320px,25vw,430px)] 2xl:gap-7 animate-in fade-in duration-300">
       
       {/* Left Column: Patient Search and Prescription view */}
       <div className="space-y-4">

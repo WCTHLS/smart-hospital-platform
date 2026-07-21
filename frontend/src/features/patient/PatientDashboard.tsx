@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { 
   LogOut, Clipboard, Camera, UserRound, ArrowLeft, CheckCircle2, 
-  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar
+  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar, Trash2
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useJourney } from "../../lib/store";
@@ -42,6 +42,7 @@ const TOPIC_STAGE: Record<string, number> = {
 
 export default function PatientDashboard() {
   const nav = useNavigate();
+  const location = useLocation();
   const journey = useJourney();
   const events = useRealtime((s) => s.events);
 
@@ -66,7 +67,19 @@ export default function PatientDashboard() {
   const [requestingEconsult, setRequestingEconsult] = useState(false);
   const [econsultSuccessMsg, setEconsultSuccessMsg] = useState("");
   const [revisitError, setRevisitError] = useState("");
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(() => {
+    const shouldOpen = sessionStorage.getItem("open-patient-profile") === "true";
+    if (shouldOpen) sessionStorage.removeItem("open-patient-profile");
+    return shouldOpen;
+  });
+
+  useEffect(() => {
+    if (location.state?.openPatientProfile) {
+      sessionStorage.removeItem("open-patient-profile");
+      setShowProfileModal(true);
+      nav(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, nav]);
 
   const portalSession = getPortalPatient()!;
   const portalPatientId = portalSession.patient_id;
@@ -109,6 +122,21 @@ export default function PatientDashboard() {
     }
   }
 
+  async function handlePhotoDelete() {
+    if (!window.confirm("Delete your profile photo?")) return;
+    setPhotoUploading(true);
+    setPhotoError("");
+    try {
+      await api.updatePatientProfilePhoto(portalPatientId, null);
+      savePortalPatient({ ...portalSession, profile_photo: undefined });
+      await refetchP360();
+    } catch {
+      setPhotoError("Unable to delete the profile photo. Please try again.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
   // Query patient records
   const { data: p360, refetch: refetchP360 } = useQuery({
     queryKey: ["portal-p360", portalPatientId],
@@ -120,12 +148,6 @@ export default function PatientDashboard() {
     queryKey: ["portal-upcoming-appointments", portalPatientId],
     queryFn: () => api.upcomingAppointments(portalPatientId),
     enabled: !!portalPatientId,
-  });
-
-  const { data: triageQueue } = useQuery({
-    queryKey: ["triage-queue"],
-    queryFn: () => api.triageQueue(),
-    refetchInterval: 5000,
   });
 
   const { data: triageStaffList } = useQuery({
@@ -409,15 +431,6 @@ export default function PatientDashboard() {
     URL.revokeObjectURL(url);
   }
 
-  const getPatientsAhead = () => {
-    if (!triageQueue || !encDetails?.arrival) return 0;
-    const currentArrival = new Date(encDetails.arrival).getTime();
-    return triageQueue.filter((e: any) => 
-      e.encounter_id !== showEncounterId && 
-      new Date(e.arrival).getTime() < currentArrival
-    ).length;
-  };
-
   const hasSelection = !!(showEncounterId || showAppointmentId);
   const selectedApp = appointments.find((a: any) => a.appointment_id === showAppointmentId);
   const encounterAppointment = encDetails?.appointment || appointments.find((a: any) =>
@@ -425,14 +438,15 @@ export default function PatientDashboard() {
   );
 
   return (
-    <div className="patient-page grid gap-4 sm:gap-6 lg:grid-cols-[300px_1fr] animate-in fade-in duration-300">
+    <div className="patient-page grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[clamp(280px,23vw,360px)_minmax(0,1fr)] 2xl:gap-7 animate-in fade-in duration-300">
       {/* Sidebar - Visits List */}
-      <div className={`space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
-        <Card className="space-y-3">
-          <div 
+      <div className={`min-w-0 space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
+        <Card>
+          <button
+            type="button"
             onClick={() => setShowProfileModal(true)}
-            className="flex items-center gap-3 cursor-pointer p-1.5 -m-1.5 rounded-xl hover:bg-white/5 transition border border-transparent hover:border-cyan-500/20 group"
-            title="Click to view full patient details"
+            className="group -m-1.5 flex w-[calc(100%+0.75rem)] items-center gap-3 rounded-xl border border-transparent p-1.5 text-left transition hover:border-cyan-500/20 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
+            aria-label="View patient profile details"
           >
             <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5 group-hover:border-cyan-400/30">
               {(p360?.patient?.profile_photo || portalSession.profile_photo)
@@ -440,15 +454,15 @@ export default function PatientDashboard() {
                 : <UserRound size={30} className="text-[var(--dim)] group-hover:text-[var(--cyan)]" />}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)] flex items-center justify-between">
+              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">
                 <span>Patient profile</span>
                 <span className="text-[9px] text-[var(--cyan)] font-extrabold group-hover:underline">View Details ➔</span>
               </div>
-              <div className="truncate font-extrabold text-base text-slate-100 group-hover:text-cyan-300 transition-colors">{portalPatientName}</div>
+              <div className="truncate text-base font-extrabold text-slate-100 transition-colors group-hover:text-cyan-300">{portalPatientName}</div>
               <Tag tone="cyan">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</Tag>
             </div>
-          </div>
-          <div>
+          </button>
+          <div className="hidden">
             <input
               id="patient-profile-photo"
               className="hidden"
@@ -468,7 +482,7 @@ export default function PatientDashboard() {
           </div>
           <button
             onClick={handleSignOut}
-            className="btn ghost w-full text-xs !py-1 px-3 flex items-center justify-center gap-1.5"
+            className="hidden"
           >
             <LogOut size={13} /> Sign Out
           </button>
@@ -584,7 +598,7 @@ export default function PatientDashboard() {
       </div>
 
       {/* Main Panel */}
-      <div className={`space-y-4 ${hasSelection && !showMobileVisitList ? "block" : "hidden lg:block"}`}>
+      <div className={`min-w-0 space-y-4 ${hasSelection && !showMobileVisitList ? "block" : "hidden lg:block"}`}>
         {hasSelection && (
           <button 
             onClick={() => setShowMobileVisitList(true)}
@@ -885,10 +899,14 @@ export default function PatientDashboard() {
               const triageRoom = triageStaff?.room || "Triage Room 1";
               const triageFloor = triageStaff?.floor || "Ground Floor";
               
-              const queueIdx = triageQueue?.queue ? triageQueue.queue.findIndex((item: any) => item.encounter_id === showEncounterId) : -1;
-              const patientsAhead = queueIdx === -1 ? (triageQueue?.queue?.length ?? 0) : queueIdx;
-              const triageTokenNum = queueIdx === -1 ? "T-PENDING" : `T-${100 + queueIdx}`;
-              const estWaitMins = patientsAhead * 5;
+              // The encounter token is the authoritative queue assignment. The
+              // triage queue endpoint returns a plain encounter array and must
+              // never be used to manufacture a second token number.
+              const triageTokenNum = encDetails.token?.number || "Token pending";
+              const tokenRoom = encDetails.token?.room || triageRoom;
+              const tokenFloor = encDetails.token?.floor || triageFloor;
+              const patientsAhead = encDetails.token?.patients_ahead ?? 0;
+              const estWaitMins = encDetails.token?.eta_minutes ?? patientsAhead * 5;
 
               return (
                 <div 
@@ -907,14 +925,16 @@ export default function PatientDashboard() {
                   
                   <div className="text-xs space-y-1">
                     <div className="text-slate-200 font-bold flex items-center justify-center gap-1">
-                      <MapPin size={12} className="text-[var(--cyan)]" /> {triageRoom} ({triageFloor})
+                      <MapPin size={12} className="text-[var(--cyan)]" /> {tokenRoom} ({tokenFloor})
                     </div>
                     <div className="text-[11px] text-[var(--dim)] mt-1">
                       Patients ahead: <span className="font-semibold text-white">{patientsAhead}</span>
                     </div>
-                    <div className="text-[11px] text-[var(--dim)]">
-                      Estimated wait time: <span className="font-semibold text-emerald-400">{estWaitMins} mins</span> <span className="text-[10px] text-[var(--muted)]">(5m per check)</span>
-                    </div>
+                    {patientsAhead > 0 && (
+                      <div className="text-[11px] text-[var(--dim)]">
+                        Estimated wait time: <span className="font-semibold text-emerald-400">{estWaitMins} mins</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1252,6 +1272,33 @@ export default function PatientDashboard() {
                 />
               );
             })()}
+
+            {isLabVisit && encDetails.token?.number && (
+              <Card
+                className="relative overflow-hidden border-emerald-500/25 bg-emerald-500/[0.06] text-center"
+              >
+                <div className="absolute right-0 top-0 p-2 opacity-5">
+                  <Ticket size={100} />
+                </div>
+                <div className="relative flex flex-col items-center gap-2">
+                  <div className="rounded-full border border-emerald-400/20 bg-emerald-400/5 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.18em] text-emerald-400">
+                    Laboratory Queue Token
+                  </div>
+                  <div className="text-5xl font-black tracking-wider text-white drop-shadow-[0_0_14px_rgba(16,185,129,0.65)]">
+                    {encDetails.token.number}
+                  </div>
+                  <div className="flex items-center justify-center gap-1 text-xs font-bold text-slate-200">
+                    <MapPin size={13} className="text-emerald-400" />
+                    {[encDetails.token.room, encDetails.token.floor].filter(Boolean).join(" / ") || "Laboratory location pending"}
+                  </div>
+                  {encDetails.token.eta_minutes != null && (
+                    <div className="text-[11px] text-[var(--muted)]">
+                      Estimated wait: <span className="font-semibold text-emerald-400">{encDetails.token.eta_minutes} minutes</span>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
 
             <Card className="space-y-2 text-xs">
               <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-2 mb-1">
@@ -1657,6 +1704,34 @@ export default function PatientDashboard() {
                   {p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}
                 </div>
               </div>
+            </div>
+
+            <div>
+              <input
+                id="patient-profile-photo-modal"
+                className="hidden"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={photoUploading}
+                onChange={(event) => {
+                  void handlePhotoUpload(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+              <div className="flex gap-2">
+                <label htmlFor="patient-profile-photo-modal" className="btn ghost flex flex-1 cursor-pointer items-center justify-center gap-1.5 text-xs !py-1.5">
+                  <Camera size={14} /> {photoUploading ? "Updating..." : "Upload profile photo"}
+                </label>
+                {(p360?.patient?.profile_photo || portalSession.profile_photo) && (
+                  <button type="button" onClick={handlePhotoDelete} disabled={photoUploading}
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/25 bg-rose-500/10 text-rose-400 transition hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-50"
+                    aria-label="Delete profile photo" title="Delete profile photo">
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+              {photoError && <div className="mt-2 text-xs text-rose-300">{photoError}</div>}
+              <div className="mt-2 text-center text-[10px] text-[var(--dim)]">JPEG, PNG or WebP · Maximum 2 MB</div>
             </div>
 
             <div className="space-y-2.5 text-xs">

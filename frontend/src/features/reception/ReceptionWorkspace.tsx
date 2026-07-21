@@ -190,7 +190,7 @@ export default function ReceptionWorkspace() {
       )}
 
       {/* Main Workspace Layout */}
-      <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,480px)] 2xl:gap-6">
         {/* Left Column: Search & Check-in Assist */}
         <div className="space-y-4">
           <Card className="space-y-4">
