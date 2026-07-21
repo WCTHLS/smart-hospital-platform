@@ -51,6 +51,60 @@ _ROOMS = {
 _SUMMARY_CACHE: dict[str, dict] = {}
 
 
+def _calculate_patients_ahead(db: Session, encounter_id: str) -> int:
+    """Return the current encounter's queue position from persisted encounters."""
+    encounter = db.get(models.Encounter, encounter_id)
+    if not encounter or encounter.status not in ["CHECKED_IN", "TRIAGED", "EMERGENCY"]:
+        return 0
+
+    if encounter.visit_type == "LAB":
+        stmt = (
+            select(models.Encounter)
+            .where(models.Encounter.visit_type == "LAB")
+            .where(models.Encounter.status == "CHECKED_IN")
+            .order_by(models.Encounter.arrival_ts.asc())
+        )
+    elif encounter.status == "CHECKED_IN":
+        # Before triage, every earlier standard walk-in/check-in is ahead,
+        # regardless of the department the patient may later be assigned to.
+        stmt = (
+            select(models.Encounter)
+            .where(models.Encounter.status == "CHECKED_IN")
+            .where(models.Encounter.visit_type.notin_(["LAB", "E_CONSULT"]))
+            .order_by(models.Encounter.arrival_ts.asc())
+        )
+    else:
+        doctor_id = encounter.doctor_id
+        department = encounter.department
+        stmt = (
+            select(models.Encounter)
+            .outerjoin(models.Appointment, models.Appointment.appointment_id == models.Encounter.appointment_id)
+            .outerjoin(models.Triage, models.Triage.encounter_id == models.Encounter.encounter_id)
+            .where(models.Encounter.status.in_(["TRIAGED", "EMERGENCY"]))
+        )
+        if doctor_id:
+            stmt = stmt.where(
+                (models.Encounter.doctor_id == doctor_id) |
+                ((models.Encounter.doctor_id.is_(None)) & (models.Encounter.department == department))
+            )
+        else:
+            stmt = stmt.where(models.Encounter.department == department)
+        stmt = stmt.order_by(
+            case((models.Triage.red_flag == True, 0), else_=1),
+            nulls_last(models.Triage.acuity_level.asc()),
+            case(
+                (models.Appointment.scheduled_start.isnot(None), models.Appointment.scheduled_start),
+                else_=models.Encounter.arrival_ts
+            ).asc()
+        )
+
+    waiting_encounters = db.scalars(stmt).all()
+    return next(
+        (position for position, item in enumerate(waiting_encounters) if item.encounter_id == encounter_id),
+        0,
+    )
+
+
 def _calculate_live_eta(db: Session, encounter_id: str) -> int:
     """Calculate wait time dynamically based on active queue position."""
     encounter = db.get(models.Encounter, encounter_id)
@@ -1139,7 +1193,8 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
         "vitals": vitals_dict or None,
         "doctor": None if not doctor else {"id": doctor.staff_id, "name": doctor.name, "specialty": doctor.specialty},
         "token": {"number": token.token_number, "department": token.department, "room": token.room,
-                  "floor": token.floor, "eta_minutes": _calculate_live_eta(db, encounter_id)},
+                  "floor": token.floor, "eta_minutes": _calculate_live_eta(db, encounter_id),
+                  "patients_ahead": _calculate_patients_ahead(db, encounter_id)},
         "encounter_status": encounter.status,
         "scheduled_start": appt.scheduled_start.isoformat() if (appt and appt.scheduled_start) else None,
     }
@@ -1233,7 +1288,8 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
                 "opd_fee": recommended_doctor.opd_fee,
             }},
         "token": None if not token else {"number": token.token_number, "room": token.room,
-                                         "floor": token.floor, "eta_minutes": _calculate_live_eta(db, e.encounter_id)},
+                                         "floor": token.floor, "eta_minutes": _calculate_live_eta(db, e.encounter_id),
+                                         "patients_ahead": _calculate_patients_ahead(db, e.encounter_id)},
         "vitals": None if not vitals else {
             "bp": f"{vitals.bp_systolic}/{vitals.bp_diastolic}", "spo2": vitals.spo2,
             "heart_rate": vitals.heart_rate, "temperature": vitals.temperature, "bmi": vitals.bmi

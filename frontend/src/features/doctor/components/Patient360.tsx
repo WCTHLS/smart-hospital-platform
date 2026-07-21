@@ -40,7 +40,7 @@ function HistoricalVisitDropdown({ encounter }: { encounter: any }) {
               {details.vitals ? (
                 <div>
                   <div className="font-bold text-white text-[10px] uppercase tracking-wide text-[var(--dim)] mb-1">Vitals:</div>
-                  <div className="grid grid-cols-3 gap-1 text-[10.5px]">
+                  <div className="grid grid-cols-2 gap-1 text-[10.5px] sm:grid-cols-3">
                     <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>BP</small><br /><b>{details.vitals.bp}</b></div>
                     <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{details.vitals.spo2}%</b></div>
                     <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{details.vitals.temperature}°F</b></div>
@@ -391,7 +391,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
       <Card>
         <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Latest vitals</h4>
         {data.latest_vitals ? (
-          <div className="grid grid-cols-4 gap-3 text-[13px]">
+          <div className="grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
             <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Blood Pressure</small><br /><b className="text-[15px]">{data.latest_vitals.bp}</b></div>
             <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b className="text-[15px]">{data.latest_vitals.spo2}%</b></div>
             <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Heart Rate</small><br /><b className="text-[15px]">{data.latest_vitals.heart_rate} bpm</b></div>

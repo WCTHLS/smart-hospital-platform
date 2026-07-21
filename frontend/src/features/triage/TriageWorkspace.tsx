@@ -285,7 +285,7 @@ export default function Triage() {
         </button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
+      <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,480px)] 2xl:gap-7">
         {/* Left/Middle Column: Entry Form */}
         <div>
           <SectionTitle sub="Symptoms + vitals in, acuity + routing + token out — in seconds.">Intake &amp; Triage</SectionTitle>

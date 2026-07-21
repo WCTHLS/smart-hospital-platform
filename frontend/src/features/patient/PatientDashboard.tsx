@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { 
   LogOut, Clipboard, Camera, UserRound, ArrowLeft, CheckCircle2, 
   AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar, Trash2
@@ -42,6 +42,7 @@ const TOPIC_STAGE: Record<string, number> = {
 
 export default function PatientDashboard() {
   const nav = useNavigate();
+  const location = useLocation();
   const journey = useJourney();
   const events = useRealtime((s) => s.events);
 
@@ -73,13 +74,12 @@ export default function PatientDashboard() {
   });
 
   useEffect(() => {
-    const openProfile = () => {
+    if (location.state?.openPatientProfile) {
       sessionStorage.removeItem("open-patient-profile");
       setShowProfileModal(true);
-    };
-    window.addEventListener("open-patient-profile", openProfile);
-    return () => window.removeEventListener("open-patient-profile", openProfile);
-  }, []);
+      nav(location.pathname, { replace: true, state: null });
+    }
+  }, [location.pathname, location.state, nav]);
 
   const portalSession = getPortalPatient()!;
   const portalPatientId = portalSession.patient_id;
@@ -148,12 +148,6 @@ export default function PatientDashboard() {
     queryKey: ["portal-upcoming-appointments", portalPatientId],
     queryFn: () => api.upcomingAppointments(portalPatientId),
     enabled: !!portalPatientId,
-  });
-
-  const { data: triageQueue } = useQuery({
-    queryKey: ["triage-queue"],
-    queryFn: () => api.triageQueue(),
-    refetchInterval: 5000,
   });
 
   const { data: triageStaffList } = useQuery({
@@ -437,15 +431,6 @@ export default function PatientDashboard() {
     URL.revokeObjectURL(url);
   }
 
-  const getPatientsAhead = () => {
-    if (!triageQueue || !encDetails?.arrival) return 0;
-    const currentArrival = new Date(encDetails.arrival).getTime();
-    return triageQueue.filter((e: any) => 
-      e.encounter_id !== showEncounterId && 
-      new Date(e.arrival).getTime() < currentArrival
-    ).length;
-  };
-
   const hasSelection = !!(showEncounterId || showAppointmentId);
   const selectedApp = appointments.find((a: any) => a.appointment_id === showAppointmentId);
   const encounterAppointment = encDetails?.appointment || appointments.find((a: any) =>
@@ -453,12 +438,15 @@ export default function PatientDashboard() {
   );
 
   return (
-    <div className="patient-page grid gap-4 sm:gap-6 lg:grid-cols-[300px_1fr] animate-in fade-in duration-300">
+    <div className="patient-page grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[clamp(280px,23vw,360px)_minmax(0,1fr)] 2xl:gap-7 animate-in fade-in duration-300">
       {/* Sidebar - Visits List */}
-      <div className={`space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
+      <div className={`min-w-0 space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
         <Card>
-          <div 
-            className="flex items-center gap-3"
+          <button
+            type="button"
+            onClick={() => setShowProfileModal(true)}
+            className="group -m-1.5 flex w-[calc(100%+0.75rem)] items-center gap-3 rounded-xl border border-transparent p-1.5 text-left transition hover:border-cyan-500/20 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
+            aria-label="View patient profile details"
           >
             <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5 group-hover:border-cyan-400/30">
               {(p360?.patient?.profile_photo || portalSession.profile_photo)
@@ -466,14 +454,14 @@ export default function PatientDashboard() {
                 : <UserRound size={30} className="text-[var(--dim)] group-hover:text-[var(--cyan)]" />}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="hidden">
+              <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">
                 <span>Patient profile</span>
                 <span className="text-[9px] text-[var(--cyan)] font-extrabold group-hover:underline">View Details ➔</span>
               </div>
-              <div className="truncate text-base font-extrabold text-slate-100">{portalPatientName}</div>
+              <div className="truncate text-base font-extrabold text-slate-100 transition-colors group-hover:text-cyan-300">{portalPatientName}</div>
               <Tag tone="cyan">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</Tag>
             </div>
-          </div>
+          </button>
           <div className="hidden">
             <input
               id="patient-profile-photo"
@@ -610,7 +598,7 @@ export default function PatientDashboard() {
       </div>
 
       {/* Main Panel */}
-      <div className={`space-y-4 ${hasSelection && !showMobileVisitList ? "block" : "hidden lg:block"}`}>
+      <div className={`min-w-0 space-y-4 ${hasSelection && !showMobileVisitList ? "block" : "hidden lg:block"}`}>
         {hasSelection && (
           <button 
             onClick={() => setShowMobileVisitList(true)}
@@ -911,10 +899,14 @@ export default function PatientDashboard() {
               const triageRoom = triageStaff?.room || "Triage Room 1";
               const triageFloor = triageStaff?.floor || "Ground Floor";
               
-              const queueIdx = triageQueue?.queue ? triageQueue.queue.findIndex((item: any) => item.encounter_id === showEncounterId) : -1;
-              const patientsAhead = queueIdx === -1 ? (triageQueue?.queue?.length ?? 0) : queueIdx;
-              const triageTokenNum = queueIdx === -1 ? "T-PENDING" : `T-${100 + queueIdx}`;
-              const estWaitMins = patientsAhead * 5;
+              // The encounter token is the authoritative queue assignment. The
+              // triage queue endpoint returns a plain encounter array and must
+              // never be used to manufacture a second token number.
+              const triageTokenNum = encDetails.token?.number || "Token pending";
+              const tokenRoom = encDetails.token?.room || triageRoom;
+              const tokenFloor = encDetails.token?.floor || triageFloor;
+              const patientsAhead = encDetails.token?.patients_ahead ?? 0;
+              const estWaitMins = encDetails.token?.eta_minutes ?? patientsAhead * 5;
 
               return (
                 <div 
@@ -933,14 +925,16 @@ export default function PatientDashboard() {
                   
                   <div className="text-xs space-y-1">
                     <div className="text-slate-200 font-bold flex items-center justify-center gap-1">
-                      <MapPin size={12} className="text-[var(--cyan)]" /> {triageRoom} ({triageFloor})
+                      <MapPin size={12} className="text-[var(--cyan)]" /> {tokenRoom} ({tokenFloor})
                     </div>
                     <div className="text-[11px] text-[var(--dim)] mt-1">
                       Patients ahead: <span className="font-semibold text-white">{patientsAhead}</span>
                     </div>
-                    <div className="text-[11px] text-[var(--dim)]">
-                      Estimated wait time: <span className="font-semibold text-emerald-400">{estWaitMins} mins</span> <span className="text-[10px] text-[var(--muted)]">(5m per check)</span>
-                    </div>
+                    {patientsAhead > 0 && (
+                      <div className="text-[11px] text-[var(--dim)]">
+                        Estimated wait time: <span className="font-semibold text-emerald-400">{estWaitMins} mins</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               );

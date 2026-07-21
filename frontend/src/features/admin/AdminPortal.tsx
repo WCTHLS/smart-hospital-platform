@@ -261,7 +261,7 @@ export default function AdminPortal() {
       </div>
 
       {/* Main Grid */}
-      <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
+      <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[clamp(340px,28vw,480px)_minmax(0,1fr)] 2xl:gap-7">
         
         <div className="space-y-4">
           {/* Onboard / Edit Doctor */}
@@ -311,7 +311,7 @@ export default function AdminPortal() {
                   </div>
 
                   {role === "DOCTOR" ? (
-                    <div className="grid grid-cols-2 gap-3 animate-in fade-in duration-200">
+                    <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
                       <div className="space-y-1">
                         <label className="block font-bold text-slate-300">Specialty Department</label>
                         <select
@@ -339,7 +339,7 @@ export default function AdminPortal() {
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-2 gap-3 animate-in fade-in duration-200">
+                    <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
                       <div className="space-y-1">
                         <label className="block font-bold text-[var(--dim)]">Role Specialty</label>
                         <input
@@ -365,7 +365,7 @@ export default function AdminPortal() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <label className="block font-bold text-slate-300">Room Assignment *</label>
                       <input
@@ -391,7 +391,7 @@ export default function AdminPortal() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     {role === "DOCTOR" ? (
                       <div className="space-y-1">
                         <label className="block font-bold text-slate-300">OPD Consultation Fee (₹)</label>
@@ -508,7 +508,7 @@ export default function AdminPortal() {
                           </div>
 
                           {dayState.active && (
-                            <div className="grid grid-cols-[1fr_1fr_80px] gap-2 mt-2">
+                            <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_80px]">
                               <div>
                                 <span className="block text-[10px] text-[var(--dim)] mb-0.5">Start</span>
                                 <input

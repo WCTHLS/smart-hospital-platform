@@ -105,6 +105,20 @@ body {
   min-height: 100vh;
 }
 
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  max-width: 100%;
+}
+
 body::before {
   content: "";
   position: fixed;
@@ -135,7 +149,7 @@ a {
   }
 
   .card {
-    @apply relative rounded-2xl p-4;
+    @apply relative min-w-0 rounded-2xl p-4;
     background: var(--panel);
     border: 1px solid var(--glass-border);
     backdrop-filter: blur(12px) saturate(140%);

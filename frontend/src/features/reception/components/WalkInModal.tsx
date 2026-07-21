@@ -286,7 +286,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                 </button>
               </div>
 
-              <div className="grid gap-3 grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Mobile Number (10 digits)">
                   <input
                     type="tel"
@@ -333,7 +333,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                 </div>
               )}
 
-              <div className="grid gap-3 grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="First Name">
                   <input
                     className="input"
@@ -354,7 +354,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                 </Field>
               </div>
 
-              <div className="grid gap-3 grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-3">
                 <Field label="Date of Birth">
                   <input
                     type="date"
@@ -516,7 +516,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
               </div>
 
               <Field label="Choose Payment Channel">
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid gap-3 sm:grid-cols-3">
                   {[
                     { id: "CASH", label: "💵 Cash Collected" },
                     { id: "UPI", label: "📱 QR Scan / UPI" },
