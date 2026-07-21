@@ -320,6 +320,7 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
     if not patient and body.mobile:
         patient = db.scalar(select(models.Patient).where(models.Patient.mobile == body.mobile))
 
+    created = False
     if not patient:
         created = True
         patient = models.Patient(
@@ -1267,10 +1268,34 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         parts = [p.strip() for p in e.notes.split(";") if not p.strip().startswith("parent:")]
         clean_notes = "; ".join(parts) if parts else None
 
+    # Inherit parent vitals and labs if E-Consultation or Revisit
+    if e.visit_type in ["E_CONSULT", "REVISIT"] and parent_id:
+        if not vitals:
+            vitals = db.scalar(select(models.Vitals).where(models.Vitals.encounter_id == parent_id).order_by(models.Vitals.captured_ts.desc()))
+        if not labs:
+            parent_lab_orders = db.scalars(select(models.LabOrder).where(models.LabOrder.encounter_id == parent_id)).all()
+            for lo in parent_lab_orders:
+                results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == lo.lab_order_id)).all()
+                labs.append({
+                    "lab_order_id": lo.lab_order_id,
+                    "patient_id": lo.patient_id,
+                    "test": lo.test_name,
+                    "status": lo.status,
+                    "price": lo.price,
+                    "attachment_name": lo.attachment_name,
+                    "attachment_uri": lo.attachment_uri,
+                    "notes": lo.notes,
+                    "results": [
+                        {"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag}
+                        for r in results
+                    ]
+                })
+
     return {
         "encounter_id": e.encounter_id, "appointment_id": e.appointment_id,
         "parent_encounter_id": parent_id,
         "doctor_id": e.doctor_id or (appointment.doctor_id if appointment else None),
+        "visit_type": e.visit_type,
         "status": e.status, "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
         "notes": clean_notes,

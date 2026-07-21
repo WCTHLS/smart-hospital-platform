@@ -65,15 +65,25 @@ export default function LabOrdersQueue({
             {completed.map((o: any) => (
               <div
                 key={o.lab_order_id}
-                className="p-3 border border-white/5 rounded-xl bg-white/[0.01] flex justify-between items-center text-[13px]"
+                onClick={() => onSelectOrder(o)}
+                className={`p-3 border rounded-xl cursor-pointer transition flex justify-between items-center text-[13px] ${
+                  selectedOrderId === o.lab_order_id
+                    ? "border-[var(--cyan)] bg-[var(--cyan)]/5"
+                    : "border-white/5 hover:bg-white/5 bg-white/[0.01]"
+                }`}
               >
                 <div>
-                  <div className="font-semibold text-slate-300">{o.patient_name}</div>
+                  <div className="font-semibold text-slate-200">{o.patient_name}</div>
                   <div className="text-[11px] text-[var(--muted)]">
                     {o.test_name} · {o.qr_code}
                   </div>
                 </div>
-                <Tag tone="green">COMPLETED</Tag>
+                <div className="flex items-center gap-2">
+                  <Tag tone="green">COMPLETED</Tag>
+                  <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded-lg border border-cyan-500/20 hover:bg-cyan-500/20 transition">
+                    ✏️ Edit
+                  </span>
+                </div>
               </div>
             ))}
           </div>

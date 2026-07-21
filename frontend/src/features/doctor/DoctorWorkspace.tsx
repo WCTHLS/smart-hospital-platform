@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, Mic, FlaskConical, Pill } from "lucide-react";
+import { FileText, Mic, FlaskConical, Pill, CheckCircle2 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useJourney } from "../../lib/store";
 import { Tag } from "../../components/ui";
@@ -35,8 +35,23 @@ export default function DoctorWorkspace() {
   const [rxOverride, setRxOverride] = useState(false);
   const [rxDone, setRxDone] = useState<any>(null);
   const [rxErr, setRxErr] = useState<string | null>(null);
+  const [discharging, setDischarging] = useState(false);
 
   const toggleTest = (t: string) => setSel((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));
+
+  async function handleDischargePatient() {
+    if (!journey.encounterId) return;
+    setDischarging(true);
+    try {
+      await api.discharge(journey.encounterId);
+      handleResetJourney();
+    } catch (e: any) {
+      console.error("Discharge error:", e);
+      handleResetJourney();
+    } finally {
+      setDischarging(false);
+    }
+  }
 
   async function runCds(items: any[]) {
     setRxBusy(true); 
@@ -148,12 +163,23 @@ export default function DoctorWorkspace() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button 
+            type="button"
+            className="btn text-[12.5px] !py-1.5 !px-3.5 font-bold flex items-center gap-1.5 transition shadow-lg"
+            style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "white", border: "none" }}
+            disabled={discharging}
+            onClick={handleDischargePatient}
+            title="Complete consultation and discharge patient"
+          >
+            <CheckCircle2 size={16} />
+            {discharging ? "Discharging..." : "Complete & Discharge"}
+          </button>
           <button 
             className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold" 
             onClick={handleResetJourney}
           >
-            ← Back to Patient Queue
+            ← Back to Queue
           </button>
           <span className="ai-badge"><Mic size={13} /> Copilot session</span>
         </div>

@@ -218,3 +218,68 @@ def update_doctor_schedule(
         
     db.commit()
     return {"status": "success", "message": "Doctor schedule updated successfully"}
+
+
+@router.get("/admin/lab-schedules")
+def list_lab_schedule(category: str = "ALL", db: Session = Depends(get_db)) -> list[dict]:
+    query = select(models.LabSchedule)
+    if category != "ALL":
+        query = query.where(models.LabSchedule.category.in_([category, "ALL"]))
+    
+    schedules = db.scalars(query.order_by(models.LabSchedule.day_of_week.asc())).all()
+    
+    # If no custom lab schedule exists yet, return default Mon-Sun 8 AM - 6 PM
+    if not schedules:
+        out = []
+        for d in range(7):
+            out.append({
+                "schedule_id": f"default-{d}",
+                "category": category,
+                "day_of_week": d,
+                "start_time": "08:00",
+                "end_time": "18:00",
+                "slot_duration_minutes": 20,
+                "max_capacity_per_slot": 5,
+                "active": d < 6, # Mon-Sat active
+            })
+        return out
+        
+    return [{
+        "schedule_id": s.schedule_id,
+        "category": s.category,
+        "day_of_week": s.day_of_week,
+        "start_time": s.start_time,
+        "end_time": s.end_time,
+        "slot_duration_minutes": s.slot_duration_minutes,
+        "max_capacity_per_slot": s.max_capacity_per_slot,
+        "active": s.active,
+    } for s in schedules]
+
+
+@router.post("/admin/lab-schedules")
+def update_lab_schedule(
+    body: list[schemas.LabScheduleRequest],
+    db: Session = Depends(get_db)
+) -> dict:
+    if not body:
+        raise HTTPException(400, "Schedule payload cannot be empty")
+        
+    target_category = body[0].category or "ALL"
+    
+    # Overwrite existing schedules for this category
+    db.query(models.LabSchedule).filter(models.LabSchedule.category == target_category).delete()
+    
+    for item in body:
+        new_sched = models.LabSchedule(
+            category=item.category or "ALL",
+            day_of_week=item.day_of_week,
+            start_time=item.start_time,
+            end_time=item.end_time,
+            slot_duration_minutes=item.slot_duration_minutes,
+            max_capacity_per_slot=item.max_capacity_per_slot,
+            active=True
+        )
+        db.add(new_sched)
+        
+    db.commit()
+    return {"status": "success", "message": f"Lab schedule for {target_category} updated successfully"}

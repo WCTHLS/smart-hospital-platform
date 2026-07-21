@@ -202,12 +202,12 @@ export default function PatientDashboard() {
 
   let activeEncId = activeEpisode?.encounter_id;
   if (activeEpisode) {
-    const activeLab = activeEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
     const activeFollowup = activeEpisode.followups?.find((f: any) => f.status !== "DISCHARGED");
-    if (activeLab) {
-      activeEncId = activeLab.encounter_id;
-    } else if (activeFollowup) {
+    const activeLab = activeEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
+    if (activeFollowup) {
       activeEncId = activeFollowup.encounter_id;
+    } else if (activeLab) {
+      activeEncId = activeLab.encounter_id;
     }
   }
 
@@ -328,6 +328,9 @@ export default function PatientDashboard() {
         parent_encounter_id: parentEncounterId 
       });
       setEconsultSuccessMsg(`E-Consultation requested successfully! Your remote review token is ${res.token_number}. The doctor will review your reports shortly.`);
+      if (res.encounter_id) {
+        setSelectedEncounterId(res.encounter_id);
+      }
       await refetchP360();
     } catch (e: any) {
       setRevisitError(e?.message || "Failed to request E-Consultation. Please try again.");
@@ -789,7 +792,7 @@ export default function PatientDashboard() {
         )}
 
         {/* State 2: Checked in but not triaged (stage === 0) */}
-        {showEncounterId && stage === 0 && encDetails && encDetails.visit_type !== "E_CONSULT" && (
+        {showEncounterId && stage === 0 && encDetails && encDetails.visit_type !== "E_CONSULT" && !currentEpisode?.followups?.some((f: any) => f.visit_type === "E_CONSULT" && f.status !== "DISCHARGED") && (
           <Card className="space-y-4 animate-in fade-in duration-300">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--glass-border)] pb-3">
               <div>
@@ -1246,8 +1249,8 @@ export default function PatientDashboard() {
               </Card>
             )}
 
-            {/* Prescription Slip directly at the top when discharged and not yet collected */}
-            {parentEncDetails?.prescription && parentEncDetails.prescription.status !== "DISPENSED" && (
+            {/* Prescription Slip for patient health records */}
+            {parentEncDetails?.prescription && (
               <PrescriptionSlip 
                 encounterId={parentEncounterId!} 
                 prescription={parentEncDetails.prescription}
@@ -1259,7 +1262,7 @@ export default function PatientDashboard() {
 
             {(() => {
               const fUp = currentEpisode?.followups?.find((f: any) => f.prescription);
-              if (!fUp || fUp.prescription?.status === "DISPENSED") return null;
+              if (!fUp) return null;
               
               return (
                 <PrescriptionSlip 
@@ -1340,7 +1343,7 @@ export default function PatientDashboard() {
                   const docName = currentEpisode?.doctor_name || parentEncDetails?.appointment?.doctor?.name || encDetails?.appointment?.doctor?.name || "the doctor";
 
                   // Check for active follow-up consultations, completed follow-up, or active lab check-ins in the current episode
-                  const activeLab = currentEpisode?.labs?.find((l: any) => l.status !== "DISCHARGED");
+                  const activeLab = currentEpisode?.labs?.find((l: any) => l.status !== "DISCHARGED" && (!hasLabs || !allResulted));
                   const activeFollowup = currentEpisode?.followups?.find((f: any) => f.status !== "DISCHARGED");
                   const completedFollowup = currentEpisode?.followups?.find((f: any) => f.status === "DISCHARGED");
                   const bookedRevisit = appointments.find((appointment: any) =>

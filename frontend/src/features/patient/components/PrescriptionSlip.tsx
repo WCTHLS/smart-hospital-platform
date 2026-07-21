@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Stethoscope, CheckCircle2, Clock, CreditCard, PackageCheck, AlertCircle } from "lucide-react";
 import { Card, Tag } from "../../../components/ui";
 import { api } from "../../../lib/api";
+import { loadRazorpayScript, type RazorpaySuccess } from "../../../lib/razorpay";
 
 interface PrescriptionSlipProps {
   encounterId: string;
@@ -48,11 +49,7 @@ export default function PrescriptionSlip({
   const gst = subtotal * 0.18;
   const total = subtotal + gst;
 
-  interface RazorpaySuccess {
-    razorpay_payment_id: string;
-    razorpay_order_id: string;
-    razorpay_signature: string;
-  }
+
 
   const handlePay = async () => {
     setPaying(true);
@@ -64,17 +61,19 @@ export default function PrescriptionSlip({
       });
 
       let payment: RazorpaySuccess;
-      if (order.key_id === "mock_sandbox_key") {
+      let Razorpay = (window as any).Razorpay;
+      if (!Razorpay) {
+        const loaded = await loadRazorpayScript();
+        if (loaded) Razorpay = (window as any).Razorpay;
+      }
+
+      if (order.key_id === "mock_sandbox_key" || !Razorpay) {
         payment = {
           razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
           razorpay_order_id: order.order_id,
           razorpay_signature: "mock_signature_sandbox",
         };
       } else {
-        const Razorpay = (window as any).Razorpay;
-        if (!Razorpay) {
-          throw new Error("Razorpay Checkout is not available. Refresh the page and try again.");
-        }
         payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
           let settled = false;
           const checkout = new Razorpay({
@@ -145,7 +144,7 @@ export default function PrescriptionSlip({
   };
 
   const pickupToken = prescription.pickup_token;
-  const displayStatus = pickupToken?.status === "READY" ? "READY FOR PICKUP" : prescription.status;
+  const displayStatus = prescription.status === "DISPENSED" ? "DISPENSED / COLLECTED" : (pickupToken?.status === "READY" ? "READY FOR PICKUP" : prescription.status);
 
   return (
     <Card className="space-y-4 animate-in fade-in duration-300">

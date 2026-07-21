@@ -247,7 +247,8 @@ class LabOrder(Base):
     ordered_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     
     # Lab findings & attachments
-    notes: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text) # Human technician notes
+    ai_analysis_summary: Mapped[str | None] = mapped_column(Text) # Doctor-only PyTorch AI findings
     attachment_name: Mapped[str | None] = mapped_column(String(160))
     attachment_uri: Mapped[str | None] = mapped_column(String(300))
 
@@ -451,4 +452,17 @@ class DoctorSchedule(Base):
     department: Mapped[str | None] = mapped_column(String(60))
     location: Mapped[str | None] = mapped_column(String(120))
     room: Mapped[str | None] = mapped_column(String(20))
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class LabSchedule(Base):
+    __tablename__ = "lab_schedule"
+
+    schedule_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    category: Mapped[str] = mapped_column(String(60), default="ALL")  # PATHOLOGY, RADIOLOGY, CARDIOLOGY, ALL
+    day_of_week: Mapped[int] = mapped_column(Integer)  # 0 = Monday, 6 = Sunday
+    start_time: Mapped[str] = mapped_column(String(5), default="08:00")
+    end_time: Mapped[str] = mapped_column(String(5), default="18:00")
+    slot_duration_minutes: Mapped[int] = mapped_column(Integer, default=20)
+    max_capacity_per_slot: Mapped[int] = mapped_column(Integer, default=5)
     active: Mapped[bool] = mapped_column(Boolean, default=True)

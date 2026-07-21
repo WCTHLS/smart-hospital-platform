@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users, Plus, ShieldAlert, BadgeCheck, Stethoscope, Landmark, Edit, X, Calendar, Clock, Search, Trash2 } from "lucide-react";
 import { api } from "../../lib/api";
@@ -23,6 +23,7 @@ const SPECIALTY_DEPARTMENTS = [
 
 export default function AdminPortal() {
   const qc = useQueryClient();
+  const [adminTab, setAdminTab] = useState<"OPD" | "LAB">("OPD");
   const [name, setName] = useState("");
   const [role, setRole] = useState<"DOCTOR" | "NURSE">("DOCTOR");
   const [specialty, setSpecialty] = useState("General Medicine");
@@ -33,9 +34,19 @@ export default function AdminPortal() {
   const [pin, setPin] = useState("");
   const [editingDoctorId, setEditingDoctorId] = useState<string | null>(null);
   
-  // Roster States
+  // Doctor Roster States
   const [schedulingDoctor, setSchedulingDoctor] = useState<any | null>(null);
   const [scheduleDays, setScheduleDays] = useState<Record<number, { active: boolean; start: string; end: string; duration: string }>>({});
+
+  // Lab Schedule & Slot Timings States
+  const [labCategory, setLabCategory] = useState<string>("ALL");
+  const [labScheduleDays, setLabScheduleDays] = useState<Record<number, { active: boolean; start: string; end: string; duration: string; capacity: string }>>(() => {
+    const init: Record<number, { active: boolean; start: string; end: string; duration: string; capacity: string }> = {};
+    for (let i = 0; i < 7; i++) {
+      init[i] = { active: i < 6, start: "08:00", end: "18:00", duration: "20", capacity: "5" };
+    }
+    return init;
+  });
   
   const [submitting, setSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
@@ -47,6 +58,31 @@ export default function AdminPortal() {
     queryKey: ["admin-doctors"],
     queryFn: api.adminDoctors,
   });
+
+  const { data: labSchedules, refetch: refetchLabSchedules } = useQuery({
+    queryKey: ["admin-lab-schedules", labCategory],
+    queryFn: () => api.listLabSchedules(labCategory),
+  });
+
+  // Sync saved backend lab schedules into frontend form state whenever data changes or category switches
+  useEffect(() => {
+    if (labSchedules && labSchedules.length > 0) {
+      const updated: Record<number, { active: boolean; start: string; end: string; duration: string; capacity: string }> = {};
+      for (let i = 0; i < 7; i++) {
+        updated[i] = { active: false, start: "08:00", end: "18:00", duration: "20", capacity: "5" };
+      }
+      labSchedules.forEach((s: any) => {
+        updated[s.day_of_week] = {
+          active: Boolean(s.active),
+          start: s.start_time || "08:00",
+          end: s.end_time || "18:00",
+          duration: String(s.slot_duration_minutes || 20),
+          capacity: String(s.max_capacity_per_slot || 5),
+        };
+      });
+      setLabScheduleDays(updated);
+    }
+  }, [labSchedules]);
 
   const normalizedSearch = directorySearch.trim().toLowerCase();
   const filteredDoctors = doctors?.filter((doctor: any) =>
@@ -183,6 +219,49 @@ export default function AdminPortal() {
     }
   };
 
+  const handleLabDayToggle = (dayIdx: number) => {
+    setLabScheduleDays((prev) => ({
+      ...prev,
+      [dayIdx]: { ...prev[dayIdx], active: !prev[dayIdx].active }
+    }));
+  };
+
+  const handleLabTimeChange = (dayIdx: number, field: "start" | "end" | "duration" | "capacity", val: string) => {
+    setLabScheduleDays((prev) => ({
+      ...prev,
+      [dayIdx]: { ...prev[dayIdx], [field]: val }
+    }));
+  };
+
+  const handleSaveLabSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    const payload = Object.entries(labScheduleDays)
+      .filter(([_, day]) => day.active)
+      .map(([idx, day]) => ({
+        category: labCategory,
+        day_of_week: parseInt(idx, 10),
+        start_time: day.start,
+        end_time: day.end,
+        slot_duration_minutes: parseInt(day.duration, 10),
+        max_capacity_per_slot: parseInt(day.capacity, 10),
+      }));
+
+    try {
+      await api.updateLabSchedules(payload);
+      setSuccessMsg(`Successfully updated lab slot timings & operating schedule for ${labCategory === "ALL" ? "All Departments" : labCategory}!`);
+      await qc.invalidateQueries({ queryKey: ["admin-lab-schedules"] });
+      refetchLabSchedules();
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to update lab schedule.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !experience || !room || !floor || !pin) {
@@ -250,7 +329,7 @@ export default function AdminPortal() {
         <div>
           <h1 className="grad-text text-3xl font-extrabold tracking-tight">⚙ Hospital Administration</h1>
           <p className="text-[13px]" style={{ color: "var(--muted)" }}>
-            Configure clinical staff directory, room rosters, consultation pricing, and security codes.
+            Configure staff directory, OPD rosters, lab operating hours, slot durations, and capacity limits.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -260,8 +339,224 @@ export default function AdminPortal() {
         </div>
       </div>
 
-      {/* Main Grid */}
-      <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[clamp(340px,28vw,480px)_minmax(0,1fr)] 2xl:gap-7">
+      {/* Administration Navigation Tabs */}
+      <div className="flex flex-wrap gap-2 p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit">
+        <button
+          onClick={() => setAdminTab("OPD")}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            adminTab === "OPD"
+              ? "bg-white/10 text-white shadow-sm"
+              : "text-[var(--muted)] hover:text-white"
+          }`}
+        >
+          <Users size={14} className="text-violet-400" /> 👨‍⚕️ Clinical Directory &amp; OPD Rosters
+        </button>
+        <button
+          onClick={() => setAdminTab("LAB")}
+          className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 ${
+            adminTab === "LAB"
+              ? "bg-white/10 text-white shadow-sm"
+              : "text-[var(--muted)] hover:text-white"
+          }`}
+        >
+          <Clock size={14} className="text-[var(--cyan)]" /> 🧪 Lab Slots &amp; Operating Timings
+        </button>
+      </div>
+
+      {/* TAB 2: LAB SLOTS & OPERATING TIMINGS MANAGER */}
+      {adminTab === "LAB" && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Lab Department Filter Bar */}
+          <div className="flex flex-wrap gap-2 p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit">
+            {[
+              { id: "ALL", label: "🏢 All Lab Departments" },
+              { id: "PATHOLOGY", label: "🧪 Pathology (Blood/Urine)" },
+              { id: "RADIOLOGY", label: "🩻 Radiology (X-Ray/Imaging)" },
+              { id: "CARDIOLOGY", label: "❤️ Cardiology (ECG)" },
+            ].map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setLabCategory(d.id)}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition ${
+                  labCategory === d.id
+                    ? "bg-[var(--cyan)]/20 border border-[var(--cyan)]/40 text-[var(--cyan)]"
+                    : "text-[var(--muted)] hover:text-white"
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-[440px_1fr]">
+            {/* Lab Slot Timings Form */}
+            <div className="space-y-4">
+              <SectionTitle>Configure Operating Hours &amp; Slots</SectionTitle>
+              <Card className="space-y-4 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.06), transparent)" }}>
+                <div className="flex items-center justify-between mb-1 pb-2 border-b border-white/5">
+                  <div className="flex items-center gap-2">
+                    <Clock className="text-[var(--cyan)]" size={16} />
+                    <span className="font-extrabold text-[12px] text-[var(--cyan)] uppercase tracking-wider">
+                      {labCategory === "ALL" ? "Global Lab Timings" : `${labCategory} Department`}
+                    </span>
+                  </div>
+                  <Tag tone="cyan">Lab Slots Config</Tag>
+                </div>
+
+                <form onSubmit={handleSaveLabSchedule} className="space-y-4 text-xs">
+                  <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                    {DAYS_OF_WEEK.map((dayName, idx) => {
+                      const dayState = labScheduleDays[idx] || { active: idx < 6, start: "08:00", end: "18:00", duration: "20", capacity: "5" };
+                      return (
+                        <div key={idx} className={`p-3 rounded-xl border transition ${dayState.active ? "border-white/10 bg-white/[0.01]" : "border-transparent opacity-50"}`}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="flex items-center gap-2 font-bold text-slate-200 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={dayState.active}
+                                onChange={() => handleLabDayToggle(idx)}
+                                className="w-3.5 h-3.5 accent-[var(--cyan)] rounded"
+                              />
+                              {dayName}
+                            </label>
+                            {dayState.active ? (
+                              <Tag tone="green">OPEN</Tag>
+                            ) : (
+                              <Tag tone="gray">CLOSED</Tag>
+                            )}
+                          </div>
+
+                          {dayState.active && (
+                            <div className="grid grid-cols-4 gap-2 mt-2">
+                              <div>
+                                <span className="block text-[10px] text-[var(--dim)] mb-0.5">Start</span>
+                                <input
+                                  type="time"
+                                  value={dayState.start}
+                                  onChange={(e) => handleLabTimeChange(idx, "start", e.target.value)}
+                                  className="input !py-0.5 !px-1 text-[11px] font-bold"
+                                />
+                              </div>
+                              <div>
+                                <span className="block text-[10px] text-[var(--dim)] mb-0.5">End</span>
+                                <input
+                                  type="time"
+                                  value={dayState.end}
+                                  onChange={(e) => handleLabTimeChange(idx, "end", e.target.value)}
+                                  className="input !py-0.5 !px-1 text-[11px] font-bold"
+                                />
+                              </div>
+                              <div>
+                                <span className="block text-[10px] text-[var(--dim)] mb-0.5">Duration</span>
+                                <select
+                                  value={dayState.duration}
+                                  onChange={(e) => handleLabTimeChange(idx, "duration", e.target.value)}
+                                  className="input !py-0.5 !px-1 text-[11px]"
+                                >
+                                  <option value="10">10 mins</option>
+                                  <option value="15">15 mins</option>
+                                  <option value="20">20 mins</option>
+                                  <option value="30">30 mins</option>
+                                  <option value="60">60 mins</option>
+                                </select>
+                              </div>
+                              <div>
+                                <span className="block text-[10px] text-[var(--dim)] mb-0.5">Capacity</span>
+                                <select
+                                  value={dayState.capacity}
+                                  onChange={(e) => handleLabTimeChange(idx, "capacity", e.target.value)}
+                                  className="input !py-0.5 !px-1 text-[11px]"
+                                >
+                                  <option value="1">1 / slot</option>
+                                  <option value="3">3 / slot</option>
+                                  <option value="5">5 / slot</option>
+                                  <option value="10">10 / slot</option>
+                                  <option value="20">20 / slot</option>
+                                </select>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {errorMsg && (
+                    <div className="p-2.5 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 flex items-center gap-1.5">
+                      <ShieldAlert size={14} />
+                      <span>{errorMsg}</span>
+                    </div>
+                  )}
+
+                  {successMsg && (
+                    <div className="p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 flex items-center gap-1.5">
+                      <BadgeCheck size={14} />
+                      <span>{successMsg}</span>
+                    </div>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="btn w-full font-bold py-2.5 text-center"
+                    style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                  >
+                    {submitting ? "Saving Lab Timings..." : "Save Lab Operating Schedule & Slots"}
+                  </button>
+                </form>
+              </Card>
+            </div>
+
+            {/* Generated Timetable Preview */}
+            <div className="space-y-4">
+              <SectionTitle>Generated Lab Slot Timetable Preview</SectionTitle>
+              <Card className="space-y-4 min-h-[400px]">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-[13px] text-slate-200 flex items-center gap-2">
+                    <Calendar size={15} className="text-[var(--cyan)]" /> Active Daily Slot Matrix ({labCategory})
+                  </h4>
+                  <Tag tone="violet">Auto Generated</Tag>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {DAYS_OF_WEEK.map((dayName, idx) => {
+                    const dayState = labScheduleDays[idx];
+                    if (!dayState || !dayState.active) {
+                      return (
+                        <div key={idx} className="p-3 border border-white/5 rounded-xl bg-white/[0.01] opacity-40">
+                          <div className="font-bold text-slate-400 text-xs">{dayName}</div>
+                          <div className="text-[11px] text-red-400 mt-1">Closed / No Slots</div>
+                        </div>
+                      );
+                    }
+                    const dur = parseInt(dayState.duration, 10);
+                    const cap = dayState.capacity;
+                    return (
+                      <div key={idx} className="p-3 border border-white/10 rounded-xl bg-white/[0.02] space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-slate-200 text-xs">{dayName}</span>
+                          <Tag tone="green">{dur} min slots</Tag>
+                        </div>
+                        <div className="text-[11px] text-[var(--cyan)] font-mono font-bold">
+                          {dayState.start} — {dayState.end}
+                        </div>
+                        <div className="text-[10.5px] text-[var(--muted)] flex justify-between">
+                          <span>Patient Limit: <b>{cap} / slot</b></span>
+                          <span>Operating Status: <b className="text-emerald-400">Active</b></span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 1: OPD CLINICAL DIRECTORY & DOCTOR ROSTERS */}
+      {adminTab === "OPD" && (
+        <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
         
         <div className="space-y-4">
           {/* Onboard / Edit Doctor */}
@@ -682,6 +977,7 @@ export default function AdminPortal() {
         </div>
 
       </div>
+      )}
     </div>
   );
 }

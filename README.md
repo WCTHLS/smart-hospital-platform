@@ -48,7 +48,7 @@ backend (FastAPI)
 |--------------|-----------|
 | Frontend     | React 18, TypeScript, Vite, TailwindCSS, Framer Motion, TanStack Query, Recharts, lucide-react |
 | Backend      | Python 3.11+, FastAPI, SQLAlchemy 2.0, Pydantic v2, Uvicorn |
-| AI           | Ollama (Llama 3.x / Meditron / OpenBioLLM), local RAG knowledge, deterministic clinical fallback |
+| AI & Deep Learning | PyTorch, TorchXRayVision (DenseNet-121), MONAI 3D, Pydicom, Ollama / Gemini / Grok Gateway |
 | Data         | PostgreSQL (prod) / SQLite (zero-setup dev), Redis (cache/queue), event bus (→ Kafka) |
 | Interop      | FHIR R4, LOINC / SNOMED CT / ICD-10, ABDM connector stubs |
 | Platform     | Docker Compose, GitOps-ready |
@@ -56,21 +56,35 @@ backend (FastAPI)
 ## Quick start (zero-setup dev — no Docker, no GPU)
 
 ```bash
-# 1) Backend
+# 1) Backend Setup
 cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python -m app.seed            # creates SQLite db + demo data
-uvicorn app.main:app --reload # http://localhost:8000  (docs at /docs)
+python -m venv .venv
+# On Windows PowerShell:
+.venv\Scripts\Activate.ps1
+# On Linux/Mac:
+source .venv/bin/activate
 
-# 2) Frontend (new terminal)
+# Install all dependencies (including PyTorch vision, MONAI, and DICOM parsers)
+pip install -r requirements.txt
+
+python -m uvicorn app.main:app --reload # http://localhost:8000 (docs at /docs)
+
+# 2) Frontend Setup (new terminal)
 cd frontend
 npm install
 npm run dev                   # http://localhost:5173
 ```
 
-Open **http://localhost:5173** and walk the full patient journey. Everything works without Ollama
-(the AI falls back to a deterministic clinical engine).
+Open **http://localhost:5173** and walk the full patient journey.
+
+### 🧬 Local PyTorch Diagnostic AI & DICOM Vision Pipeline
+
+The platform includes a local deep-learning computer vision & pathology engine for instant, privacy-first diagnostic evaluation:
+
+- **Radiology (X-Ray)**: Evaluated by PyTorch **TorchXRayVision** (DenseNet-121 trained on NIH ChestX-ray14 & CheXpert) for pneumothorax, opacity, effusion, and fractures.
+- **CT / MRI Scans & DICOM Files**: Native DICOM medical image parsing (`pydicom`) fed into **MONAI 3D Volumetric Tensor Engine** for nodule, hemorrhage, and soft tissue analysis.
+- **Pathology & Blood Reports**: Evaluated by **Biological Reference Range Engine** for numeric threshold validation (CBC, CRP, HbA1c, Glucose, LFT, RFT).
+- **Doctor-Only AI Privacy**: Local PyTorch AI outputs are saved in a dedicated `ai_analysis_summary` database field visible **exclusively in the Doctor Workspace** and stripped from patient-facing views.
 
 ### Razorpay test cards
 
@@ -107,8 +121,10 @@ docker compose up --build
 | Intake | Conversational symptom capture, red-flag detection | Nurse/doctor reviews |
 | Triage | ESI acuity, specialty & doctor match, queueing | Nurse can override |
 | Ambient Docs | Transcribe encounter → draft SOAP + ICD-10 | Doctor approves before commit |
-| Lab Intelligence | Duplicate/appropriateness, structure results, flag abnormal | Doctor acknowledges |
-| Rx CDS | Allergy / interaction / dose / formulary / stock + equivalents | Doctor approves & e-signs |
+| Lab Intelligence | Local PyTorch DICOM/X-ray vision & pathology report analyzer | Doctor verifies |
+| Rx CDS | Anonymized generic formulation guidance & stock reservation | Doctor approves & e-signs |
+| Compliance | Documentation completeness & gap detection | Officer resolves/waives |
+| Command-Center | Live ops analytics & anomaly alerts | Ops acts on recommendations |
 | Compliance | Documentation completeness & gap detection | Officer resolves/waives |
 | Command-Center | Live ops analytics & anomaly alerts | Ops acts on recommendations |
 
