@@ -456,7 +456,7 @@ def update_patient_profile_photo(
         db,
         actor_id=patient.patient_id,
         actor_role="PATIENT",
-        action="PATIENT_PROFILE_PHOTO_UPDATED",
+        action="PATIENT_PROFILE_PHOTO_UPDATED" if body.profile_photo else "PATIENT_PROFILE_PHOTO_REMOVED",
         entity_type="patient",
         entity_id=patient.patient_id,
     )

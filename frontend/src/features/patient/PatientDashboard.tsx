@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { 
   LogOut, Clipboard, Camera, UserRound, ArrowLeft, CheckCircle2, 
-  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar
+  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar, Trash2
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useJourney } from "../../lib/store";
@@ -66,7 +66,20 @@ export default function PatientDashboard() {
   const [requestingEconsult, setRequestingEconsult] = useState(false);
   const [econsultSuccessMsg, setEconsultSuccessMsg] = useState("");
   const [revisitError, setRevisitError] = useState("");
-  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(() => {
+    const shouldOpen = sessionStorage.getItem("open-patient-profile") === "true";
+    if (shouldOpen) sessionStorage.removeItem("open-patient-profile");
+    return shouldOpen;
+  });
+
+  useEffect(() => {
+    const openProfile = () => {
+      sessionStorage.removeItem("open-patient-profile");
+      setShowProfileModal(true);
+    };
+    window.addEventListener("open-patient-profile", openProfile);
+    return () => window.removeEventListener("open-patient-profile", openProfile);
+  }, []);
 
   const portalSession = getPortalPatient()!;
   const portalPatientId = portalSession.patient_id;
@@ -104,6 +117,21 @@ export default function PatientDashboard() {
       await refetchP360();
     } catch {
       setPhotoError("Unable to upload the profile photo. Please try again.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
+
+  async function handlePhotoDelete() {
+    if (!window.confirm("Delete your profile photo?")) return;
+    setPhotoUploading(true);
+    setPhotoError("");
+    try {
+      await api.updatePatientProfilePhoto(portalPatientId, null);
+      savePortalPatient({ ...portalSession, profile_photo: undefined });
+      await refetchP360();
+    } catch {
+      setPhotoError("Unable to delete the profile photo. Please try again.");
     } finally {
       setPhotoUploading(false);
     }
@@ -428,11 +456,9 @@ export default function PatientDashboard() {
     <div className="patient-page grid gap-4 sm:gap-6 lg:grid-cols-[300px_1fr] animate-in fade-in duration-300">
       {/* Sidebar - Visits List */}
       <div className={`space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
-        <Card className="space-y-3">
+        <Card>
           <div 
-            onClick={() => setShowProfileModal(true)}
-            className="flex items-center gap-3 cursor-pointer p-1.5 -m-1.5 rounded-xl hover:bg-white/5 transition border border-transparent hover:border-cyan-500/20 group"
-            title="Click to view full patient details"
+            className="flex items-center gap-3"
           >
             <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5 group-hover:border-cyan-400/30">
               {(p360?.patient?.profile_photo || portalSession.profile_photo)
@@ -440,15 +466,15 @@ export default function PatientDashboard() {
                 : <UserRound size={30} className="text-[var(--dim)] group-hover:text-[var(--cyan)]" />}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)] flex items-center justify-between">
+              <div className="hidden">
                 <span>Patient profile</span>
                 <span className="text-[9px] text-[var(--cyan)] font-extrabold group-hover:underline">View Details ➔</span>
               </div>
-              <div className="truncate font-extrabold text-base text-slate-100 group-hover:text-cyan-300 transition-colors">{portalPatientName}</div>
+              <div className="truncate text-base font-extrabold text-slate-100">{portalPatientName}</div>
               <Tag tone="cyan">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</Tag>
             </div>
           </div>
-          <div>
+          <div className="hidden">
             <input
               id="patient-profile-photo"
               className="hidden"
@@ -468,7 +494,7 @@ export default function PatientDashboard() {
           </div>
           <button
             onClick={handleSignOut}
-            className="btn ghost w-full text-xs !py-1 px-3 flex items-center justify-center gap-1.5"
+            className="hidden"
           >
             <LogOut size={13} /> Sign Out
           </button>
@@ -1684,6 +1710,34 @@ export default function PatientDashboard() {
                   {p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}
                 </div>
               </div>
+            </div>
+
+            <div>
+              <input
+                id="patient-profile-photo-modal"
+                className="hidden"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                disabled={photoUploading}
+                onChange={(event) => {
+                  void handlePhotoUpload(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+              <div className="flex gap-2">
+                <label htmlFor="patient-profile-photo-modal" className="btn ghost flex flex-1 cursor-pointer items-center justify-center gap-1.5 text-xs !py-1.5">
+                  <Camera size={14} /> {photoUploading ? "Updating..." : "Upload profile photo"}
+                </label>
+                {(p360?.patient?.profile_photo || portalSession.profile_photo) && (
+                  <button type="button" onClick={handlePhotoDelete} disabled={photoUploading}
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-rose-500/25 bg-rose-500/10 text-rose-400 transition hover:bg-rose-500/20 hover:text-rose-300 disabled:opacity-50"
+                    aria-label="Delete profile photo" title="Delete profile photo">
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+              {photoError && <div className="mt-2 text-xs text-rose-300">{photoError}</div>}
+              <div className="mt-2 text-center text-[10px] text-[var(--dim)]">JPEG, PNG or WebP · Maximum 2 MB</div>
             </div>
 
             <div className="space-y-2.5 text-xs">

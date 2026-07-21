@@ -49,7 +49,7 @@ export const api = {
   registerPatient: (body: any) => post<any>("/api/v1/patients/register", body),
   updatePatientProfile: (patient_id: string, body: any) =>
     put<any>(`/api/v1/patients/${patient_id}/profile`, body),
-  updatePatientProfilePhoto: (patient_id: string, profile_photo: string) =>
+  updatePatientProfilePhoto: (patient_id: string, profile_photo: string | null) =>
     put<any>(`/api/v1/patients/${patient_id}/profile-photo`, { profile_photo }),
   sendOtp: (mobile: string) => post<any>("/api/v1/identity/otp/send", { mobile }),
   verifyOtp: (mobile: string, code: string) => post<any>("/api/v1/identity/otp/verify", { mobile, code }),

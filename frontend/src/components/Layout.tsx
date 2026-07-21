@@ -4,11 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart, Cpu,
-  Smartphone, BellRing, User, ShieldAlert, FlaskConical, Pill,
+  Smartphone, BellRing, User, ShieldAlert, FlaskConical, Pill, LogOut,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useJourney, Role } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
+import { clearPortalPatient } from "../lib/patientAuth";
 
 const NAV = [
   { to: "/", label: "Home", icon: Activity, end: true },
@@ -107,6 +108,18 @@ export default function Layout({ children }: { children: ReactNode }) {
     else if (newRole === "pharmacist") nav("/pharmacy");
   };
 
+  const openPatientProfile = () => {
+    sessionStorage.setItem("open-patient-profile", "true");
+    nav("/patient");
+    window.dispatchEvent(new Event("open-patient-profile"));
+  };
+
+  const logoutPatient = () => {
+    clearPortalPatient();
+    journey.reset();
+    nav("/patient/login", { replace: true });
+  };
+
   return (
     <div className="min-h-screen overflow-x-hidden">
       {/* Sidebar */}
@@ -123,7 +136,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </span>
         </button>
 
-        {visibleNav.map((n) => (
+        {(activeRole === "patient" ? visibleNav.filter((n) => n.to === "/") : visibleNav).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end}
             className={({ isActive }) =>
               `flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition ${
@@ -139,6 +152,31 @@ export default function Layout({ children }: { children: ReactNode }) {
             {n.label}
           </NavLink>
         ))}
+
+        {activeRole === "patient" && (
+          <>
+            <button type="button" onClick={openPatientProfile}
+              className="flex items-center gap-2.5 rounded-xl border border-transparent px-3 py-2 text-left text-[13.5px] font-semibold text-[var(--muted)] transition hover:border-[var(--line2)] hover:bg-white/5 hover:text-white">
+              <User size={17} /> Profile
+            </button>
+            {visibleNav.filter((n) => n.to !== "/").map((n) => (
+              <NavLink key={n.to} to={n.to} end={n.end}
+                className={({ isActive }) => `flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition ${isActive ? "text-white" : ""}`}
+                style={({ isActive }: any) => ({
+                  color: isActive ? "#eafcff" : "var(--muted)",
+                  background: isActive ? "linear-gradient(90deg, rgba(52,225,232,.16), rgba(167,139,250,.16))" : "transparent",
+                  border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
+                  boxShadow: isActive ? "0 0 14px rgba(52,225,232,.15)" : "none",
+                })}>
+                <n.icon size={17} /> {n.label}
+              </NavLink>
+            ))}
+            <button type="button" onClick={logoutPatient}
+              className="flex items-center gap-2.5 rounded-xl border border-transparent px-3 py-2 text-left text-[13.5px] font-semibold text-rose-400 transition hover:border-rose-500/20 hover:bg-rose-500/10 hover:text-rose-300">
+              <LogOut size={17} /> Logout
+            </button>
+          </>
+        )}
 
         <div className="mt-auto space-y-2">
           {journey.patientName && (
