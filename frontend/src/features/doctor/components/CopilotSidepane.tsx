@@ -155,7 +155,7 @@ export default function CopilotSidepane({
         </Card>
       ) : (
         /* AI Summary Banner */
-        <Card className="relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.08), transparent)" }}>
+        <Card className="ai-summary-card relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.08), transparent)" }}>
           <div className="flex items-center justify-between gap-1.5 mb-2">
             <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
               <Activity size={13} /> AI Clinical Summary

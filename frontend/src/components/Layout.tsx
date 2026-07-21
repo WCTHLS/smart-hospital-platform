@@ -127,7 +127,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen overflow-x-hidden">
-      <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between gap-2 border-b px-3 sm:gap-3 sm:px-5 lg:px-6"
+      <header className="app-header fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between gap-2 border-b px-3 sm:gap-3 sm:px-5 lg:px-6"
         style={{ borderColor: "var(--line)", background: "rgba(6,9,18,.82)", backdropFilter: "blur(16px)" }}>
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
@@ -141,7 +141,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             {sidebarOpen ? <PanelLeftClose size={18} /> : <Menu size={19} />}
           </button>
           <button type="button" className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => nav("/")} aria-label="Go to home">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
+            <span className="brand-mark grid h-9 w-9 shrink-0 place-items-center rounded-xl"
               style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))", boxShadow: "0 0 18px rgba(52,225,232,.5)" }}>
               <HeartPulse size={18} color="#04121a" />
             </span>
@@ -155,7 +155,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
-          <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold sm:text-[11px]"
+          <span className="connection-pill flex shrink-0 items-center gap-1.5 text-[10px] font-bold sm:text-[11px]"
             style={{ color: connected ? "#a7f3c4" : "#ffe0a3" }}>
             <span className="inline-block h-2 w-2 rounded-full"
               style={{ background: connected ? "var(--mint)" : "var(--amber)", boxShadow: `0 0 8px ${connected ? "var(--mint)" : "var(--amber)"}` }} />
@@ -187,7 +187,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       {sidebarOpen && <button type="button" className="fixed inset-x-0 bottom-0 top-16 z-10 bg-black/55 lg:hidden" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
 
       {/* Sidebar */}
-      <aside className={`fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+      <aside className={`app-sidebar fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
         style={{ borderRight: "1px solid var(--line)", background: "rgba(6,9,18,.7)", backdropFilter: "blur(14px)" }}>
         {(activeRole === "patient" ? visibleNav.filter((n) => n.to === "/") : visibleNav).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.end} onClick={closeSidebarOnMobile}

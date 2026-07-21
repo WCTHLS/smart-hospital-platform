@@ -8,13 +8,13 @@ import { api } from "../lib/api";
 import { Card, Metric, AgentBadge } from "../components/ui";
 
 const AGENTS = [
-  { icon: MessageSquareHeart, name: "Intake", desc: "Conversational symptom capture + red-flag detection" },
-  { icon: HeartPulse, name: "Triage", desc: "Urgency assessment, specialty & doctor match, queueing" },
-  { icon: FileText, name: "Ambient Docs", desc: "Transcribe consult → draft SOAP + ICD-10" },
-  { icon: FlaskConical, name: "Lab Intelligence", desc: "Duplicate check, structure results, flag abnormal" },
-  { icon: Pill, name: "Rx CDS", desc: "Allergy / interaction / dose / formulary / stock" },
-  { icon: ShieldCheck, name: "Compliance", desc: "Documentation completeness & gap detection" },
-  { icon: MonitorDot, name: "Command-Center", desc: "Live ops analytics & anomaly alerts" },
+  { icon: MessageSquareHeart, name: "Patient Intake", desc: "Patient details, appointments and symptom capture" },
+  { icon: HeartPulse, name: "Clinical Triage", desc: "Vitals, urgency assessment and doctor assignment" },
+  { icon: FileText, name: "Clinical Notes", desc: "Consultation transcription with draft SOAP notes and ICD 10 coding" },
+  { icon: FlaskConical, name: "Laboratory", desc: "Lab orders, duplicate checks, results and abnormal value flags" },
+  { icon: Pill, name: "Prescription Safety", desc: "Allergy, interaction, dosage, formulary and stock checks" },
+  { icon: ShieldCheck, name: "Documentation Review", desc: "Checks for missing clinical records before discharge" },
+  { icon: MonitorDot, name: "Hospital Operations", desc: "Live queues, hospital activity and operational alerts" },
 ];
 
 export default function Home() {
@@ -28,26 +28,21 @@ export default function Home() {
         <div className="relative px-8 py-10"
           style={{ background: "radial-gradient(760px 320px at 20% -30%, rgba(52,225,232,.22), transparent 62%), radial-gradient(700px 320px at 100% 120%, rgba(167,139,250,.20), transparent 60%)" }}>
           <div className="text-[12px] font-extrabold uppercase tracking-[0.34em]" style={{ color: "var(--cyan)" }}>
-            Next-Gen Clinical OS · Open Source
+            Modern Clinical Operating System
           </div>
           <h1 className="grad-text mt-3 max-w-2xl text-4xl font-extrabold leading-tight">
-            A queue-free, AI-assisted hospital journey — where patients never struggle.
+            One connected platform for patients, clinicians, and hospital operations.
           </h1>
           <p className="mt-3 max-w-2xl text-[15px]" style={{ color: "var(--muted)" }}>
-            From WhatsApp check-in to digital discharge, an agentic-AI mesh drafts and advises while a
-            clinician approves every note, order and prescription. ABDM-ready. Consent-first. Auditable.
+            Manage the complete care journey—from appointments and digital check-in to consultations,
+            clinical documentation, prescriptions, billing, and discharge. AI assists with routine work
+            while clinicians stay in control of every decision.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button className="btn" onClick={() => nav("/patient/checkin")}>
               Start a patient journey <ArrowRight size={16} />
             </button>
             <button className="btn ghost" onClick={() => nav("/command")}>Open Command Center</button>
-          </div>
-          <div className="mt-6 flex flex-wrap gap-2">
-            {["ABDM / ABHA", "FHIR R4", "Clinician-in-the-loop", "DPDP-aligned", "Self-hosted AI"].map((t) => (
-              <span key={t} className="rounded-full px-3 py-1 text-[12px]"
-                style={{ background: "var(--panel)", border: "1px solid var(--glass-border)", color: "var(--ink)" }}>{t}</span>
-            ))}
           </div>
         </div>
       </Card>
@@ -69,8 +64,8 @@ export default function Home() {
       {/* Agent mesh */}
       <div>
         <div className="mb-2 flex items-center gap-2">
-          <h2 className="grad-text text-lg font-extrabold">The agent mesh</h2>
-          <AgentBadge label="7 agents · guardrailed" />
+          <h2 className="grad-text text-lg font-extrabold">Connected clinical workflows</h2>
+          <AgentBadge label="7 integrated workflows" />
         </div>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           {AGENTS.map((a, i) => (
@@ -79,11 +74,11 @@ export default function Home() {
               <Card className="h-full">
                 <div className="flex items-start gap-3">
                   <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl"
-                    style={{ background: "linear-gradient(150deg, rgba(52,225,232,.25), rgba(167,139,250,.3))", border: "1px solid var(--lit)" }}>
-                    <a.icon size={18} color="#eafcff" />
+                    style={{ background: "rgba(207,239,239,.72)", border: "1px solid rgba(55,181,177,.24)" }}>
+                    <a.icon size={18} color="#0b787a" />
                   </div>
                   <div>
-                    <div className="font-bold" style={{ color: "#d7e5ff" }}>{a.name}</div>
+                    <div className="font-bold" style={{ color: "var(--ink)" }}>{a.name}</div>
                     <div className="text-[12.5px]" style={{ color: "var(--muted)" }}>{a.desc}</div>
                   </div>
                 </div>

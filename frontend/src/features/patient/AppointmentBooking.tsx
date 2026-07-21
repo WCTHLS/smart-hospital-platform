@@ -203,7 +203,7 @@ export default function AppointmentBooking() {
         <textarea className="input min-h-[130px]" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Describe symptoms or reason for the appointment" />
         <div className="actions-row between">
           <button className="btn-link" onClick={() => nav(redirect)}><ArrowLeft size={14} /> Cancel</button>
-          <button className="btn g" disabled={!reason.trim()} onClick={() => setStep("date")}>Next</button>
+          <button className="btn" disabled={!reason.trim()} onClick={() => setStep("date")}>Next</button>
         </div>
       </>}
 
@@ -212,7 +212,7 @@ export default function AppointmentBooking() {
         <Field label="Date"><input className="input" type="date" min={todayIso()} value={date} onChange={(event) => setDate(event.target.value)} /></Field>
         <div className="actions-row between">
           <button className="btn-link" onClick={() => setStep("reason")}><ArrowLeft size={14} /> Back</button>
-          <button className="btn g" disabled={busy || !date} onClick={findAvailability}>Show availability</button>
+          <button className="btn" disabled={busy || !date} onClick={findAvailability}>Show availability</button>
         </div>
       </>}
 
@@ -242,7 +242,7 @@ export default function AppointmentBooking() {
         </div>)}
         <div className="actions-row between">
           <button className="btn-link" onClick={() => setStep("date")}><ArrowLeft size={14} /> Change date</button>
-          <button className="btn g" disabled={!selectedSlot} onClick={() => setStep("payment")}>Continue to payment</button>
+          <button className="btn" disabled={!selectedSlot} onClick={() => setStep("payment")}>Continue to payment</button>
         </div>
       </>}
 
@@ -250,17 +250,17 @@ export default function AppointmentBooking() {
         <h3 className="text-lg font-extrabold">Payment</h3>
         <div className="holo space-y-2"><Detail label="Doctor" value={selectedSlot.doctor_name} /><Detail label="Speciality" value={selectedSlot.specialty} /><Detail label="Date" value={selectedSlot.scheduled_start.slice(0, 10)} /><Detail label="Time" value={timeLabel(selectedSlot.scheduled_start)} /><Detail label="Consultation fee" value={selectedSlot.opd_fee != null ? `₹${Number(selectedSlot.opd_fee).toFixed(2)}` : "Not configured"} /></div>
         <Field label="Billing email (Optional)"><input className="input" type="email" autoComplete="email" value={checkoutEmail} onChange={(event) => setCheckoutEmail(event.target.value)} placeholder="patient@example.com" /></Field>
-        <div className="actions-row between"><button className="btn-link" disabled={busy} onClick={() => setStep("slots")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy || selectedSlot.opd_fee == null || (checkoutEmail.trim() !== "" && !/^\S+@\S+\.\S+$/.test(checkoutEmail.trim()))} onClick={payAndBook}><CreditCard size={16} /> {busy ? "Opening checkout..." : `Pay ₹${Number(selectedSlot.opd_fee || 0).toFixed(2)}`}</button></div>
+        <div className="actions-row between"><button className="btn-link" disabled={busy} onClick={() => setStep("slots")}><ArrowLeft size={14} /> Back</button><button className="btn" disabled={busy || selectedSlot.opd_fee == null || (checkoutEmail.trim() !== "" && !/^\S+@\S+\.\S+$/.test(checkoutEmail.trim()))} onClick={payAndBook}><CreditCard size={16} /> {busy ? "Opening checkout..." : `Pay ₹${Number(selectedSlot.opd_fee || 0).toFixed(2)}`}</button></div>
       </>}
 
       {step === "details" && appointment && <>
         <h3 className="text-lg font-extrabold">Appointment details</h3>
         <div className="holo grid gap-x-6 md:grid-cols-2"><Detail label="Doctor" value={appointment.doctor?.name} /><Detail label="Speciality" value={appointment.specialty} /><Detail label="Reason for visit" value={appointment.reason} /><Detail label="Date" value={appointment.scheduled_start.slice(0, 10)} /><Detail label="Time" value={timeLabel(appointment.scheduled_start)} /><Detail label="Room / floor" value={[appointment.doctor?.room, appointment.doctor?.floor].filter(Boolean).join(" / ")} /><Detail label="Payment" value="Paid" /><Detail label="Status" value={appointment.status} /></div>
-        <div className="actions-row between"><button className="btn ghost" disabled={busy} onClick={cancelAndReturn}>Cancel appointment</button><button className="btn g" onClick={() => nav(redirect, { replace: true })}>OK</button></div>
+        <div className="actions-row between"><button className="btn ghost" disabled={busy} onClick={cancelAndReturn}>Cancel appointment</button><button className="btn" onClick={() => nav(redirect, { replace: true })}>OK</button></div>
       </>}
     </section>
 
-    {showPaymentDone && <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true"><div className="card w-full max-w-sm text-center"><CheckCircle2 className="mx-auto mb-3" size={44} color="var(--mint)" /><h3 className="text-lg font-extrabold">Payment done</h3><p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>Your appointment has been booked successfully.</p><button className="btn g mt-4" onClick={() => { setShowPaymentDone(false); setStep("details"); }}>View appointment</button></div></div>}
+    {showPaymentDone && <div className="fixed inset-0 z-50 grid place-items-center bg-black/55 p-4" role="dialog" aria-modal="true"><div className="card w-full max-w-sm text-center"><CheckCircle2 className="mx-auto mb-3" size={44} color="#10B981" /><h3 className="text-lg font-extrabold">Payment done</h3><p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>Your appointment has been booked successfully.</p><button className="btn mt-4" onClick={() => { setShowPaymentDone(false); setStep("details"); }}>View appointment</button></div></div>}
   </div>;
 }
 
