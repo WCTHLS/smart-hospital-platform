@@ -106,8 +106,83 @@ export default function Prescription({
     }
   };
 
+  // AI Formulary Guidance State
+  const [loadingGuidance, setLoadingGuidance] = useState(false);
+  const [guidanceData, setGuidanceData] = useState<any>(null);
+  const [showGuidance, setShowGuidance] = useState(true);
+
+  async function fetchGuidance() {
+    setLoadingGuidance(true);
+    try {
+      const res = await api.getFormularyGuidance(encounterId);
+      setGuidanceData(res);
+      setShowGuidance(true);
+    } catch (err) {
+      console.error("Failed to fetch formulary guidance:", err);
+    } finally {
+      setLoadingGuidance(false);
+    }
+  }
+
   return (
-    <div className="w-full animate-in fade-in duration-300">
+    <div className="w-full animate-in fade-in duration-300 space-y-3">
+      {/* AI Generic Formulary Guidance Advisory Panel */}
+      <Card className="border border-cyan-500/30 bg-cyan-950/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-base">💡</span>
+            <div>
+              <h4 className="font-bold text-xs text-cyan-300">AI Pharmacological & Generic Formula Guidance</h4>
+              <p className="text-[11px] text-slate-400">
+                Analyzes patient issues and local PyTorch AI diagnostic reports to suggest generic formulations.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={fetchGuidance}
+            disabled={loadingGuidance}
+            className="btn cyan text-xs !py-1 !px-3 inline-flex items-center gap-1.5 shrink-0"
+          >
+            {loadingGuidance ? "Analyzing..." : "⚡ Suggest Generic Formulas"}
+          </button>
+        </div>
+
+        {guidanceData && showGuidance && (
+          <div className="mt-3 pt-3 border-t border-cyan-500/20 space-y-2.5 animate-in fade-in duration-200 text-xs">
+            {/* Clean Summary Banner */}
+            <div className="flex items-center gap-2 text-[11.5px] bg-cyan-950/30 p-2.5 rounded-lg border border-cyan-500/20 text-cyan-200 font-medium">
+              <span>💡</span>
+              <span>
+                Based on patient's current presentation <b>({guidanceData.chief_complaint?.replace(/parent:[^;]+;\s*/, "") || "Fever & cough"})</b>, active lab diagnostic reports ({guidanceData.ai_diagnostics_evaluated?.map((d: any) => d.test_name).join(", ") || "None"}), and medical history, here are the AI-suggested generic formulations:
+              </span>
+            </div>
+
+            {/* Suggested Generic Formulas List */}
+            <div className="space-y-2 pt-1">
+              <h5 className="font-semibold text-slate-300 text-xs">Generic Formula Recommendations for Clinical Consideration:</h5>
+              {guidanceData.formula_recommendations?.map((f: any, idx: number) => (
+                <div key={idx} className="p-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-cyan-500/40 transition-all">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-cyan-300 text-xs">{f.formula_name}</span>
+                    <span className="text-[10px] text-slate-400 px-2 py-0.5 rounded-full bg-white/5">{f.category}</span>
+                  </div>
+                  <div className="mt-1 text-[11.5px] text-slate-200 font-mono">
+                    <b>Active Formulations:</b> {f.active_ingredients}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-300">
+                    <b>Dosage Guidance:</b> {f.dosage_guidance} | <b>Class:</b> {f.class}
+                  </div>
+                  <div className="mt-1 text-[10.5px] text-slate-400 italic">
+                    💡 {f.clinical_rationale} ({f.safety_note})
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
       <Card className="space-y-4">
         <div className="mb-2 flex items-center justify-between">
           <h4 className="font-bold text-slate-100" style={{ color: "#d7e5ff" }}>Prescription Form</h4>

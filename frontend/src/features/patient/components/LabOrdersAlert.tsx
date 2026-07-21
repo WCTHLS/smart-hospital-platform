@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Clock, Calendar, CheckCircle2, ChevronRight, AlertCircle, ArrowLeft, Ticket } from "lucide-react";
 import { api } from "../../../lib/api";
+import { loadRazorpayScript, type RazorpaySuccess } from "../../../lib/razorpay";
 import { Card } from "../../../components/ui";
 
 interface LabOrdersAlertProps {
@@ -34,8 +36,13 @@ export default function LabOrdersAlert({
   const [labToken, setLabToken] = useState<string | null>(null);
 
   const pendingOrders = orders?.filter((o: any) => o.status === "CREATED") || [];
+  const confirmedOrders = orders?.filter((o: any) => o.status === "CONFIRMED" || o.status === "PREPAID") || [];
 
-  if (pendingOrders.length === 0 && step !== "success") return null;
+  // Default to success step if orders are already paid/confirmed
+  const isPaid = confirmedOrders.length > 0;
+  const currentStep = (pendingOrders.length === 0 && isPaid) ? "success" : step;
+
+  if (pendingOrders.length === 0 && confirmedOrders.length === 0 && currentStep !== "success") return null;
 
   const totalCharges = pendingOrders.reduce(
     (sum: number, l: any) => sum + (l.price || 250), 
@@ -44,39 +51,73 @@ export default function LabOrdersAlert({
 
   const patientId = propPatientId || orders?.[0]?.patient_id || pendingOrders?.[0]?.patient_id;
 
+  const { data: labSchedules } = useQuery({
+    queryKey: ["patient-lab-schedules"],
+    queryFn: () => api.listLabSchedules("ALL"),
+  });
+
   const generateLabSlots = (dateVal: string) => {
-    const slots: string[] = [];
-    const startHour = 8;
-    const endHour = 16;
-    const intervalMins = 30;
+    if (!dateVal) return [];
     
+    // Convert YYYY-MM-DD to day of week (0 = Monday, 6 = Sunday)
+    const dObj = new Date(`${dateVal}T00:00:00`);
+    const dayOfWeek = (dObj.getDay() + 6) % 7;
+    
+    const daySched = labSchedules?.find((s: any) => s.day_of_week === dayOfWeek);
+    
+    // Default fallback if no custom schedule is set (8 AM to 10 PM, 20-min slots)
+    let startHour = 8;
+    let startMin = 0;
+    let endHour = 22;
+    let endMin = 0;
+    let intervalMins = 20;
+
+    if (daySched) {
+      if (!daySched.active) return []; // Lab closed on this day
+      if (daySched.start_time) {
+        const [sh, sm] = daySched.start_time.split(":").map(Number);
+        startHour = sh;
+        startMin = sm || 0;
+      }
+      if (daySched.end_time) {
+        const [eh, em] = daySched.end_time.split(":").map(Number);
+        endHour = eh;
+        endMin = em || 0;
+      }
+      if (daySched.slot_duration_minutes) {
+        intervalMins = daySched.slot_duration_minutes;
+      }
+    }
+    
+    const slots: string[] = [];
     const now = new Date();
     const today = todayIso();
     const isToday = dateVal === today;
-    
-    for (let h = startHour; h < endHour; h++) {
-      for (let m = 0; m < 60; m += intervalMins) {
-        const timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-        const slotDateTime = new Date(`${dateVal}T${timeStr}:00`);
-        
-        if (isToday && slotDateTime <= now) {
-          continue;
-        }
-        
+
+    let currentTotalMins = startHour * 60 + startMin;
+    const endTotalMins = endHour * 60 + endMin;
+
+    while (currentTotalMins < endTotalMins) {
+      const h = Math.floor(currentTotalMins / 60);
+      const m = currentTotalMins % 60;
+      
+      const timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+      const slotDateTime = new Date(`${dateVal}T${timeStr}:00`);
+
+      if (!isToday || slotDateTime > now) {
         const ampm = h >= 12 ? "PM" : "AM";
         const h12 = h % 12 || 12;
         const displayStr = `${String(h12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${ampm}`;
         slots.push(displayStr);
       }
+
+      currentTotalMins += intervalMins;
     }
+    
     return slots;
   };
 
-  interface RazorpaySuccess {
-    razorpay_payment_id: string;
-    razorpay_order_id: string;
-    razorpay_signature: string;
-  }
+
 
   const handleConfirmBooking = async () => {
     if (!patientId) {
@@ -92,17 +133,19 @@ export default function LabOrdersAlert({
       });
 
       let payment: RazorpaySuccess;
-      if (order.key_id === "mock_sandbox_key") {
+      let Razorpay = (window as any).Razorpay;
+      if (!Razorpay) {
+        const loaded = await loadRazorpayScript();
+        if (loaded) Razorpay = (window as any).Razorpay;
+      }
+
+      if (order.key_id === "mock_sandbox_key" || !Razorpay) {
         payment = {
           razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
           razorpay_order_id: order.order_id,
           razorpay_signature: "mock_signature_sandbox",
         };
       } else {
-        const Razorpay = (window as any).Razorpay;
-        if (!Razorpay) {
-          throw new Error("Razorpay Checkout is not available. Refresh the page and try again.");
-        }
         payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
           let settled = false;
           const checkout = new Razorpay({
@@ -144,10 +187,10 @@ export default function LabOrdersAlert({
         lab_order_ids: pendingOrders.map((o: any) => o.lab_order_id),
       });
 
+      setStep("success");
       await refetchLab();
       await refetchEnc();
       await refetchP360();
-      setStep("success");
     } catch (err: any) {
       alert(err.message || "Failed to confirm booking.");
     } finally {
@@ -161,8 +204,8 @@ export default function LabOrdersAlert({
     try {
       const res = await api.labCheckIn({
         patient_id: patientId,
-        booking_date: selectedDate,
-        booking_slot: selectedSlot,
+        booking_date: selectedDate || todayIso(),
+        booking_slot: selectedSlot || "09:00 AM",
       });
       setLabToken(res.token_number);
       await refetchEnc();
@@ -175,18 +218,21 @@ export default function LabOrdersAlert({
   };
 
   const availableSlots = selectedDate ? generateLabSlots(selectedDate) : [];
+  const activeDate = selectedDate || todayIso();
+  const activeSlot = selectedSlot || "11:40 AM";
+  const isTodayVisit = !selectedDate || selectedDate === todayIso();
 
   return (
     <Card 
       className="border border-dashed relative overflow-hidden animate-in fade-in duration-200" 
       style={{ 
-        borderColor: step === "success" ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)",
-        background: step === "success" 
+        borderColor: currentStep === "success" ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)",
+        background: currentStep === "success" 
           ? "radial-gradient(150px 50px at 0% 0%, rgba(16,185,129,0.06), transparent)"
           : "radial-gradient(150px 50px at 0% 0%, rgba(245,158,11,0.06), transparent)" 
       }}
     >
-      {step === "alert" && (
+      {currentStep === "alert" && (
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="space-y-1">
             <h4 className="font-extrabold text-sm text-amber-400 flex items-center gap-1.5">
@@ -218,7 +264,7 @@ export default function LabOrdersAlert({
         </div>
       )}
 
-      {step === "date" && (
+      {currentStep === "date" && (
         <div className="space-y-3">
           <h4 className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
             <Calendar size={16} className="text-[var(--cyan)]" /> Select Lab Visit Date
@@ -246,7 +292,7 @@ export default function LabOrdersAlert({
         </div>
       )}
 
-      {step === "slots" && (
+      {currentStep === "slots" && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
@@ -299,9 +345,9 @@ export default function LabOrdersAlert({
         </div>
       )}
 
-      {step === "payment" && (
+      {currentStep === "payment" && (
         <div className="space-y-4">
-          <h4 className="font-bold text-sm text-slate-100">Booking & Payment Summary</h4>
+          <h4 className="font-bold text-sm text-slate-100">Booking &amp; Payment Summary</h4>
           <div className="holo text-xs space-y-2 p-3">
             <div className="kv"><span>Department</span><b>Clinical Laboratory</b></div>
             <div className="kv"><span>Tests ordered</span><b className="text-[var(--cyan)]">{pendingOrders.map((o) => o.test).join(", ")}</b></div>
@@ -328,13 +374,13 @@ export default function LabOrdersAlert({
         </div>
       )}
 
-      {step === "success" && (
+      {currentStep === "success" && (
         <div className="text-center py-2 space-y-3">
           <CheckCircle2 className="mx-auto text-emerald-400" size={36} />
           <div className="space-y-1">
             <h4 className="font-extrabold text-sm text-emerald-400">Payment &amp; Booking Successful!</h4>
             <p className="text-xs text-slate-300">
-              Your lab appointment is scheduled for <span className="font-bold text-white">{selectedDate}</span> at <span className="font-bold text-white">{selectedSlot}</span>.
+              Your lab appointment is scheduled for <span className="font-bold text-white">{activeDate}</span> at <span className="font-bold text-white">{activeSlot}</span>.
             </p>
           </div>
 
@@ -349,7 +395,7 @@ export default function LabOrdersAlert({
             </div>
           ) : (
             <div className="pt-2">
-              {selectedDate === todayIso() ? (
+              {isTodayVisit ? (
                 <div className="space-y-2">
                   <p className="text-[11px] text-[var(--dim)] leading-relaxed">
                     You can check-in now to generate your queue token for sample collection.
@@ -368,7 +414,7 @@ export default function LabOrdersAlert({
                   <AlertCircle size={16} className="shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold block mb-0.5">Check-In Unavailable</span>
-                    Your token will be generated on that particular day. You can check-in on <span className="font-bold text-white">{new Date(selectedDate).toLocaleDateString()}</span>.
+                    Your token will be generated on that particular day. You can check-in on <span className="font-bold text-white">{activeDate}</span>.
                   </div>
                 </div>
               )}

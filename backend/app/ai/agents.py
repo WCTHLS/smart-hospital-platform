@@ -519,3 +519,156 @@ def refine_notes_agent(notes_text: str, chief_complaint: str) -> str:
         print(f"Error in refine_notes_agent: {e}")
     return notes_text
 
+
+# ------------------------------------------------------------------ AI Formulary Guidance Agent
+def formulary_guidance_agent(
+    patient_name: str,
+    chief_complaint: str,
+    patient_issues: list[str],
+    ai_diagnostics: list[dict[str, Any]],
+    vitals: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """AI Pharmacological & Generic Formula Guidance Agent.
+    
+    Analyzes Patient Medical Issues and PyTorch Local AI Diagnostic Scan Findings
+    to recommend Generic Formulations, Pharmacological Classes, and Clinical Rationales.
+    Zero brand names — pure generic formulation guidance.
+    """
+    import json
+    def _safe(val: Any) -> str:
+        return str(val).encode("ascii", errors="replace").decode("ascii")
+
+    print("\n" + "=" * 76)
+    print("[AI PHARMACOLOGICAL & GENERIC FORMULA GUIDANCE AGENT EXECUTING]")
+    print("=" * 76)
+    print(f"* Patient: {_safe(patient_name)}")
+    print(f"* Chief Complaint: {_safe(chief_complaint)}")
+    print(f"* Patient Medical Issues: {_safe(patient_issues)}")
+    print(f"* Local PyTorch AI Scan Findings: {_safe(ai_diagnostics)}")
+    print("-" * 76)
+
+    prompt = f"""You are an expert Clinical Pharmacologist and Evidence-Based Formulary AI Assistant.
+Analyze the following patient clinical context and provide generic formulation recommendations for the consulting physician.
+
+ANONYMIZED PATIENT CLINICAL CONTEXT:
+- Present Chief Complaint (Current Visit Only): {chief_complaint}
+- Major Chronic Co-morbidities (Systemic Conditions Only): {', '.join(patient_issues) if patient_issues else 'None (No active chronic co-morbidities)'}
+- PyTorch Local AI Diagnostic Findings & Lab Reports (Current Visit Only): {json.dumps(ai_diagnostics)}
+
+CRITICAL MANDATES:
+1. DO NOT mention drug brand names. Output ONLY generic active formulations and pharmacological classes (e.g. Paracetamol 650mg, Levofloxacin 500mg, Azithromycin 250mg, Amoxicillin + Clavulanic Acid 625mg).
+2. Directly correlate recommendations to the Present Chief Complaint ({chief_complaint}) and the Current Visit PyTorch AI Diagnostic Results.
+3. DO NOT suggest medications for old or unstated symptoms. Stay strictly focused on the current presentation and lab findings.
+
+Return ONLY a valid JSON object matching this schema:
+{{
+  "formula_recommendations": [
+    {{
+      "category": "Category name",
+      "formula_name": "Generic Formula Title",
+      "active_ingredients": "Active ingredients with dose",
+      "class": "Pharmacological class",
+      "dosage_guidance": "Recommended schedule & duration",
+      "clinical_rationale": "Why this formula is recommended based on patient issues and PyTorch AI scan findings",
+      "safety_note": "Safety monitoring or precaution"
+    }}
+  ]
+}}"""
+
+    formulas = []
+
+    # Try LLM Gateway first
+    llm_resp = gateway.generate(prompt, temperature=0.1)
+    if llm_resp:
+        try:
+            clean_str = llm_resp.strip()
+            if clean_str.startswith("```"):
+                clean_str = clean_str.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+            parsed = json.loads(clean_str)
+            if "formula_recommendations" in parsed:
+                formulas = parsed["formula_recommendations"]
+        except Exception as err:
+            print(f"[LLM JSON Parse Note]: {err}, falling back to structured clinical rules.")
+
+    # Fallback to structured clinical rules if LLM gateway did not return valid JSON
+    if not formulas:
+        all_text = f"{chief_complaint} {' '.join(patient_issues)} {' '.join([f.get('finding', '') for f in ai_diagnostics])}".upper()
+
+        if any(kw in all_text for kw in ["ISCHEMIA", "MYOCARDIAL", "REPOLARIZATION", "ECG", "EKG", "ST-T", "ANGINA"]):
+            formulas.append({
+                "category": "Cardiology / Ischemic Heart Disease",
+                "formula_name": "Dual Antiplatelet Formulation",
+                "active_ingredients": "Aspirin (75mg) + Clopidogrel (75mg)",
+                "class": "Antiplatelet / Antithrombotic",
+                "dosage_guidance": "1 tablet PO QD after meals x 30 days",
+                "clinical_rationale": "Recommended for Acute Coronary Syndrome & Myocardial Ischemia risk reduction.",
+                "safety_note": "Monitor for signs of active bleeding or gastric irritation."
+            })
+            formulas.append({
+                "category": "Cardiology / Lipid Management",
+                "formula_name": "High-Intensity Statin Formulation",
+                "active_ingredients": "Atorvastatin Calcium (40mg)",
+                "class": "HMG-CoA Reductase Inhibitor",
+                "dosage_guidance": "1 tablet PO QHS (at bedtime) x 30 days",
+                "clinical_rationale": "Recommended for coronary plaque stabilization & ischemic protection.",
+                "safety_note": "Check baseline hepatic enzyme levels (ALT/AST)."
+            })
+
+        if any(kw in all_text for kw in ["PNEUMONIA", "LUNG", "CONSOLIDATION", "EFFUSION", "CHEST X-RAY", "HRCT"]):
+            formulas.append({
+                "category": "Respiratory / Antibacterial",
+                "formula_name": "Aminopenicillin + Beta-Lactamase Inhibitor Formulation",
+                "active_ingredients": "Amoxicillin (500mg) + Clavulanic Acid (125mg)",
+                "class": "Penicillin-Class Antibiotic",
+                "dosage_guidance": "1 tablet PO BID after meals x 7 days",
+                "clinical_rationale": "First-line empirical therapy for bacterial pneumonia & lower respiratory infection.",
+                "safety_note": "Complete full 7-day course."
+            })
+            formulas.append({
+                "category": "Respiratory / Mucolytic",
+                "formula_name": "Mucolytic Expectorant Formulation",
+                "active_ingredients": "Acetylcysteine (600mg) / Guaifenesin (400mg)",
+                "class": "Mucolytic Agent",
+                "dosage_guidance": "1 effervescent tablet PO BID x 5 days",
+                "clinical_rationale": "Promotes airway clearance and thins thick bronchial secretions.",
+                "safety_note": "Dissolve completely in water before ingestion."
+            })
+
+        if any(kw in all_text for kw in ["GLUCOSE", "DIABETES", "HYPERGLYCEMIA", "HBA1C", "SUGAR"]):
+            formulas.append({
+                "category": "Endocrine / Antidiabetic",
+                "formula_name": "Biguanide Glycemic Control Formulation",
+                "active_ingredients": "Metformin Hydrochloride (500mg)",
+                "class": "Biguanide Antidiabetic Agent",
+                "dosage_guidance": "1 tablet PO BID with meals x 30 days",
+                "clinical_rationale": "First-line agent to reduce hepatic glucose production and improve insulin sensitivity.",
+                "safety_note": "Monitor renal function (eGFR > 45 mL/min)."
+            })
+
+        if not formulas:
+            formulas.append({
+                "category": "General / Antipyretic & Analgesic",
+                "formula_name": "Central Antipyretic Formulation",
+                "active_ingredients": "Paracetamol / Acetaminophen (650mg)",
+                "class": "Analgesic & Antipyretic",
+                "dosage_guidance": "1 tablet PO Q8H PRN for fever > 100°F (Max 3g/day)",
+                "clinical_rationale": "Symptomatic relief of pyrexia and mild-to-moderate generalized pain.",
+                "safety_note": "Do not exceed 3,000mg total daily dose."
+            })
+
+    print("AI FORMULA RECOMMENDATIONS PRODUCED:")
+    for idx, f in enumerate(formulas, 1):
+        print(f"  {idx}. [{f.get('category')}] {f.get('formula_name')} -> {f.get('active_ingredients')}")
+    print("=" * 76 + "\n")
+
+    return envelope(
+        {
+            "formula_recommendations": formulas
+        },
+        agent="AI Formulary Guidance",
+        needs_approval=False,
+        source=_source(),
+        citations=["Evidence-Based Clinical Pharmacology & Formulary Guidelines"],
+    )
+
+

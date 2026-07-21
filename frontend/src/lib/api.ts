@@ -28,6 +28,8 @@ const post = <T>(p: string, body?: unknown) =>
   request<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined });
 const put = <T>(p: string, body?: unknown) =>
   request<T>(p, { method: "PUT", body: body ? JSON.stringify(body) : undefined });
+const del = <T>(p: string) =>
+  request<T>(p, { method: "DELETE" });
 
 export const api = {
   // meta / ai
@@ -93,6 +95,7 @@ export const api = {
   submitLabResults: (lab_order_id: string, body: any) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/submit-results`, body),
   createRx: (body: any) => post<any>("/api/v1/prescriptions", body),
+  getFormularyGuidance: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/formulary-guidance`),
   approveRx: (rx_id: string, body: any) => post<any>(`/api/v1/prescriptions/${rx_id}/approve`, body),
   stock: (drug?: string) => get<any>(`/api/v1/pharmacy/stock${drug ? `?drug=${encodeURIComponent(drug)}` : ""}`),
   pharmacyLookup: (search: string) => get<any>(`/api/v1/pharmacy/lookup?search=${encodeURIComponent(search)}`),
@@ -179,4 +182,22 @@ export const api = {
   },
   bookRevisit: (patientId: string, body: any) => post<any>(`/api/v1/patients/${patientId}/revisit/book`, body),
   requestEconsult: (patientId: string, body: any) => post<any>(`/api/v1/patients/${patientId}/econsult/request`, body),
+  localAnalyzeLabOrder: (labOrderId: string, file?: File) => {
+    const formData = new FormData();
+    if (file) {
+      formData.append("file", file);
+    }
+    return fetch(`${BASE}/api/v1/labs/orders/${labOrderId}/local-analyze`, {
+      method: "POST",
+      body: formData,
+    }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new ApiError(res.status, data?.detail ?? data);
+      return data;
+    });
+  },
+  cancelLabOrder: (labOrderId: string) => del<any>(`/api/v1/labs/orders/${labOrderId}`),
+  listLabSchedules: (category: string = "ALL") => get<any[]>(`/api/v1/admin/lab-schedules?category=${category}`),
+  updateLabSchedules: (body: any[]) => post<any>(`/api/v1/admin/lab-schedules`, body),
 };

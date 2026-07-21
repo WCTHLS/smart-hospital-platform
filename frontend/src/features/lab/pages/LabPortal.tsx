@@ -350,7 +350,7 @@ export default function LabPortal() {
                         id="lab-upload"
                         onChange={handleFileChange}
                         className="hidden"
-                        accept="image/*,application/pdf"
+                        accept="image/*,application/pdf,.dcm,.dicom,.nii,.nii.gz,application/dicom"
                       />
                       <label
                         htmlFor="lab-upload"
@@ -362,6 +362,9 @@ export default function LabPortal() {
                         {uploading ? "Uploading file..." : attachmentName || "No file uploaded"}
                       </span>
                     </div>
+                    <p className="text-[10.5px] text-[var(--dim)] pt-0.5">
+                      Supports <b>DICOM</b> (.dcm), <b>NIfTI</b> (.nii), <b>PDF</b> (.pdf), and <b>Images</b> (.png, .jpg, .webp).
+                    </p>
                   </div>
                 </div>
 

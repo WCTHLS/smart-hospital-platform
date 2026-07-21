@@ -14,7 +14,8 @@ class Base(DeclarativeBase):
 
 
 # SQLite needs check_same_thread=False for FastAPI's threadpool.
-_connect_args = {"check_same_thread": False} if settings.is_sqlite else {}
+# PostgreSQL (psycopg3) needs prepare_threshold=None to prevent DuplicatePreparedStatement on uvicorn reload.
+_connect_args = {"check_same_thread": False} if settings.is_sqlite else {"prepare_threshold": None}
 
 engine = create_engine(
     settings.database_url,

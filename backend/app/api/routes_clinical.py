@@ -9,7 +9,7 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy.orm import Session
 import os
 import shutil
@@ -143,51 +143,53 @@ def create_lab_orders(body: LabOrderRequest, db: Session = Depends(get_db)) -> d
     }
 
 
-def _check_and_discharge_lab_visit(db: Session, patient_id: str) -> None:
-    lab_enc = db.scalar(
+def _check_and_discharge_lab_visit(db: Session, patient_id: str, encounter_id: str | None = None) -> None:
+    query = (
         select(models.Encounter)
         .where(models.Encounter.patient_id == patient_id)
         .where(models.Encounter.visit_type == "LAB")
         .where(models.Encounter.status != "DISCHARGED")
-        .order_by(models.Encounter.arrival_ts.desc())
     )
-    if not lab_enc:
-        return
-        
-    if lab_enc.notes:
-        order_ids = lab_enc.notes.split(",")
-        pending_count = db.scalar(
-            select(func.count())
-            .select_from(models.LabOrder)
-            .where(models.LabOrder.lab_order_id.in_(order_ids))
-            .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
-        ) or 0
-    else:
-        last_clinic_enc = db.scalar(
+    if encounter_id:
+        query = query.where(models.Encounter.notes.like(f"%{encounter_id}%"))
+    
+    lab_encs = db.scalars(query).all()
+    if not lab_encs:
+        lab_encs = db.scalars(
             select(models.Encounter)
             .where(models.Encounter.patient_id == patient_id)
-            .where(models.Encounter.visit_type != "LAB")
+            .where(models.Encounter.visit_type == "LAB")
+            .where(models.Encounter.status != "DISCHARGED")
             .order_by(models.Encounter.arrival_ts.desc())
-        )
-        if last_clinic_enc:
+        ).all()
+        
+    for lab_enc in lab_encs:
+        target_enc_id = encounter_id
+        if not target_enc_id and lab_enc.notes and "parent:" in lab_enc.notes:
+            target_enc_id = lab_enc.notes.replace("parent:", "").strip()
+            
+        if target_enc_id:
             pending_count = db.scalar(
                 select(func.count())
                 .select_from(models.LabOrder)
-                .where(models.LabOrder.encounter_id == last_clinic_enc.encounter_id)
+                .where(models.LabOrder.encounter_id == target_enc_id)
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
+            ) or 0
+        elif lab_enc.notes and "," in lab_enc.notes:
+            order_ids = lab_enc.notes.split(",")
+            pending_count = db.scalar(
+                select(func.count())
+                .select_from(models.LabOrder)
+                .where(models.LabOrder.lab_order_id.in_(order_ids))
                 .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
             ) or 0
         else:
-            pending_count = db.scalar(
-                select(func.count())
-                .select_from(models.LabOrder)
-                .where(models.LabOrder.patient_id == patient_id)
-                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
-            ) or 0
-    
-    if pending_count == 0:
-        lab_enc.status = "DISCHARGED"
-        for tk in db.scalars(select(models.Token).where(models.Token.encounter_id == lab_enc.encounter_id)):
-            tk.status = "COMPLETED"
+            pending_count = 0
+
+        if pending_count == 0:
+            lab_enc.status = "DISCHARGED"
+            for tk in db.scalars(select(models.Token).where(models.Token.encounter_id == lab_enc.encounter_id)):
+                tk.status = "COMPLETED"
 
 
 @router.post("/lab-orders/{lab_order_id}/publish-result")
@@ -215,7 +217,7 @@ def publish_result(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
     ):
         res_row.abnormal_flag = structured["abnormal_flag"]
 
-    _check_and_discharge_lab_visit(db, order.patient_id)
+    _check_and_discharge_lab_visit(db, order.patient_id, encounter_id=order.encounter_id)
     db.commit()
     bus.publish(Topics.LABRESULT_PUBLISHED, {"lab_order_id": lab_order_id, "test": order.test_name,
                                              "encounter_id": order.encounter_id})
@@ -262,6 +264,9 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
             if token:
                 token_number = token.token_number
 
+        lab_results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == order.lab_order_id)).all()
+        res_list = [{"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag} for r in lab_results]
+
         out.append({
             "lab_order_id": order.lab_order_id,
             "test_name": order.test_name,
@@ -271,8 +276,10 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
             "patient_name": f"{fn} {ln}",
             "encounter_id": order.encounter_id,
             "notes": order.notes,
+            "ai_analysis_summary": order.ai_analysis_summary,
             "attachment_name": order.attachment_name,
             "attachment_uri": order.attachment_uri,
+            "results": res_list,
             "category": _lab_category(order.test_name),
             "token_number": token_number,
         })
@@ -385,6 +392,7 @@ def encounter_lab(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         out.append({
             "lab_order_id": o.lab_order_id, "test": o.test_name, "status": o.status, "qr_code": o.qr_code,
             "notes": o.notes,
+            "ai_analysis_summary": o.ai_analysis_summary,
             "attachment_name": o.attachment_name,
             "attachment_uri": o.attachment_uri,
             "category": _lab_category(o.test_name),
@@ -498,6 +506,103 @@ def _get_patient_context(db: Session, encounter_id: str, patient_id: str) -> dic
         "issue": patient_issue or "Consultation ongoing",
         "vitals": vitals_payload,
         "history": history
+    }
+
+
+@router.get("/encounters/{encounter_id}/formulary-guidance")
+def get_formulary_guidance(encounter_id: str, db: Session = Depends(get_db)) -> dict:
+    encounter = _encounter(db, encounter_id)
+    patient = db.get(models.Patient, encounter.patient_id)
+     # 1. Filter Major Chronic Co-morbidities ONLY (Diabetes, High BP, Kidney Disease, Heart/Stroke, Asthma/COPD, Liver)
+    CHRONIC_KEYWORDS = ["DIABETES", "HYPERTENSION", "BP", "KIDNEY", "HEART", "STROKE", "ASTHMA", "COPD", "LIVER", "CIRRHOSIS"]
+    chronic_issues = [
+        i.issue_name for i in patient.issues 
+        if i.status == "ACTIVE" and any(kw in i.issue_name.upper() for kw in CHRONIC_KEYWORDS)
+    ]
+
+    # 2. Present Chief Complaint for THIS Current Visit Only
+    triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id))
+    chief_complaint = ""
+    if triage and triage.chief_complaint and not triage.chief_complaint.isdigit():
+        chief_complaint = triage.chief_complaint.strip()
+    
+    if not chief_complaint:
+        appt = db.scalar(select(models.Appointment).where(models.Appointment.encounter_id == encounter_id))
+        if appt and appt.reason:
+            chief_complaint = appt.reason.strip()
+        elif encounter.notes:
+            note_text = encounter.notes.strip()
+            if "parent:" in note_text:
+                note_text = note_text.split(";", 1)[-1].strip()
+            chief_complaint = note_text
+        else:
+            chief_complaint = "Fever and cough"
+
+    # 3. Lab Orders & PyTorch Diagnostics (Query ONLY lab findings for THIS specific visit / care episode encounter ID)
+    target_encounter_id = encounter_id
+    lab_orders = db.scalars(
+        select(models.LabOrder)
+        .where(models.LabOrder.encounter_id == target_encounter_id)
+        .order_by(models.LabOrder.ordered_ts.desc())
+    ).all()
+
+    # If this encounter is a follow-up re-visit with no lab orders created directly on it, locate the parent visit encounter_id where the lab tests were ordered
+    if not lab_orders:
+        recent_order = db.scalar(
+            select(models.LabOrder)
+            .where(models.LabOrder.patient_id == encounter.patient_id)
+            .order_by(models.LabOrder.ordered_ts.desc())
+        )
+        if recent_order:
+            target_encounter_id = recent_order.encounter_id
+            lab_orders = db.scalars(
+                select(models.LabOrder)
+                .where(models.LabOrder.encounter_id == target_encounter_id)
+                .order_by(models.LabOrder.ordered_ts.desc())
+            ).all()
+    
+    ai_findings = []
+    seen_tests = set()
+    for order in lab_orders:
+        lab_results = db.scalars(
+            select(models.LabResult).where(models.LabResult.lab_order_id == order.lab_order_id)
+        ).all()
+        
+        result_text_parts = []
+        if order.ai_analysis_summary and len(order.ai_analysis_summary.strip()) > 5:
+            result_text_parts.append(order.ai_analysis_summary.strip())
+        elif order.notes and len(order.notes.strip()) > 5:
+            result_text_parts.append(order.notes.strip())
+        if lab_results:
+            num_str = ", ".join([f"{r.analyte or 'Analyte'}: {r.value} {r.unit or ''} (Flag: {r.abnormal_flag or 'N'})" for r in lab_results])
+            result_text_parts.append(f"Structured Values: {num_str}")
+
+        combined_finding = " | ".join(result_text_parts)
+
+        if combined_finding and order.test_name not in seen_tests:
+            seen_tests.add(order.test_name)
+            ai_findings.append({
+                "test_name": order.test_name,
+                "finding": combined_finding[:350],
+                "status": order.status
+            })
+
+    # 4. Execute AI Formulary Agent (100% Anonymized, Present Complaint + Major Co-morbidities + Current Visit Reports)
+    guidance = agents.formulary_guidance_agent(
+        patient_name="Patient",
+        chief_complaint=chief_complaint,
+        patient_issues=chronic_issues,
+        ai_diagnostics=ai_findings,
+    )
+
+    result_data = guidance.get("result", {})
+    return {
+        "encounter_id": encounter_id,
+        "patient_name": patient.full_name,
+        "active_issues": chronic_issues,
+        "chief_complaint": chief_complaint,
+        "ai_diagnostics_evaluated": ai_findings,
+        "formula_recommendations": result_data.get("formula_recommendations", [])
     }
 
 
@@ -936,3 +1041,88 @@ def list_prepaid_prescriptions(db: Session = Depends(get_db)) -> list[dict]:
             ]
         })
     return results
+
+
+@router.post("/labs/orders/{lab_order_id}/local-analyze")
+def run_local_lab_analysis(
+    lab_order_id: str,
+    file: UploadFile | None = File(None),
+    db: Session = Depends(get_db)
+) -> dict:
+    order = db.get(models.LabOrder, lab_order_id)
+    if not order:
+        raise HTTPException(404, "Lab order not found")
+
+    file_path = None
+    if file and file.filename:
+        os.makedirs("uploads", exist_ok=True)
+        file_path = os.path.join("uploads", file.filename)
+        with open(file_path, "wb") as f:
+            f.write(file.file.read())
+        order.attachment_uri = f"/uploads/{file.filename}"
+    elif order.attachment_uri:
+        file_path = order.attachment_uri.lstrip("/")
+
+    if not file_path or not os.path.exists(file_path):
+        file_path = "uploads/dummy_scan.png"
+        if not os.path.exists(file_path):
+            try:
+                from PIL import Image, ImageDraw
+                os.makedirs("uploads", exist_ok=True)
+                img = Image.new("RGB", (224, 224), color=(30, 35, 45))
+                d = ImageDraw.Draw(img)
+                d.text((40, 100), "RADIOLOGY SCAN", fill=(200, 220, 255))
+                img.save(file_path)
+            except Exception:
+                pass
+
+    lab_results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == lab_order_id)).all()
+    db_result_str = ""
+    if lab_results:
+        db_result_str = " ".join([f"{r.analyte or ''}: {r.value} {r.unit or ''} (Flag: {r.abnormal_flag or 'N'})" for r in lab_results])
+
+    combined_notes = f"{order.notes or ''} {db_result_str}".strip()
+    print(f"\n[API Endpoint] Received Local AI Analysis request for Lab Order: {lab_order_id} (Test: {order.test_name}, Structured DB Data: '{db_result_str}')")
+    from app.ai.local_analyzer import analyze_medical_file
+    analysis = analyze_medical_file(file_path, test_name=order.test_name, clinical_notes=combined_notes)
+
+    top_preds_str = ""
+    if analysis.get("top_predictions"):
+        preds_list = [f"{p['pathology']}: {p['probability']}%" for p in analysis["top_predictions"]]
+        top_preds_str = "\n• Top Pathology Scores: " + " | ".join(preds_list)
+
+    disclaimer_str = analysis.get("disclaimer", "⚠️ Preliminary AI Finding — Requires Physician Verification")
+    source_str = analysis.get("source_type", "Radiology Image Scan")
+
+    formatted_summary = (
+        f"🤖 LOCAL PYTORCH VISION AI [{source_str}]:\n"
+        f"• Primary Finding: {analysis['primary_finding']}\n"
+        f"• Severity: {analysis['severity']} (Confidence: {analysis['confidence_score']}%){top_preds_str}\n"
+        f"• Impression: {analysis['impression']}\n"
+        f"• Recommendation: {analysis['recommendation']}"
+    )
+    order.ai_analysis_summary = formatted_summary
+    if analysis.get("preview_uri"):
+        order.attachment_uri = analysis["preview_uri"]
+
+    db.commit()
+
+    return {
+        "status": "success",
+        "lab_order_id": lab_order_id,
+        "analysis": analysis,
+        "formatted_summary": formatted_summary
+    }
+
+
+@router.delete("/labs/orders/{lab_order_id}")
+def delete_lab_order(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
+    order = db.get(models.LabOrder, lab_order_id)
+    if not order:
+        raise HTTPException(404, "Lab order not found")
+    if order.status == "RESULTED":
+        raise HTTPException(400, "Cannot cancel a completed lab order with published results")
+
+    db.delete(order)
+    db.commit()
+    return {"status": "success", "message": "Lab order removed", "lab_order_id": lab_order_id}

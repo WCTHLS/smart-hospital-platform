@@ -35,7 +35,7 @@ export default function VitalsAndLabs({ latestVitals, orders }: VitalsAndLabsPro
                   <b>{r.value} {r.unit} {r.flag !== "N" && `(${r.flag})`}</b>
                 </div>
               ))}
-              {o.notes && (
+              {o.notes && !o.notes.includes("LOCAL PYTORCH") && (
                 <div className="mt-1.5 p-2 rounded-lg bg-white/[0.02] border border-white/5 text-[11px] text-slate-300">
                   <span className="font-semibold text-slate-400 block mb-0.5">Lab Findings:</span>
                   <span className="whitespace-pre-line text-slate-200">{o.notes}</span>

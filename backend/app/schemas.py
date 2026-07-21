@@ -316,6 +316,15 @@ class DoctorScheduleRequest(BaseModel):
     slot_duration_minutes: int = 15
 
 
+class LabScheduleRequest(BaseModel):
+    category: str = "ALL"
+    day_of_week: int
+    start_time: str
+    end_time: str
+    slot_duration_minutes: int = 20
+    max_capacity_per_slot: int = 5
+
+
 class EncounterNotesAdviceRequest(BaseModel):
     notes: str
 

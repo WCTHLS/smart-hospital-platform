@@ -46,19 +46,31 @@ export default function LabResultForm({
   const [busy, setBusy] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // When selectedOrder changes, populate default values
+  // When selectedOrder changes, populate default or existing values
   useEffect(() => {
     if (selectedOrder) {
       const analytes = ANALYTE_MAP[selectedOrder.test_name] || [];
       const init: Record<string, string> = {};
+      
+      const existingResultsMap: Record<string, string> = {};
+      if (selectedOrder.results && Array.isArray(selectedOrder.results)) {
+        selectedOrder.results.forEach((r: any) => {
+          if (r.analyte) {
+            existingResultsMap[r.analyte.toLowerCase().trim()] = r.value?.toString() || "";
+          }
+        });
+      }
+
       analytes.forEach((a) => {
-        init[a.name] = a.defaultVal.toString();
+        const key = a.name.toLowerCase().trim();
+        init[a.name] = existingResultsMap[key] !== undefined ? existingResultsMap[key] : a.defaultVal.toString();
       });
+
       setInputs(init);
-      setNotes("");
+      setNotes(selectedOrder.notes || "");
       setFile(null);
-      setAttachmentName("");
-      setAttachmentUri("");
+      setAttachmentName(selectedOrder.attachment_name || "");
+      setAttachmentUri(selectedOrder.attachment_uri || "");
       setSuccessMsg(null);
     }
   }, [selectedOrder]);
@@ -141,7 +153,7 @@ export default function LabResultForm({
 
       <Card className="h-full">
         <h3 className="text-md font-bold mb-3 flex items-center gap-2 text-slate-100" style={{ color: "#dce9ff" }}>
-          <FlaskConical size={16} /> Enter Lab Results
+          <FlaskConical size={16} /> {selectedOrder?.status === "RESULTED" ? "Edit Published Lab Results" : "Enter Lab Results"}
         </h3>
 
         {selectedOrder ? (
@@ -155,14 +167,26 @@ export default function LabResultForm({
               <div className="text-slate-300">Order Reference: <b>{selectedOrder.qr_code}</b></div>
             </div>
 
-            <div className="p-3 border border-emerald-500/20 bg-emerald-500/5 rounded-xl text-xs space-y-1 text-emerald-400">
-              <div className="font-bold flex items-center gap-1.5">
-                <CheckCircle2 size={13} className="text-emerald-400" /> Patient Verified in Lab Room
+            {selectedOrder.status === "RESULTED" ? (
+              <div className="p-3 border border-amber-500/30 bg-amber-500/10 rounded-xl text-xs space-y-1 text-amber-300">
+                <div className="font-bold flex items-center justify-between">
+                  <span>✏️ Editing Published Results</span>
+                  <span className="text-[10px] text-amber-200/80 bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-500/20">Override Mode</span>
+                </div>
+                <div className="text-slate-300">
+                  Modifying findings or uploading a new diagnostic scan will override and update the existing published report.
+                </div>
               </div>
-              <div className="text-slate-300">
-                Verify name, mobile number, and token before collecting sample or running diagnostics.
+            ) : (
+              <div className="p-3 border border-emerald-500/20 bg-emerald-500/5 rounded-xl text-xs space-y-1 text-emerald-400">
+                <div className="font-bold flex items-center gap-1.5">
+                  <CheckCircle2 size={13} className="text-emerald-400" /> Patient Verified in Lab Room
+                </div>
+                <div className="text-slate-300">
+                  Verify name, mobile number, and token before collecting sample or running diagnostics.
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="space-y-3">
               <div className="font-bold text-[12px] uppercase tracking-wider text-[var(--dim)]">
@@ -214,7 +238,7 @@ export default function LabResultForm({
                     id="lab-upload"
                     onChange={handleFileChange}
                     className="hidden"
-                    accept="image/*,application/pdf"
+                    accept="image/*,application/pdf,.dcm,.dicom,.nii,.nii.gz,application/dicom"
                   />
                   <label
                     htmlFor="lab-upload"
@@ -226,11 +250,14 @@ export default function LabResultForm({
                     {uploading ? "Uploading file..." : attachmentName || "No file uploaded"}
                   </span>
                 </div>
+                <p className="text-[10.5px] text-[var(--dim)] pt-0.5">
+                  Supports <b>DICOM</b> (.dcm), <b>NIfTI</b> (.nii), <b>PDF</b> (.pdf), and <b>Images</b> (.png, .jpg, .webp).
+                </p>
               </div>
             </div>
 
             <button type="submit" disabled={busy || uploading} className="btn w-full mt-4">
-              {busy ? "Submitting..." : uploading ? "Waiting for upload..." : "Submit & Publish Results"}
+              {busy ? "Updating..." : uploading ? "Waiting for upload..." : selectedOrder.status === "RESULTED" ? "Update & Re-Publish Results" : "Submit & Publish Results"}
             </button>
           </form>
         ) : (

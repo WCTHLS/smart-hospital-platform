@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, CreditCard, UserRound } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
+import { loadRazorpayScript, type RazorpaySuccess } from "../../lib/razorpay";
 import { getPortalPatient } from "../../lib/patientAuth";
 import { Field, SectionTitle } from "../../components/ui";
 
@@ -17,11 +18,7 @@ type Slot = {
   opd_fee?: number;
 };
 
-type RazorpaySuccess = {
-  razorpay_payment_id: string;
-  razorpay_order_id: string;
-  razorpay_signature: string;
-};
+
 
 type RazorpayCheckout = {
   open: () => void;
@@ -107,9 +104,10 @@ export default function AppointmentBooking() {
       if (!Number.isFinite(amount) || amount < 100) {
         throw new Error("A valid consultation fee is not configured for this doctor.");
       }
-      const Razorpay = window.Razorpay;
+      let Razorpay = (window as any).Razorpay;
       if (!Razorpay) {
-        throw new Error("Razorpay Checkout is not available. Refresh the page and try again.");
+        const loaded = await loadRazorpayScript();
+        if (loaded) Razorpay = (window as any).Razorpay;
       }
 
       const order = await api.createRazorpayOrder({
@@ -124,17 +122,13 @@ export default function AppointmentBooking() {
         checkout_email: checkoutEmail.trim(),
       });
       let payment: RazorpaySuccess;
-      if (order.key_id === "mock_sandbox_key") {
+      if (order.key_id === "mock_sandbox_key" || !Razorpay) {
         payment = {
           razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
           razorpay_order_id: order.order_id,
           razorpay_signature: "mock_signature_sandbox",
         };
       } else {
-        const Razorpay = window.Razorpay;
-        if (!Razorpay) {
-          throw new Error("Razorpay Checkout is not available. Refresh the page and try again.");
-        }
         payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
           let settled = false;
           const checkout = new Razorpay({
