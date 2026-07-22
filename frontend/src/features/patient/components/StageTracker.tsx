@@ -25,7 +25,7 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
   const activeStage = Math.min(Math.max(stage, 0), STAGES.length - 1);
 
   return (
-    <Card className="animate-in overflow-hidden fade-in duration-300">
+    <Card className="!mt-0 animate-in overflow-hidden fade-in duration-300">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="grad-text text-base font-extrabold flex items-center gap-1.5">
           <Activity size={16} /> Live Visit Tracker

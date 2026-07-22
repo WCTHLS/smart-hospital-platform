@@ -105,7 +105,7 @@ export default function PharmacyWorkspace() {
   const activePrepaid = prepaidOrders.find((rx: any) => rx.rx_id === activePrepaidRxId) || prepaidOrders[0];
 
   return (
-    <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_clamp(320px,25vw,430px)] 2xl:gap-7 animate-in fade-in duration-300">
+    <div className="pharmacy-workspace grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_clamp(320px,25vw,430px)] 2xl:gap-7 animate-in fade-in duration-300">
       
       {/* Left Column: Patient Search and Prescription view */}
       <div className="space-y-4">
@@ -116,9 +116,9 @@ export default function PharmacyWorkspace() {
             onClick={() => setActiveTab("lookup")}
             className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[12.5px] font-semibold transition"
             style={{
-              color: activeTab === "lookup" ? "#eafcff" : "var(--muted)",
-              background: activeTab === "lookup" ? "linear-gradient(90deg, rgba(52,225,232,.1), rgba(167,139,250,.1))" : "var(--panel)",
-              border: `1px solid ${activeTab === "lookup" ? "var(--line2)" : "var(--glass-border)"}`,
+              color: activeTab === "lookup" ? "#ffffff" : "#4b5563",
+              background: activeTab === "lookup" ? "#0b787a" : "#ffffff",
+              border: `1px solid ${activeTab === "lookup" ? "#0b787a" : "#d1d5db"}`,
             }}
           >
             <Search size={14} /> Walk-in Lookup
@@ -127,9 +127,9 @@ export default function PharmacyWorkspace() {
             onClick={() => setActiveTab("prepaid")}
             className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[12.5px] font-semibold transition relative"
             style={{
-              color: activeTab === "prepaid" ? "#eafcff" : "var(--muted)",
-              background: activeTab === "prepaid" ? "linear-gradient(90deg, rgba(52,225,232,.1), rgba(167,139,250,.1))" : "var(--panel)",
-              border: `1px solid ${activeTab === "prepaid" ? "var(--line2)" : "var(--glass-border)"}`,
+              color: activeTab === "prepaid" ? "#ffffff" : "#4b5563",
+              background: activeTab === "prepaid" ? "#0b787a" : "#ffffff",
+              border: `1px solid ${activeTab === "prepaid" ? "#0b787a" : "#d1d5db"}`,
             }}
           >
             <ShoppingBag size={14} /> Online Prepaid Orders
@@ -272,7 +272,7 @@ export default function PharmacyWorkspace() {
                               onClick={() => handleDispense(activeRx.rx_id)}
                               disabled={dispenseMutation.isPending}
                               className="btn font-bold text-xs px-6 py-2 flex items-center gap-1.5"
-                              style={{ background: "linear-gradient(135deg, var(--mint), #059669)", color: "#011c10", border: "none" }}
+                              style={{ background: "linear-gradient(135deg, #10b981, #047857)", color: "#ffffff", border: "none" }}
                             >
                               <CheckCircle2 size={15} /> Confirm &amp; Dispense Medicines
                             </button>
@@ -423,7 +423,7 @@ export default function PharmacyWorkspace() {
                           onClick={() => pickupMutation.mutate(activePrepaid.rx_id)}
                           disabled={pickupMutation.isPending}
                           className="btn font-bold text-xs px-6 py-2.5 flex items-center gap-1.5"
-                          style={{ background: "linear-gradient(135deg, var(--mint), #059669)", color: "#011c10", border: "none" }}
+                          style={{ background: "linear-gradient(135deg, #10b981, #047857)", color: "#ffffff", border: "none" }}
                         >
                           <CheckCircle2 size={15} /> Confirm Picked Up by Patient
                         </button>
@@ -528,7 +528,7 @@ export default function PharmacyWorkspace() {
             onClick={() => releaseMutation.mutate()}
             disabled={releaseMutation.isPending}
             className="btn outline w-full text-xs font-bold py-2 flex items-center justify-center gap-1.5"
-            style={{ borderColor: "rgba(239,68,68,0.2)", color: "#fda4af" }}
+            style={{ borderColor: "#fecaca", color: "#b91c1c", background: "#ffffff" }}
           >
             <RefreshCw size={13} className={releaseMutation.isPending ? "animate-spin" : ""} />
             Trigger 24h Expiry Release

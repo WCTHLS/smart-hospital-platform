@@ -131,6 +131,9 @@ export default function DoctorWorkspace() {
       patientId: enc.patient.patient_id,
       encounterId: enc.encounter_id,
       patientName: enc.patient.name,
+      patientAge: enc.patient.age ?? null,
+      patientGender: enc.patient.gender || null,
+      patientBloodGroup: enc.patient.blood_group || null,
       token: enc.token?.number || null,
       department: enc.visit_type || null,
       chiefComplaint: enc.triage?.chief_complaint || null,
@@ -148,22 +151,38 @@ export default function DoctorWorkspace() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="doctor-workspace space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="grad-text text-2xl font-extrabold">{journey.patientName}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="grad-text text-2xl font-extrabold">{journey.patientName}</h1>
+            {journey.patientAge != null && (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                {journey.patientAge} yrs
+              </span>
+            )}
+            {journey.patientGender && (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold capitalize text-slate-600">
+                {journey.patientGender}
+              </span>
+            )}
+            {journey.patientBloodGroup && journey.patientBloodGroup !== "UNK" && (
+              <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700">
+                Blood {journey.patientBloodGroup}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
-            <Tag tone="green">ABHA verified</Tag>
-            {journey.department && <Tag tone="blue">{journey.department}</Tag>}
-            {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
             {journey.chiefComplaint && (
-              <span className="text-slate-300 ml-2">
+              <span className="text-slate-300">
                 Reason for Visit: <b className="text-[var(--cyan)]">{journey.chiefComplaint}</b>
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {journey.department && <Tag tone="blue">{journey.department}</Tag>}
+          {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
           <button 
             type="button"
             className="btn text-[12.5px] !py-1.5 !px-3.5 font-bold flex items-center gap-1.5 transition shadow-lg"
@@ -196,9 +215,9 @@ export default function DoctorWorkspace() {
                 onClick={() => setTab(t.id)}
                 className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold transition"
                 style={{
-                  color: tab === t.id ? "#eafcff" : "var(--muted)",
-                  background: tab === t.id ? "linear-gradient(90deg, rgba(52,225,232,.18), rgba(167,139,250,.18))" : "var(--panel)",
-                  border: `1px solid ${tab === t.id ? "var(--line2)" : "var(--glass-border)"}`,
+                  color: tab === t.id ? "#ffffff" : "#4b5563",
+                  background: tab === t.id ? "#0b787a" : "#ffffff",
+                  border: `1px solid ${tab === t.id ? "#0b787a" : "#e5e7eb"}`,
                 }}
               >
                 <t.icon size={15} /> {t.label}
@@ -244,7 +263,6 @@ export default function DoctorWorkspace() {
             patientId={journey.patientId} 
             tab={tab}
             encounterId={journey.encounterId}
-            chiefComplaint={journey.chiefComplaint}
             sel={sel}
             toggle={toggleTest}
             suggestions={suggestions}

@@ -268,10 +268,13 @@ export default function PatientDashboard() {
   });
 
   const mine = events.filter((e) => e.payload?.encounter_id === showEncounterId);
-  let stage = STATUS_STAGE[encDetails?.status ?? "CHECKED_IN"] ?? 0;
+  const backendStage = typeof encDetails?.stage === "number" ? encDetails.stage : null;
+  let stage = backendStage ?? STATUS_STAGE[encDetails?.status ?? "CHECKED_IN"] ?? 0;
   
   const isLabVisit = encDetails?.visit_type === "LAB" || encDetails?.department === "Laboratory";
-  if (isLabVisit) {
+  // Retain the complete derivation only as compatibility for an older backend
+  // process. A returned backend stage is the canonical database-backed value.
+  if (backendStage === null && isLabVisit) {
     if (encDetails.status === "DISCHARGED") {
       stage = 6; // Discharged
     } else {
@@ -286,7 +289,7 @@ export default function PatientDashboard() {
         stage = 3; // Diagnostics / checked in & waiting
       }
     }
-  } else {
+  } else if (backendStage === null) {
     if (encDetails?.note?.status === "APPROVED") stage = Math.max(stage, 2);
     if (encDetails?.labs?.length) stage = Math.max(stage, 3);
     if (encDetails?.labs?.some((order: any) => order.results?.length)) stage = Math.max(stage, 4);
@@ -446,14 +449,15 @@ export default function PatientDashboard() {
 
   const hasSelection = !!(showEncounterId || showAppointmentId);
   const selectedApp = appointments.find((a: any) => a.appointment_id === showAppointmentId);
+  const hasPastVisitEntries = pastEpisodes.length > 0;
   const encounterAppointment = encDetails?.appointment || appointments.find((a: any) =>
     a.encounter_id === showEncounterId || a.appointment_id === encDetails?.appointment_id
   );
 
   return (
-    <div className="patient-page grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[clamp(280px,23vw,360px)_minmax(0,1fr)] 2xl:gap-7 animate-in fade-in duration-300">
+    <div className="patient-page grid min-w-0 gap-4 sm:gap-6 lg:min-h-[calc(100dvh-6.75rem)] lg:grid-cols-[clamp(280px,23vw,360px)_minmax(0,1fr)] 2xl:gap-7 animate-in fade-in duration-300">
       {/* Sidebar - Visits List */}
-      <div className={`min-w-0 space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
+      <div className={`min-w-0 min-h-0 flex-col gap-4 lg:h-[calc(100dvh-6.75rem)] lg:max-h-[calc(100dvh-6.75rem)] ${hasSelection && !showMobileVisitList ? "hidden lg:flex" : "flex"}`}>
         <Card>
           <button
             type="button"
@@ -536,7 +540,7 @@ export default function PatientDashboard() {
                     <span className="font-bold text-white">
                       {appointment.scheduled_start?.slice(0, 10) === today ? "Today" : "Upcoming Visit"}
                     </span>
-                    <Tag tone="amber">Booked</Tag>
+                    <Tag tone="blue">Booked</Tag>
                   </div>
                   <div className="truncate font-bold text-white">{appointment.doctor?.name ?? "Assigned doctor"}</div>
                   <div className="mt-1 text-[var(--muted)]">
@@ -551,14 +555,13 @@ export default function PatientDashboard() {
                                ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
                                ep.followups?.some((f: any) => f.encounter_id === showEncounterId);
               const activeChild = ep.labs?.find((l: any) => l.status !== "DISCHARGED") || ep.followups?.find((f: any) => f.status !== "DISCHARGED");
-              const displayStatus = activeChild ? activeChild.status : ep.status;
+              const statusEncounter = activeChild ?? ep;
               const relatedEncounterIds = new Set([
                 ep.encounter_id,
                 ...(ep.labs ?? []).map((item: any) => item.encounter_id),
                 ...(ep.followups ?? []).map((item: any) => item.encounter_id),
               ]);
-              let displayStage = STATUS_STAGE[displayStatus] ?? STATUS_STAGE[ep.status] ?? 0;
-              if (ep.labs?.length) displayStage = Math.max(displayStage, 3);
+              let displayStage = statusEncounter.stage ?? STATUS_STAGE[statusEncounter.status] ?? 0;
               for (const event of events) {
                 if (relatedEncounterIds.has(event.payload?.encounter_id)) {
                   displayStage = Math.max(displayStage, TOPIC_STAGE[event.topic] ?? -1);
@@ -578,7 +581,7 @@ export default function PatientDashboard() {
                 >
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-bold text-white">{ep.date}</span>
-                    <Tag tone={displayStage === 6 ? "green" : displayStage === 0 ? "blue" : "cyan"}>
+                    <Tag tone="blue">
                       {displayStageLabel}
                     </Tag>
                   </div>
@@ -591,12 +594,12 @@ export default function PatientDashboard() {
         </Card>
  
         {/* Past Visits */}
-        <Card className="space-y-3">
+        <Card className={`space-y-3 lg:flex lg:min-h-0 lg:flex-col ${hasPastVisitEntries ? "lg:flex-1 lg:basis-0" : ""}`}>
           <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Past visits</h4>
           {!pastEpisodes.length && (
             <div className="holo text-xs text-[var(--muted)]">No past visits available.</div>
           )}
-          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1 lg:min-h-0 lg:max-h-none lg:flex-1">
             {pastEpisodes.map((ep: any) => {
               const isActive = ep.encounter_id === showEncounterId || 
                                ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
@@ -969,10 +972,11 @@ export default function PatientDashboard() {
             })()}
 
             {/* Brief Appointment Details */}
-            <div className="p-3 rounded-xl border bg-white/5 space-y-2 text-xs" style={{ borderColor: "var(--glass-border)" }}>
+            <div className="p-3 rounded-xl border bg-white/5 text-xs" style={{ borderColor: "var(--glass-border)" }}>
               <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-1 mb-1">
                 <Clipboard size={14} className={encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? "text-emerald-400" : "text-[var(--cyan)]"} /> {encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? "Lab Visit Summary" : "Visit Summary"}
               </div>
+              <div className="visit-summary-grid">
               {encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? (
                 <>
                   <div className="kv"><span>Department</span><b>Clinical Laboratory</b></div>
@@ -981,6 +985,7 @@ export default function PatientDashboard() {
                 </>
               ) : (
                 <>
+                  <div className="kv visit-summary-wide"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encounterAppointment?.reason || encDetails.reason || "Not provided"}</b></div>
                   <div className="kv"><span>Doctor</span><b>{encounterAppointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || "Not assigned"}</b></div>
                   <div className="kv"><span>Specialty</span><b>{encounterAppointment?.specialty || encDetails.triage?.specialty || encDetails.department || "Not recorded"}</b></div>
                   <div className="kv">
@@ -991,9 +996,9 @@ export default function PatientDashboard() {
                     ].filter(Boolean).join(" / ") || "Not assigned"}</b>
                   </div>
                   <div className="kv"><span>Time Slot</span><b>{encounterAppointment?.scheduled_start ? timeLabel(encounterAppointment.scheduled_start) : timeLabel(encDetails.arrival)}</b></div>
-                  <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encounterAppointment?.reason || encDetails.reason || "Not provided"}</b></div>
                 </>
               )}
+              </div>
             </div>
           </Card>
         )}
@@ -1058,10 +1063,12 @@ export default function PatientDashboard() {
               )}
 
               {/* Brief Appointment Details */}
-              <div className="p-3 rounded-xl border bg-white/5 space-y-2 text-xs" style={{ borderColor: "var(--glass-border)" }}>
+              <div className="p-3 rounded-xl border bg-white/5 text-xs" style={{ borderColor: "var(--glass-border)" }}>
                 <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-1 mb-1">
                   <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
                 </div>
+                <div className="visit-summary-grid">
+                <div className="kv visit-summary-wide"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
                 <div className="kv"><span>Assigned Doctor</span><b>{encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
                 <div className="kv"><span>Specialty</span><b>{encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
                 <div className="kv"><span>Room / Floor</span><b>{[
@@ -1070,7 +1077,7 @@ export default function PatientDashboard() {
                 ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
                 <div className="kv"><span>Time Slot</span><b>{encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
                 <div className="kv"><span>Acuity Level</span><b>{encDetails.triage?.acuity || "Not recorded"}</b></div>
-                <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
+                </div>
               </div>
             </Card>
 
@@ -1324,10 +1331,12 @@ export default function PatientDashboard() {
               </Card>
             )}
 
-            <Card className="space-y-2 text-xs">
+            <Card className="text-xs">
               <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-2 mb-1">
                 <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
               </div>
+              <div className="visit-summary-grid">
+              <div className="kv visit-summary-wide"><span>Chief Complaint / Reason for Visit</span><b>{parentEncDetails?.triage?.chief_complaint || parentEncDetails?.appointment?.reason || encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
               <div className="kv"><span>Doctor</span><b>{parentEncDetails?.triage?.recommended_doctor?.name || parentEncDetails?.appointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
               <div className="kv"><span>Specialty</span><b>{parentEncDetails?.triage?.specialty || parentEncDetails?.appointment?.specialty || parentEncDetails?.department || encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
               <div className="kv"><span>Room / Floor</span><b>{[
@@ -1335,7 +1344,7 @@ export default function PatientDashboard() {
                 parentEncDetails?.token?.floor || parentEncDetails?.triage?.recommended_doctor?.floor || parentEncDetails?.appointment?.doctor?.floor || encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
               ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
               <div className="kv"><span>Time Slot</span><b>{parentEncDetails?.appointment?.scheduled_start ? timeLabel(parentEncDetails.appointment.scheduled_start) : encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
-              <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{parentEncDetails?.triage?.chief_complaint || parentEncDetails?.appointment?.reason || encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
+              </div>
             </Card>
 
             {/* Follow-up Care Portal */}
@@ -1461,16 +1470,14 @@ export default function PatientDashboard() {
                                 setRevisitError("");
                                 setShowRevisitModal(true);
                               }}
-                              className="btn sm"
-                              style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                              className="btn sm shrink-0 px-3 py-1.5 text-xs font-bold"
                             >
                               🏥 Book In-Person Re-Visit
                             </button>
                             <button 
                               onClick={() => handleRequestEconsult(docId)}
                               disabled={requestingEconsult}
-                              className="btn outline sm flex items-center gap-1.5"
-                              style={{ borderColor: "rgba(52,225,232,0.3)", color: "var(--cyan)" }}
+                              className="btn sm flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
                             >
                               💬 Request E-Consultation (Remote Review)
                             </button>

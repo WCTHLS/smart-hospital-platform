@@ -18,7 +18,7 @@ export default function Command() {
   const maxQ = Math.max(1, ...Object.values(m?.queue_by_department || { x: 1 }).map((n: any) => Number(n)));
 
   return (
-    <div className="space-y-5">
+    <div className="command-center space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="grad-text text-2xl font-extrabold">Command Center</h1>
@@ -40,7 +40,7 @@ export default function Command() {
       <div className="grid gap-3 lg:grid-cols-2">
         {/* Queue by department */}
         <Card>
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#d7e5ff" }}><Activity size={15} /> Queue load by department</h4>
+          <h4 className="mb-3 flex items-center gap-2 font-bold text-slate-800"><Activity size={15} className="text-teal-600" /> Queue load by department</h4>
           {m && Object.keys(m.queue_by_department).length ? (
             Object.entries(m.queue_by_department).map(([dept, n]: any) => (
               <div key={dept} className="mb-2">
@@ -53,14 +53,14 @@ export default function Command() {
 
         {/* AI alerts */}
         <Card>
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#d7e5ff" }}>
+          <h4 className="mb-3 flex items-center gap-2 font-bold text-slate-800">
             <AlertTriangle size={15} /> Live alerts <span className="ai-badge">✦ AI</span>
           </h4>
           {m?.alerts?.length ? m.alerts.map((a: any, i: number) => (
             <div key={i} className="kv"><Tag tone={alertTone[a.level] || "blue"}>{a.level}</Tag><span className="flex-1 px-2 text-[12.5px]" style={{ color: "var(--muted)" }}>{a.message}</span></div>
           )) : <Empty>No anomalies detected</Empty>}
           <div className="mt-3">
-            <h5 className="mb-1 flex items-center gap-1.5 text-[12px] font-bold" style={{ color: "#bcd2ff" }}><PackageX size={13} /> Low stock</h5>
+            <h5 className="mb-1 flex items-center gap-1.5 text-[12px] font-bold text-slate-700"><PackageX size={13} className="text-rose-600" /> Low stock</h5>
             {m && Object.keys(m.low_stock).length ? Object.entries(m.low_stock).map(([d, q]: any) => (
               <div key={d} className="kv !py-0.5"><span>{d}</span><Tag tone="amber">{q} left</Tag></div>
             )) : <div className="text-[12.5px]" style={{ color: "var(--dim)" }}>All items stocked</div>}
@@ -69,12 +69,12 @@ export default function Command() {
 
         {/* Event stream */}
         <Card>
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#d7e5ff" }}><Radio size={15} /> Domain event stream</h4>
+          <h4 className="mb-3 flex items-center gap-2 font-bold text-slate-800"><Radio size={15} className="text-teal-600" /> Domain event stream</h4>
           <div className="max-h-[320px] space-y-1 overflow-auto">
             {events.length ? events.map((e: any, i: number) => (
               <div key={i} className="flex items-center gap-2 text-[12.5px]">
                 <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--cyan)", boxShadow: "0 0 8px var(--cyan)" }} />
-                <span style={{ color: "#cfe0ff" }}>{fmtTopic(e.topic)}</span>
+                <span className="font-medium text-slate-700">{fmtTopic(e.topic)}</span>
                 <span className="ml-auto" style={{ color: "var(--dim)" }}>{new Date(e.ts).toLocaleTimeString()}</span>
               </div>
             )) : <Empty>Waiting for events…</Empty>}
@@ -83,12 +83,12 @@ export default function Command() {
 
         {/* Audit */}
         <Card>
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#d7e5ff" }}><ScrollText size={15} /> Audit trail (immutable)</h4>
+          <h4 className="mb-3 flex items-center gap-2 font-bold text-slate-800"><ScrollText size={15} className="text-indigo-600" /> Audit trail (immutable)</h4>
           <div className="max-h-[320px] space-y-1 overflow-auto">
             {au?.audit?.length ? au.audit.map((a: any, i: number) => (
               <div key={i} className="flex items-center gap-2 text-[12.5px]">
                 <Tag tone="blue">{a.actor_role}</Tag>
-                <span style={{ color: "#cfe0ff" }}>{a.action}</span>
+                <span className="font-medium text-slate-700">{a.action}</span>
                 {a.consent_id && <span title="consent-linked" style={{ color: "var(--mint)" }}>🔐</span>}
                 <span className="ml-auto" style={{ color: "var(--dim)" }}>{new Date(a.ts).toLocaleTimeString()}</span>
               </div>

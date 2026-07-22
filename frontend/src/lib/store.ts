@@ -6,6 +6,9 @@ export type Role = "patient" | "nurse" | "doctor" | "admin" | "lab" | "reception
 interface JourneyState {
   patientId: string | null;
   patientName: string | null;
+  patientAge: number | null;
+  patientGender: string | null;
+  patientBloodGroup: string | null;
   encounterId: string | null;
   token: string | null;
   department: string | null;
@@ -19,6 +22,9 @@ interface JourneyState {
 export const useJourney = create<JourneyState>((set) => ({
   patientId: null,
   patientName: null,
+  patientAge: null,
+  patientGender: null,
+  patientBloodGroup: null,
   encounterId: null,
   token: null,
   department: null,
@@ -27,5 +33,5 @@ export const useJourney = create<JourneyState>((set) => ({
   setRole: (role) => set({ activeRole: role }),
   set: (partial) => set(partial),
   reset: () =>
-    set({ patientId: null, patientName: null, encounterId: null, token: null, department: null, chiefComplaint: null }),
+    set({ patientId: null, patientName: null, patientAge: null, patientGender: null, patientBloodGroup: null, encounterId: null, token: null, department: null, chiefComplaint: null }),
 }));

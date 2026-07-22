@@ -93,7 +93,7 @@ html {
 body {
   margin: 0;
   color: var(--ink);
-  font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  font-family: Inter, Roboto, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
   font-size: 15px;
   line-height: 1.6;
   background:
@@ -346,6 +346,16 @@ a {
   }
   .kv b { color: #dce9ff; }
 
+  .visit-summary-grid {
+    @apply grid grid-cols-1 gap-x-6 sm:grid-cols-2;
+  }
+  .visit-summary-grid .kv {
+    @apply min-w-0 py-1;
+  }
+  .visit-summary-grid .visit-summary-wide {
+    @apply sm:col-span-2;
+  }
+
   .bubble {
     @apply my-1.5 rounded-2xl px-3 py-2 text-[13px];
     max-width: 86%;
@@ -543,6 +553,24 @@ select option { color: #1f2937 !important; background: #fff !important; }
   border-color: rgba(16,185,129,.28) !important;
 }
 .success-message * { color: #10b981 !important; }
+
+/* Doctor workspace light-theme guardrails for legacy component utilities. */
+.doctor-workspace .card { background-color: #fff; border-color: #e5e7eb; }
+.doctor-workspace .card h3,
+.doctor-workspace .card h4 { color: #1f2937 !important; }
+.doctor-workspace input[type="text"],
+.doctor-workspace input[type="search"],
+.doctor-workspace input[type="number"],
+.doctor-workspace textarea,
+.doctor-workspace select {
+  color: #1f2937 !important;
+  background-color: #fff !important;
+  border-color: #d1d5db !important;
+}
+.doctor-workspace .ai-summary-card {
+  background: linear-gradient(135deg, #fff, rgba(207,239,239,.55)) !important;
+  border-color: #cfefef !important;
+}
 
 .ai-badge { color: #4b5563; background: #f3f4f6; border: 1px solid #e5e7eb; box-shadow: none; }
 .holo, .subsection, .chip {

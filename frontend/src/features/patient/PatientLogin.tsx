@@ -8,9 +8,11 @@ import { Card, Field } from "../../components/ui";
 
 type LoginStep = "mobile" | "otp" | "profiles" | "register" | "medical";
 type IssueDraft = { issue_name: string; onset_info: string };
+type AllergyDraft = { substance: string; drug_class: string; severity: string; reaction: string };
 type DocumentDraft = { title: string; doc_type: string; uri: string; file_name: string };
 
 const emptyIssue = (): IssueDraft => ({ issue_name: "", onset_info: "" });
+const emptyAllergy = (): AllergyDraft => ({ substance: "", drug_class: "", severity: "", reaction: "" });
 const emptyDocument = (): DocumentDraft => ({ title: "", doc_type: "", uri: "", file_name: "" });
 
 function todayIso() {
@@ -48,6 +50,7 @@ export default function PatientLogin() {
     address: "",
   });
   const [issues, setIssues] = useState<IssueDraft[]>([emptyIssue()]);
+  const [allergies, setAllergies] = useState<AllergyDraft[]>([emptyAllergy()]);
   const [documents, setDocuments] = useState<DocumentDraft[]>([emptyDocument()]);
 
   if (getPortalPatient()) return <Navigate to={redirect} replace />;
@@ -93,6 +96,12 @@ export default function PatientLogin() {
           issue_name: item.issue_name.trim(),
           onset_info: item.onset_info.trim() || null,
           status: "ACTIVE",
+        })),
+        allergies: allergies.filter((item) => item.substance.trim()).map((item) => ({
+          substance: item.substance.trim(),
+          drug_class: item.drug_class.trim() || null,
+          severity: item.severity || null,
+          reaction: item.reaction.trim() || null,
         })),
         documents: documents.filter((item) => item.title.trim() && item.uri).map((item) => ({
           title: item.title.trim(),
@@ -144,7 +153,9 @@ export default function PatientLogin() {
     && /^\d{10}$/.test(mobile.trim())
   );
 
-  const medicalDetailsValid = documents.every((item) => (!item.title.trim() && !item.uri && !item.doc_type)
+  const medicalDetailsValid = allergies.every((item) => (
+    !item.substance.trim() && !item.drug_class.trim() && !item.severity && !item.reaction.trim()
+  ) || Boolean(item.substance.trim())) && documents.every((item) => (!item.title.trim() && !item.uri && !item.doc_type)
       || Boolean(item.title.trim() && item.doc_type && item.uri));
 
   async function login(profile: any) {
@@ -188,7 +199,7 @@ export default function PatientLogin() {
         {step === "otp" && <div className="space-y-4">
           <div className="flex items-center gap-2"><LockKeyhole size={16} /> OTP sent to {mobile}</div>
           <input className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="Enter OTP" />
-          <div className="actions-row between !mt-0 !border-0 !pt-0">
+          <div className="actions-row between !mt-4 !border-0 !pt-0">
             <button className="btn-link" disabled={busy} onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <button className="btn ghost sm" disabled={busy} onClick={sendOtp}>Resend OTP</button>
@@ -254,6 +265,19 @@ export default function PatientLogin() {
             {issues.map((issue, index) => <div className="holo grid gap-3 sm:grid-cols-2" key={index}>
               <Field label="Condition or Surgery"><input className="input" value={issue.issue_name} onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, issue_name: e.target.value } : item))} placeholder="e.g. Diabetes, BP, Heart surgery" /></Field>
               <Field label="How long ago / onset info (Optional)"><input className="input" value={issue.onset_info} onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, onset_info: e.target.value } : item))} placeholder="e.g. 5 years, 3 months ago, 2024" /></Field>
+            </div>)}
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="font-bold">Allergies</h4>
+              <button className="btn ghost sm" onClick={() => setAllergies((items) => [...items, emptyAllergy()])}><Plus size={14} /> Add allergy</button>
+            </div>
+            {allergies.map((allergy, index) => <div className="holo grid gap-3 sm:grid-cols-2" key={index}>
+              <Field label="Allergen / Substance"><input className="input" value={allergy.substance} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, substance: e.target.value } : item))} placeholder="e.g. Penicillin, peanuts" /></Field>
+              <Field label="Drug class (Optional)"><input className="input" value={allergy.drug_class} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, drug_class: e.target.value } : item))} placeholder="e.g. Beta-lactam" /></Field>
+              <Field label="Severity (Optional)"><select className="input" value={allergy.severity} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, severity: e.target.value } : item))}><option value="">Select severity</option><option value="MILD">Mild</option><option value="MODERATE">Moderate</option><option value="SEVERE">Severe</option></select></Field>
+              <Field label="Reaction (Optional)"><input className="input" value={allergy.reaction} onChange={(e) => setAllergies((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, reaction: e.target.value } : item))} placeholder="e.g. Rash, swelling" /></Field>
             </div>)}
           </div>
 
