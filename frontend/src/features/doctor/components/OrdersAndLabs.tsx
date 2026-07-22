@@ -106,17 +106,17 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
   const CATEGORIES = ["ALL", "CT Scan", "MRI", "X-Ray", "Cardiology", "Pathology"];
 
   return (
-    <div className="grid gap-3 lg:grid-cols-[340px_1fr] animate-in fade-in duration-300">
+    <div className="grid gap-3 text-slate-800 lg:grid-cols-[340px_1fr] animate-in fade-in duration-300">
       <div>
         <Card>
-          <div className="flex items-center justify-between font-bold" style={{ color: "#dce9ff" }}>
+          <div className="flex items-center justify-between font-bold text-slate-800">
             <span>CPOE Diagnostic Catalog</span>
             <AgentBadge label="Order Sets" />
           </div>
 
           {/* Quick Popular Picks */}
           <div className="mt-2.5">
-            <p className="text-[11px] font-semibold text-slate-400 mb-1.5">Quick Popular Orders:</p>
+            <p className="mb-1.5 text-[11px] font-semibold text-slate-600">Quick Popular Orders:</p>
             <div className="flex flex-wrap gap-1">
               {POPULAR_QUICK_MENU.map((t) => (
                 <button
@@ -131,15 +131,15 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
           </div>
 
           {/* Category Filter Pills */}
-          <div className="mt-3 flex flex-wrap gap-1 border-t border-white/10 pt-2.5">
+          <div className="mt-3 flex flex-wrap gap-1 border-t border-slate-200 pt-2.5">
             {CATEGORIES.map((cat) => (
               <button
                 key={cat}
                 onClick={() => setSelectedCategory(cat)}
                 className={`text-[10.5px] px-2 py-0.5 rounded-full transition-all ${
                   selectedCategory === cat
-                    ? "bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/40"
-                    : "text-slate-400 hover:text-white hover:bg-white/5"
+                    ? "border border-teal-300 bg-teal-50 font-semibold text-teal-700"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                 }`}
               >
                 {cat}
@@ -154,14 +154,14 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
               placeholder="Search test by name or category (e.g. Brain, CT, MRI)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs p-2 rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-cyan-500"
+              className="w-full rounded-xl border border-slate-300 bg-white p-2 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-teal-500 focus:ring-2 focus:ring-teal-500/15"
             />
           </div>
 
           {/* Catalog Selection List */}
-          <div className="mt-2.5 max-h-[220px] overflow-y-auto space-y-1 pr-1 custom-scrollbar border border-white/5 rounded-xl p-1.5 bg-black/20">
+          <div className="custom-scrollbar mt-2.5 max-h-[220px] space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-1.5 pr-1">
             {filteredCatalog.length === 0 ? (
-              <p className="text-[11px] text-slate-400 p-2 text-center">No matching tests found. Doctor can type custom indication below.</p>
+              <p className="p-2 text-center text-[11px] text-slate-500">No matching tests found. Doctor can type custom indication below.</p>
             ) : (
               filteredCatalog.map((item) => (
                 <div
@@ -169,17 +169,17 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                   onClick={() => toggleTest(item.name)}
                   className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
                     sel.includes(item.name)
-                      ? "bg-cyan-500/15 border border-cyan-500/30 text-white"
-                      : "hover:bg-white/5 text-slate-300"
+                      ? "border border-teal-300 bg-teal-50 text-slate-900"
+                      : "text-slate-700 hover:bg-white"
                   }`}
                 >
                   <div className="flex flex-col">
                     <span className="font-medium">{item.name}</span>
-                    <span className="text-[10px] text-slate-400">{item.category}</span>
+                    <span className="text-[10px] text-slate-500">{item.category}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-mono text-cyan-400">₹{item.price}</span>
-                    <span className={`text-xs font-bold ${sel.includes(item.name) ? "text-cyan-400" : "text-slate-500"}`}>
+                    <span className="font-mono text-[11px] text-teal-700">₹{item.price}</span>
+                    <span className={`text-xs font-bold ${sel.includes(item.name) ? "text-teal-700" : "text-slate-500"}`}>
                       {sel.includes(item.name) ? "✓" : "+"}
                     </span>
                   </div>
@@ -197,7 +197,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                   setSearchQuery("");
                 }
               }}
-              className="mt-2 text-xs text-cyan-400 hover:underline flex items-center gap-1"
+              className="mt-2 flex items-center gap-1 text-xs font-semibold text-teal-700 hover:text-teal-600 hover:underline"
             >
               + Add custom order "{searchQuery}"
             </button>
@@ -217,7 +217,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
           <Card key={o.lab_order_id}>
             <div className="flex items-center justify-between">
               <div>
-                <b style={{ color: "#dce9ff" }}>{o.test}</b> 
+                <b className="text-slate-800">{o.test}</b> 
                 <span className="text-[11px]" style={{ color: "var(--dim)" }}> · {o.qr_code}</span>
                 <span className="ml-2 text-[11px]">
                   {o.status === "CREATED" && (
@@ -244,7 +244,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                       <button className="btn ghost text-xs !py-0.5" onClick={() => publish(o.lab_order_id)}>Simulate result</button>
                     )}
                     <button 
-                      className="btn ghost text-xs !py-0.5 text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 font-bold"
+                      className="btn ghost text-xs !py-0.5 font-bold text-rose-700 hover:bg-rose-50 hover:text-rose-800"
                       onClick={() => handleCancelOrder(o.lab_order_id)}
                       title="Remove this test"
                     >
@@ -281,25 +281,25 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
             )}
 
             {o.status === "RESULTED" && (o.notes || o.ai_analysis_summary || o.attachment_uri) && (
-              <div className="mt-2.5 pt-2 border-t border-white/5 space-y-2 text-[12.5px] bg-white/[0.01] p-3 rounded-xl">
+              <div className="mt-2.5 space-y-2 rounded-xl border-t border-slate-200 bg-slate-50 p-3 pt-2 text-[12.5px]">
                 {o.notes && !o.notes.includes("LOCAL PYTORCH") && (
                   <div style={{ color: "var(--muted)" }}>
-                    <b className="text-slate-300 block mb-1">Technician Notes:</b>
-                    <div className="whitespace-pre-wrap text-slate-300 text-[12px] leading-relaxed p-2 rounded-lg bg-black/10 border border-white/5">
+                    <b className="mb-1 block text-slate-700">Technician Notes:</b>
+                    <div className="whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-2 text-[12px] leading-relaxed text-slate-700">
                       {o.notes}
                     </div>
                   </div>
                 )}
                 {o.ai_analysis_summary && (
                   <div style={{ color: "var(--muted)" }}>
-                    <b className="text-cyan-300 block mb-1">Local PyTorch Diagnostic Analysis (Doctor Only):</b>
-                    <div className="whitespace-pre-wrap text-slate-200 text-[12px] leading-relaxed font-mono bg-black/20 p-2.5 rounded-lg border border-white/5">
+                    <b className="mb-1 block text-teal-700">Local PyTorch Diagnostic Analysis (Doctor Only):</b>
+                    <div className="whitespace-pre-wrap rounded-lg border border-teal-100 bg-white p-2.5 font-mono text-[12px] leading-relaxed text-slate-700">
                       {o.ai_analysis_summary}
                     </div>
                   </div>
                 )}
                 {(o.ai_analysis_summary || o.notes)?.includes("LOCAL PYTORCH") && (
-                  <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11.5px] font-bold flex items-center gap-1.5 shadow-sm">
+                  <div className="flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 p-2 text-[11.5px] font-bold text-amber-800 shadow-sm">
                     <span>⚠️ Preliminary AI Finding — Requires Physician Verification</span>
                   </div>
                 )}
@@ -319,8 +319,8 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
               </div>
             )}
             {!o.attachment_uri && (
-              <div className="mt-2.5 rounded-lg border border-dashed border-white/10 bg-white/[0.01] p-2.5 text-[11px] text-[var(--muted)]">
-                Document: <span className="font-semibold text-slate-400">No document uploaded.</span>
+              <div className="mt-2.5 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-2.5 text-[11px] text-slate-600">
+                Document: <span className="font-semibold text-slate-600">No document uploaded.</span>
               </div>
             )}
           </Card>

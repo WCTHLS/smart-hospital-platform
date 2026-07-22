@@ -13,11 +13,13 @@ export default function VitalsAndLabs({ latestVitals, orders }: VitalsAndLabsPro
         <Clipboard size={16} className="text-[var(--cyan)]" /> Vitals &amp; Labs
       </h4>
       {latestVitals && (
-        <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>BP</small><br /><b>{latestVitals.bp}</b></div>
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{latestVitals.spo2}%</b></div>
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>HR</small><br /><b>{latestVitals.heart_rate}</b></div>
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{latestVitals.temperature}°F</b></div>
+          {latestVitals.weight != null && <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Weight</small><br /><b>{latestVitals.weight} kg</b></div>}
+          {latestVitals.height != null && <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Height</small><br /><b>{latestVitals.height} cm</b></div>}
         </div>
       )}
 

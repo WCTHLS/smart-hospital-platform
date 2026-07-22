@@ -25,7 +25,7 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
   const activeStage = Math.min(Math.max(stage, 0), STAGES.length - 1);
 
   return (
-    <Card className="animate-in overflow-hidden fade-in duration-300">
+    <Card className="!mt-0 animate-in overflow-hidden fade-in duration-300">
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="grad-text text-base font-extrabold flex items-center gap-1.5">
           <Activity size={16} /> Live Visit Tracker
@@ -42,8 +42,8 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
         <div className="relative grid grid-cols-7 px-1 pt-1" aria-label={`Visit progress: ${STAGES[activeStage].label}`}>
           <div className="absolute left-[7%] right-[7%] top-4 h-px bg-[var(--line2)]" />
           <div
-            className="absolute left-[7%] top-4 h-px bg-[var(--cyan)] transition-[width] duration-500"
-            style={{ width: `${(activeStage / (STAGES.length - 1)) * 86}%` }}
+            className="absolute left-[7%] top-4 h-px transition-[width] duration-500"
+            style={{ width: `${(activeStage / (STAGES.length - 1)) * 86}%`, background: "var(--line2)" }}
           />
           {STAGES.map((item, index) => {
             const done = index < activeStage;
@@ -53,23 +53,26 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
                 <div
                   className="grid h-7 w-7 place-items-center rounded-full border text-[10px] font-black"
                   style={{
-                    borderColor: done || current ? "var(--cyan)" : "var(--line2)",
-                    background: done || current ? "linear-gradient(150deg,var(--cyan),var(--violet))" : "var(--bg2)",
-                    color: done || current ? "#04121a" : "var(--dim)",
-                    boxShadow: current ? "0 0 14px rgba(52,225,232,.55)" : "none",
+                    borderColor: current ? "#37b5b1" : "var(--line2)",
+                    background: done ? "#277154" : current ? "#37b5b1" : "var(--bg2)",
+                    color: done || current ? "white" : "var(--dim)",
+                    boxShadow: current ? "0 0 0 4px rgba(55,181,177,.16)" : "none",
                   }}
                   title={item.label}
                 >
-                  {done ? <CheckCircle2 size={13} /> : index + 1}
+                  {done ? <CheckCircle2 size={13} style={{ color: "white" }} /> : index + 1}
                 </div>
               </div>
             );
           })}
         </div>
-        <div className="mt-3 rounded-xl border border-cyan-400/25 bg-cyan-400/[0.07] px-3 py-2.5 text-center">
-          <div className="text-xs font-extrabold text-white">
+        <div
+          className="mt-3 rounded-2xl border px-3 py-2.5 text-center shadow-sm"
+          style={{ background: "linear-gradient(135deg, #ffffff, #cfefef)", borderColor: "rgba(55,181,177,.35)" }}
+        >
+          <div className="text-xs font-extrabold" style={{ color: "#0b787a" }}>
             {STAGES[activeStage].label}
-            <span className="ml-2 text-[9px] uppercase tracking-wider text-[var(--cyan)]">Current</span>
+            <span className="ml-2 text-[9px] uppercase tracking-wider" style={{ color: "#37b5b1" }}>Current</span>
           </div>
           <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">{STAGES[activeStage].msg}</p>
         </div>
@@ -83,18 +86,22 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
             <div
               key={i}
               className={`min-w-0 flex min-h-[76px] flex-col items-center justify-between rounded-xl border px-1.5 py-2.5 text-[10px] transition lg:px-2 xl:min-h-[82px] xl:px-3 xl:text-[11px] 2xl:text-xs ${
-                current ? "border-[var(--cyan)] bg-[var(--cyan)]/5" : "border-transparent"
+                current ? "shadow-sm" : ""
               }`}
-              style={{ background: current ? "rgba(52,225,232,0.05)" : "var(--panel)" }}
+              style={{
+                background: current ? "linear-gradient(135deg, #ffffff, #cfefef)" : "#ffffff",
+                borderColor: current ? "rgba(55,181,177,.42)" : "#e5e7eb",
+                boxShadow: current ? "0 6px 18px rgba(11,120,122,.08)" : "none",
+              }}
             >
-              <span className="mb-1 text-balance font-bold leading-tight" style={{ color: current ? "white" : done ? "#bcd2ff" : "var(--dim)" }}>
+              <span className="mb-1 text-balance font-bold leading-tight" style={{ color: current ? "#0b787a" : "var(--dim)" }}>
                 {s.label}
               </span>
               <div 
                 className="h-5 w-5 grid place-items-center rounded-full"
-                style={{ background: done || current ? "linear-gradient(150deg,var(--cyan),var(--violet))" : "var(--line)" }}
+                style={{ background: done ? "#277154" : current ? "#37b5b1" : "var(--line)" }}
               >
-                {done ? <CheckCircle2 size={12} className="text-slate-900" /> : (
+                {done ? <CheckCircle2 size={12} style={{ color: "white" }} /> : (
                   <span className="h-1.5 w-1.5 rounded-full" style={{ background: current ? "white" : "var(--dim)" }} />
                 )}
               </div>

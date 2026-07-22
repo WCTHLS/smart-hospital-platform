@@ -161,6 +161,57 @@ def _calculate_live_eta(db: Session, encounter_id: str) -> int:
     return 6 + position * 4
 
 
+_ENCOUNTER_STATUS_STAGE = {
+    "CHECKED_IN": 0, "TRIAGED": 1, "EMERGENCY": 1,
+    "IN_CONSULT": 2, "DISCHARGED": 6,
+}
+
+
+def _encounter_progress_stage(db: Session, encounter: models.Encounter) -> int:
+    """Return the canonical persisted stage for tracker and appointment cards."""
+    stage = _ENCOUNTER_STATUS_STAGE.get(encounter.status, 0)
+    if encounter.status == "DISCHARGED":
+        return 6
+
+    is_lab = encounter.visit_type == "LAB" or encounter.department == "Laboratory"
+    if is_lab:
+        order_ids = []
+        if encounter.notes:
+            order_ids = [value.strip() for value in encounter.notes.split(";", 1)[0].split(",") if value.strip()]
+        orders = db.scalars(
+            select(models.LabOrder).where(
+                models.LabOrder.lab_order_id.in_(order_ids)
+                if order_ids else models.LabOrder.encounter_id == encounter.encounter_id
+            )
+        ).all()
+        if orders and all(order.status == "RESULTED" for order in orders):
+            return 6
+        return max(stage, 4 if any(order.status == "RESULTED" for order in orders) else 3)
+
+    if db.scalar(select(models.ClinicalNote.note_id).where(
+        models.ClinicalNote.encounter_id == encounter.encounter_id,
+        models.ClinicalNote.status == "APPROVED",
+    ).limit(1)):
+        stage = max(stage, 2)
+
+    orders = db.scalars(select(models.LabOrder).where(
+        models.LabOrder.encounter_id == encounter.encounter_id
+    )).all()
+    if orders:
+        stage = max(stage, 3)
+        if db.scalar(select(models.LabResult.result_id).where(
+            models.LabResult.lab_order_id.in_([order.lab_order_id for order in orders])
+        ).limit(1)):
+            stage = max(stage, 4)
+
+    if db.scalar(select(models.Prescription.rx_id).where(
+        models.Prescription.encounter_id == encounter.encounter_id,
+        models.Prescription.status == "APPROVED",
+    ).limit(1)):
+        stage = max(stage, 5)
+    return stage
+
+
 def _patient_brief(p: models.Patient) -> dict:
     return {
         "patient_id": p.patient_id,
@@ -217,12 +268,15 @@ def _get_encounter(db: Session, encounter_id: str) -> models.Encounter:
 def _add_profile_details(
     db: Session,
     patient: models.Patient,
-    issues: list,
-    documents: list,
+    issues: list | None = None,
+    documents: list | None = None,
+    allergies: list | None = None,
 ) -> None:
-    for issue in issues:
+    for issue in issues or []:
         db.add(models.PatientIssue(patient_id=patient.patient_id, **issue.model_dump()))
-    for document in documents:
+    for allergy in allergies or []:
+        db.add(models.Allergy(patient_id=patient.patient_id, **allergy.model_dump()))
+    for document in documents or []:
         db.add(models.Document(patient_id=patient.patient_id, **document.model_dump()))
 
 
@@ -306,6 +360,39 @@ def _generate_unique_mrn(db: Session) -> str:
         total += 1
 
 
+def _get_or_create_triage_token(
+    db: Session,
+    encounter: models.Encounter,
+    triage_staff: models.Staff | None,
+) -> models.Token:
+    """Return the persisted pre-triage queue token for an encounter."""
+    token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter.encounter_id)
+        .where(models.Token.department == "Triage")
+        .order_by(models.Token.issued_ts.desc())
+    )
+    if token:
+        return token
+
+    total = db.scalar(
+        select(func.count()).select_from(models.Token)
+        .where(models.Token.token_number.like("T-%"))
+    ) or 0
+    token = models.Token(
+        encounter_id=encounter.encounter_id,
+        token_number=f"T-{total + 101:03d}",
+        department="Triage",
+        room=triage_staff.room if triage_staff and triage_staff.room else "Triage Room",
+        floor=triage_staff.floor if triage_staff and triage_staff.floor else "Ground Floor",
+        eta_minutes=_calculate_live_eta(db, encounter.encounter_id),
+        status="WAITING",
+    )
+    db.add(token)
+    db.flush()
+    return token
+
+
 # --------------------------------------------------------------------------------- Check-in
 @router.post("/checkin")
 def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
@@ -348,6 +435,9 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
                     .where(models.Staff.available.is_(True))
                     .order_by(models.Staff.name)
                 )
+                if existing_encounter.status == "CHECKED_IN" and existing_encounter.visit_type not in ["LAB", "E_CONSULT"]:
+                    _get_or_create_triage_token(db, existing_encounter, triage_staff)
+                    db.commit()
                 return {
                     "patient": _patient_brief(patient),
                     "encounter_id": existing_encounter.encounter_id,
@@ -392,6 +482,8 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         .where(models.Staff.available.is_(True))
         .order_by(models.Staff.name)
     )
+    if encounter.visit_type not in ["LAB", "E_CONSULT"]:
+        _get_or_create_triage_token(db, encounter, triage_staff)
 
     audit(db, actor_id=patient.patient_id, actor_role="PATIENT", action="CHECK_IN",
           entity_type="encounter", entity_id=encounter.encounter_id, metadata={"channel": body.channel})
@@ -437,7 +529,12 @@ def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get
     )
     db.add(patient)
     db.flush()
-    _add_profile_details(db, patient, body.issues, body.documents)
+    _add_profile_details(
+        db, patient,
+        issues=body.issues,
+        documents=body.documents,
+        allergies=body.allergies,
+    )
     audit(
         db,
         actor_id=patient.patient_id,
@@ -486,7 +583,7 @@ def update_patient_profile(
     patient.gender = body.gender
     patient.blood_group = _blood_group_value(body.blood_group)
     patient.address = body.address
-    _add_profile_details(db, patient, body.allergies, body.documents)
+    _add_profile_details(db, patient, documents=body.documents, allergies=body.allergies)
     audit(
         db,
         actor_id=patient.patient_id,
@@ -894,6 +991,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
                 "date": c.arrival_ts.date().isoformat(),
                 "department": c.department,
                 "status": c.status,
+                "stage": _encounter_progress_stage(db, c),
                 "visit_type": c.visit_type,
                 "notes": c.notes,
                 "prescription": rx_data,
@@ -928,6 +1026,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             "date": p.arrival_ts.date().isoformat(),
             "department": p.department,
             "status": p.status,
+            "stage": _encounter_progress_stage(db, p),
             "visit_type": p.visit_type,
             "doctor_id": p_doctor_id,
             "doctor_name": p_doctor_name,
@@ -956,6 +1055,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
                 "date": c.arrival_ts.date().isoformat(),
                 "department": c.department,
                 "status": c.status,
+                "stage": _encounter_progress_stage(db, c),
                 "visit_type": c.visit_type,
                 "reason": "Standalone Diagnostic/Follow-up",
                 "token": {
@@ -987,7 +1087,9 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
     vitals_payload = None if not latest_vitals else {
         "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}",
         "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
-        "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
+        "temperature": latest_vitals.temperature, "weight": latest_vitals.weight_kg,
+        "height": latest_vitals.height_cm, "bmi": latest_vitals.bmi,
+        "captured_at": latest_vitals.captured_ts.isoformat(),
     }
 
     summary_res = None
@@ -1076,7 +1178,8 @@ def generate_patient_summary(patient_id: str, db: Session = Depends(get_db)) -> 
     vitals_payload = None if not latest_vitals else {
         "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}",
         "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
-        "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
+        "temperature": latest_vitals.temperature, "weight": latest_vitals.weight_kg,
+        "height": latest_vitals.height_cm, "bmi": latest_vitals.bmi,
     }
 
     issues_str = ", ".join(f"{i.issue_name} ({i.onset_info or 'onset unknown'})" for i in patient.issues) or "No chronic issues recorded"
@@ -1178,6 +1281,16 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
     )
     db.add(token)
 
+    triage_queue_token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter_id)
+        .where(models.Token.department == "Triage")
+        .where(models.Token.status == "WAITING")
+        .order_by(models.Token.issued_ts.desc())
+    )
+    if triage_queue_token:
+        triage_queue_token.status = "COMPLETED"
+
     audit(db, actor_id="triage-agent", actor_role="AI", action="TRIAGE_COMPLETED",
           entity_type="encounter", entity_id=encounter_id,
           metadata={"acuity": tr["acuity_level"], "specialty": tr["specialty"], "red_flag": tr["red_flag"]})
@@ -1209,8 +1322,21 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     appointment_doctor = db.get(models.Staff, appointment.doctor_id) if appointment and appointment.doctor_id else None
     triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id)
                        .order_by(models.Triage.created_ts.desc()))
-    token = db.scalar(select(models.Token).where(models.Token.encounter_id == encounter_id)
-                      .order_by(models.Token.issued_ts.desc()))
+    token_query = select(models.Token).where(models.Token.encounter_id == encounter_id)
+    if e.status == "CHECKED_IN" and e.visit_type not in ["LAB", "E_CONSULT"]:
+        token_query = token_query.where(models.Token.department == "Triage")
+    token = db.scalar(token_query.order_by(models.Token.issued_ts.desc()))
+    if not token and e.status == "CHECKED_IN" and e.visit_type not in ["LAB", "E_CONSULT"]:
+        # Backfill encounters checked in before triage-token issuance was added.
+        triage_staff = db.scalar(
+            select(models.Staff)
+            .where(models.Staff.role == "NURSE")
+            .where(models.Staff.department == "Triage")
+            .where(models.Staff.available.is_(True))
+            .order_by(models.Staff.name)
+        )
+        token = _get_or_create_triage_token(db, e, triage_staff)
+        db.commit()
     recommended_doctor = (
         db.get(models.Staff, triage.recommended_doctor_id)
         if triage and triage.recommended_doctor_id else None
@@ -1296,7 +1422,7 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         "parent_encounter_id": parent_id,
         "doctor_id": e.doctor_id or (appointment.doctor_id if appointment else None),
         "visit_type": e.visit_type,
-        "status": e.status, "department": e.department,
+        "status": e.status, "stage": _encounter_progress_stage(db, e), "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
         "notes": clean_notes,
         "patient": _patient_brief(p),
@@ -1317,7 +1443,8 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
                                          "patients_ahead": _calculate_patients_ahead(db, e.encounter_id)},
         "vitals": None if not vitals else {
             "bp": f"{vitals.bp_systolic}/{vitals.bp_diastolic}", "spo2": vitals.spo2,
-            "heart_rate": vitals.heart_rate, "temperature": vitals.temperature, "bmi": vitals.bmi
+            "heart_rate": vitals.heart_rate, "temperature": vitals.temperature,
+            "weight": vitals.weight_kg, "height": vitals.height_cm, "bmi": vitals.bmi
         },
         "note": None if not note else {
             "note_id": note.note_id, "note_type": note.note_type, "final_text": note.final_text,
@@ -1467,6 +1594,7 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
                 "name": p.full_name,
                 "age": p.age,
                 "gender": p.gender,
+                "blood_group": p.blood_group,
                 "mobile": p.mobile,
                 "mrn": p.mrn,
             } if p else None,
