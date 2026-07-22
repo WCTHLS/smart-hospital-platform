@@ -21,9 +21,9 @@ export default function Command() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="grad-text text-2xl font-extrabold">Command Center</h1>
+          <h1 className="grad-text-page text-2xl font-extrabold">Command Center</h1>
           <p className="text-[13px]" style={{ color: "var(--dim)" }}>
-            Real-time operations · AI source: {m?.ai_source || "…"}
+            Real-time operations · Data source: {m?.ai_source || "…"}
           </p>
         </div>
         <span className="live">LIVE</span>
@@ -40,7 +40,7 @@ export default function Command() {
       <div className="grid gap-3 lg:grid-cols-2">
         {/* Queue by department */}
         <Card>
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#d7e5ff" }}><Activity size={15} /> Queue load by department</h4>
+          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#123a7a" }}><Activity size={15} /> Queue load by department</h4>
           {m && Object.keys(m.queue_by_department).length ? (
             Object.entries(m.queue_by_department).map(([dept, n]: any) => (
               <div key={dept} className="mb-2">
@@ -51,16 +51,16 @@ export default function Command() {
           ) : <Empty>Queue clear</Empty>}
         </Card>
 
-        {/* AI alerts */}
+        {/* Live alerts */}
         <Card>
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#d7e5ff" }}>
-            <AlertTriangle size={15} /> Live alerts <span className="ai-badge">✦ AI</span>
+          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#123a7a" }}>
+            <AlertTriangle size={15} /> Live alerts <span className="ai-badge">✦ Live</span>
           </h4>
           {m?.alerts?.length ? m.alerts.map((a: any, i: number) => (
             <div key={i} className="kv"><Tag tone={alertTone[a.level] || "blue"}>{a.level}</Tag><span className="flex-1 px-2 text-[12.5px]" style={{ color: "var(--muted)" }}>{a.message}</span></div>
           )) : <Empty>No anomalies detected</Empty>}
           <div className="mt-3">
-            <h5 className="mb-1 flex items-center gap-1.5 text-[12px] font-bold" style={{ color: "#bcd2ff" }}><PackageX size={13} /> Low stock</h5>
+            <h5 className="mb-1 flex items-center gap-1.5 text-[12px] font-bold" style={{ color: "#123a7a" }}><PackageX size={13} /> Low stock</h5>
             {m && Object.keys(m.low_stock).length ? Object.entries(m.low_stock).map(([d, q]: any) => (
               <div key={d} className="kv !py-0.5"><span>{d}</span><Tag tone="amber">{q} left</Tag></div>
             )) : <div className="text-[12.5px]" style={{ color: "var(--dim)" }}>All items stocked</div>}
@@ -69,12 +69,12 @@ export default function Command() {
 
         {/* Event stream */}
         <Card>
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#d7e5ff" }}><Radio size={15} /> Domain event stream</h4>
+          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#123a7a" }}><Radio size={15} /> Domain event stream</h4>
           <div className="max-h-[320px] space-y-1 overflow-auto">
             {events.length ? events.map((e: any, i: number) => (
               <div key={i} className="flex items-center gap-2 text-[12.5px]">
                 <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--cyan)", boxShadow: "0 0 8px var(--cyan)" }} />
-                <span style={{ color: "#cfe0ff" }}>{fmtTopic(e.topic)}</span>
+                <span style={{ color: "var(--ink)" }}>{fmtTopic(e.topic)}</span>
                 <span className="ml-auto" style={{ color: "var(--dim)" }}>{new Date(e.ts).toLocaleTimeString()}</span>
               </div>
             )) : <Empty>Waiting for events…</Empty>}
@@ -83,12 +83,12 @@ export default function Command() {
 
         {/* Audit */}
         <Card>
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#d7e5ff" }}><ScrollText size={15} /> Audit trail (immutable)</h4>
+          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#123a7a" }}><ScrollText size={15} /> Audit trail (immutable)</h4>
           <div className="max-h-[320px] space-y-1 overflow-auto">
             {au?.audit?.length ? au.audit.map((a: any, i: number) => (
               <div key={i} className="flex items-center gap-2 text-[12.5px]">
                 <Tag tone="blue">{a.actor_role}</Tag>
-                <span style={{ color: "#cfe0ff" }}>{a.action}</span>
+                <span style={{ color: "var(--ink)" }}>{a.action}</span>
                 {a.consent_id && <span title="consent-linked" style={{ color: "var(--mint)" }}>🔐</span>}
                 <span className="ml-auto" style={{ color: "var(--dim)" }}>{new Date(a.ts).toLocaleTimeString()}</span>
               </div>

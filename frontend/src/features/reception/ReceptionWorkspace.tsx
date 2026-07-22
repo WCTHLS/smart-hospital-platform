@@ -194,7 +194,7 @@ export default function ReceptionWorkspace() {
         {/* Left Column: Search & Check-in Assist */}
         <div className="space-y-4">
           <Card className="space-y-4">
-            <h3 className="text-sm font-extrabold text-[#dce9ff] flex items-center gap-2">
+            <h3 className="text-sm font-extrabold text-[var(--ink)] flex items-center gap-2">
               <Search size={15} className="text-[var(--cyan)]" /> Check-In Assistant
             </h3>
             
@@ -233,7 +233,7 @@ export default function ReceptionWorkspace() {
                         setSuccessInfo(null);
                         setShowWalkInModal(true);
                       }}
-                      className="text-[var(--cyan)] font-extrabold underline block mt-2 hover:text-[#52e7ee]"
+                      className="text-[var(--cyan)] font-extrabold underline block mt-2 hover:text-[var(--blue)]"
                     >
                       Click here to register them as a Walk-In patient →
                     </button>
@@ -303,7 +303,7 @@ export default function ReceptionWorkspace() {
                         setSuccessInfo(null);
                         setShowWalkInModal(true);
                       }}
-                      className="text-[var(--cyan)] font-extrabold underline block mt-2 hover:text-[#52e7ee]"
+                      className="text-[var(--cyan)] font-extrabold underline block mt-2 hover:text-[var(--blue)]"
                     >
                       Book a walk-in consult for this patient →
                     </button>

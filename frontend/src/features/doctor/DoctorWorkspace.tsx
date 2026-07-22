@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, Mic, FlaskConical, Pill, CheckCircle2 } from "lucide-react";
+import { FileText, Mic, FlaskConical, Pill } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useJourney } from "../../lib/store";
 import { Tag } from "../../components/ui";
@@ -35,23 +35,8 @@ export default function DoctorWorkspace() {
   const [rxOverride, setRxOverride] = useState(false);
   const [rxDone, setRxDone] = useState<any>(null);
   const [rxErr, setRxErr] = useState<string | null>(null);
-  const [discharging, setDischarging] = useState(false);
 
   const toggleTest = (t: string) => setSel((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));
-
-  async function handleDischargePatient() {
-    if (!journey.encounterId) return;
-    setDischarging(true);
-    try {
-      await api.discharge(journey.encounterId);
-      handleResetJourney();
-    } catch (e: any) {
-      console.error("Discharge error:", e);
-      handleResetJourney();
-    } finally {
-      setDischarging(false);
-    }
-  }
 
   async function runCds(items: any[]) {
     setRxBusy(true); 
@@ -63,6 +48,7 @@ export default function DoctorWorkspace() {
         dose: it.dose,
         frequency: it.frequency,
         duration_days: it.duration_days ? parseInt(String(it.duration_days), 10) : null,
+        instructions: it.instructions || null,
       }));
       const r = await api.createRx({ encounter_id: journey.encounterId!, items: payloadItems });
       setCds(r.result); 
@@ -77,7 +63,7 @@ export default function DoctorWorkspace() {
     setRxBusy(true); 
     setRxErr(null);
     try {
-      const r = await api.approveRx(rxId, { approved_by: "Dr. Mehta", accept_substitutions: rxAccept, override_warnings: rxOverride });
+      const r = await api.approveRx(rxId, { approved_by: journey.doctorName || "Attending Doctor", accept_substitutions: rxAccept, override_warnings: rxOverride });
       setRxDone(r);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
@@ -95,7 +81,7 @@ export default function DoctorWorkspace() {
     setRxDone(null);
     try {
       const draft = await api.createRx({ encounter_id: journey.encounterId!, items: [] });
-      const r = await api.approveRx(draft.rx_id, { approved_by: "Dr. Mehta", accept_substitutions: false, override_warnings: false });
+      const r = await api.approveRx(draft.rx_id, { approved_by: journey.doctorName || "Attending Doctor", accept_substitutions: false, override_warnings: false });
       setRxDone(r);
     } catch (e: any) {
       setRxErr(e.message || "Failed to e-sign empty prescription");
@@ -134,6 +120,7 @@ export default function DoctorWorkspace() {
       token: enc.token?.number || null,
       department: enc.visit_type || null,
       chiefComplaint: enc.triage?.chief_complaint || null,
+      doctorName: enc._doctorName || null,
     });
   };
 
@@ -141,6 +128,16 @@ export default function DoctorWorkspace() {
     setSel([]);
     setSuggestions([]);
     journey.reset();
+  };
+
+  const handleBackToQueue = () => {
+    if (rxDone) {
+      handleResetJourney();
+      return;
+    }
+    if (window.confirm("This patient hasn't been discharged yet. Go back to the queue anyway?")) {
+      handleResetJourney();
+    }
   };
 
   if (!journey.encounterId || !journey.patientId) {
@@ -151,7 +148,7 @@ export default function DoctorWorkspace() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="grad-text text-2xl font-extrabold">{journey.patientName}</h1>
+          <h1 className="grad-text-page text-2xl font-extrabold">{journey.patientName}</h1>
           <div className="flex items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
             <Tag tone="green">ABHA verified</Tag>
             {journey.department && <Tag tone="blue">{journey.department}</Tag>}
@@ -164,28 +161,17 @@ export default function DoctorWorkspace() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            type="button"
-            className="btn text-[12.5px] !py-1.5 !px-3.5 font-bold flex items-center gap-1.5 transition shadow-lg"
-            style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "white", border: "none" }}
-            disabled={discharging}
-            onClick={handleDischargePatient}
-            title="Complete consultation and discharge patient"
-          >
-            <CheckCircle2 size={16} />
-            {discharging ? "Discharging..." : "Complete & Discharge"}
-          </button>
-          <button 
-            className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold" 
-            onClick={handleResetJourney}
+          <button
+            className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold"
+            onClick={handleBackToQueue}
           >
             ← Back to Queue
           </button>
-          <span className="ai-badge"><Mic size={13} /> Copilot session</span>
+          <span className="ai-badge"><Mic size={13} /> Session active</span>
         </div>
       </div>
 
-      {/* Outer Grid Layout (Workflow + Copilot Pane) */}
+      {/* Outer Grid Layout (Workflow + Clinical Decision Support Pane) */}
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(320px,26vw,440px)] 2xl:gap-6">
         <div className="space-y-4">
           {/* Tabs */}
@@ -196,8 +182,8 @@ export default function DoctorWorkspace() {
                 onClick={() => setTab(t.id)}
                 className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold transition"
                 style={{
-                  color: tab === t.id ? "#eafcff" : "var(--muted)",
-                  background: tab === t.id ? "linear-gradient(90deg, rgba(52,225,232,.18), rgba(167,139,250,.18))" : "var(--panel)",
+                  color: tab === t.id ? "#123a7a" : "var(--muted)",
+                  background: tab === t.id ? "linear-gradient(90deg, rgba(37,100,207,.18), rgba(26,79,180,.18))" : "var(--panel)",
                   border: `1px solid ${tab === t.id ? "var(--line2)" : "var(--glass-border)"}`,
                 }}
               >
@@ -211,11 +197,11 @@ export default function DoctorWorkspace() {
           </div>
 
           <div className={tab === "soap" ? "" : "hidden"} key={`soap-${journey.encounterId}`}>
-            <AmbientSoap encounterId={journey.encounterId} />
+            <AmbientSoap encounterId={journey.encounterId} doctorName={journey.doctorName} />
           </div>
 
           <div className={tab === "labs" ? "" : "hidden"} key={`labs-${journey.encounterId}`}>
-            <OrdersAndLabs encounterId={journey.encounterId} sel={sel} setSel={setSel} />
+            <OrdersAndLabs encounterId={journey.encounterId} sel={sel} setSel={setSel} doctorName={journey.doctorName} />
           </div>
           
           <div className={tab === "rx" ? "" : "hidden"} key={`rx-${journey.encounterId}`}>

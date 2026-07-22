@@ -39,9 +39,10 @@ interface OrdersAndLabsProps {
   encounterId: string;
   sel: string[];
   setSel: React.Dispatch<React.SetStateAction<string[]>>;
+  doctorName?: string | null;
 }
 
-export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLabsProps) {
+export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: OrdersAndLabsProps) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [ai, setAi] = useState<Record<string, any>>({});
@@ -64,7 +65,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
   async function order() {
     setBusy(true);
     try { 
-      await api.createLabOrders(encounterId, sel); 
+      await api.createLabOrders(encounterId, sel, doctorName); 
       setSel([]);
       qc.invalidateQueries({ queryKey: ["lab", encounterId] }); 
     } finally { 
@@ -109,7 +110,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
     <div className="grid gap-3 lg:grid-cols-[340px_1fr] animate-in fade-in duration-300">
       <div>
         <Card>
-          <div className="flex items-center justify-between font-bold" style={{ color: "#dce9ff" }}>
+          <div className="flex items-center justify-between font-bold" style={{ color: "#123a7a" }}>
             <span>CPOE Diagnostic Catalog</span>
             <AgentBadge label="Order Sets" />
           </div>
@@ -138,7 +139,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                 onClick={() => setSelectedCategory(cat)}
                 className={`text-[10.5px] px-2 py-0.5 rounded-full transition-all ${
                   selectedCategory === cat
-                    ? "bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/40"
+                    ? "bg-sky-600/20 text-sky-400 font-semibold border border-sky-600/40"
                     : "text-slate-400 hover:text-white hover:bg-white/5"
                 }`}
               >
@@ -154,7 +155,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
               placeholder="Search test by name or category (e.g. Brain, CT, MRI)..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full text-xs p-2 rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-cyan-500"
+              className="w-full text-xs p-2 rounded-xl bg-white/5 border border-white/10 text-white outline-none focus:border-sky-600"
             />
           </div>
 
@@ -169,7 +170,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                   onClick={() => toggleTest(item.name)}
                   className={`flex items-center justify-between p-1.5 rounded-lg text-xs cursor-pointer transition-all ${
                     sel.includes(item.name)
-                      ? "bg-cyan-500/15 border border-cyan-500/30 text-white"
+                      ? "bg-sky-600/15 border border-sky-600/30 text-white"
                       : "hover:bg-white/5 text-slate-300"
                   }`}
                 >
@@ -178,8 +179,8 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                     <span className="text-[10px] text-slate-400">{item.category}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-mono text-cyan-400">₹{item.price}</span>
-                    <span className={`text-xs font-bold ${sel.includes(item.name) ? "text-cyan-400" : "text-slate-500"}`}>
+                    <span className="text-[11px] font-mono text-sky-500">₹{item.price}</span>
+                    <span className={`text-xs font-bold ${sel.includes(item.name) ? "text-sky-500" : "text-slate-500"}`}>
                       {sel.includes(item.name) ? "✓" : "+"}
                     </span>
                   </div>
@@ -197,7 +198,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                   setSearchQuery("");
                 }
               }}
-              className="mt-2 text-xs text-cyan-400 hover:underline flex items-center gap-1"
+              className="mt-2 text-xs text-sky-500 hover:underline flex items-center gap-1"
             >
               + Add custom order "{searchQuery}"
             </button>
@@ -217,7 +218,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
           <Card key={o.lab_order_id}>
             <div className="flex items-center justify-between">
               <div>
-                <b style={{ color: "#dce9ff" }}>{o.test}</b> 
+                <b style={{ color: "var(--ink)" }}>{o.test}</b> 
                 <span className="text-[11px]" style={{ color: "var(--dim)" }}> · {o.qr_code}</span>
                 <span className="ml-2 text-[11px]">
                   {o.status === "CREATED" && (
@@ -255,7 +256,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
               </div>
             </div>
             {ai[o.lab_order_id]?.result?.abnormal?.length > 0 && (
-              <div className="alertbox mt-2">🚨 {ai[o.lab_order_id].result.summary} <AgentBadge label="Lab AI" /></div>
+              <div className="alertbox mt-2">🚨 {ai[o.lab_order_id].result.summary} <AgentBadge label="Flagged" /></div>
             )}
             {o.results?.length > 0 && (
               <table className="mt-2 w-full text-[13px]">
@@ -292,7 +293,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel }: OrdersAndLab
                 )}
                 {o.ai_analysis_summary && (
                   <div style={{ color: "var(--muted)" }}>
-                    <b className="text-cyan-300 block mb-1">Local PyTorch Diagnostic Analysis (Doctor Only):</b>
+                    <b className="text-sky-400 block mb-1">Local PyTorch Diagnostic Analysis (Doctor Only):</b>
                     <div className="whitespace-pre-wrap text-slate-200 text-[12px] leading-relaxed font-mono bg-black/20 p-2.5 rounded-lg border border-white/5">
                       {o.ai_analysis_summary}
                     </div>

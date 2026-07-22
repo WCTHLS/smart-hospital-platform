@@ -14,12 +14,6 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(() => {
     return localStorage.getItem("selected_doctor_id") || "";
   });
-  const [unlockedDoctorId, setUnlockedDoctorId] = useState<string>(() => {
-    return sessionStorage.getItem("unlocked_doctor_id") || "";
-  });
-  const [pin, setPin] = useState("");
-  const [pinError, setPinError] = useState("");
-  const [verifyingPin, setVerifyingPin] = useState(false);
   const [queueTab, setQueueTab] = useState<"first" | "reconsult">("first");
   const [docAvailable, setDocAvailable] = useState<boolean>(true);
 
@@ -37,7 +31,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
   });
 
   const activeDoc = doctors?.find((d: any) => d.doctor_id === selectedDoctorId);
-  const isUnlocked = selectedDoctorId && selectedDoctorId === unlockedDoctorId;
+  const isUnlocked = Boolean(selectedDoctorId);
 
   // Initialize doctor availability local state
   useQuery({
@@ -69,35 +63,15 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
   const handleSelectDoctor = (id: string) => {
     setSelectedDoctorId(id);
     localStorage.setItem("selected_doctor_id", id);
-    setPin("");
-    setPinError("");
-  };
-
-  const handleVerifyPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedDoctorId || !pin) return;
-    setVerifyingPin(true);
-    setPinError("");
-    try {
-      await api.verifyDoctorPin(selectedDoctorId, pin);
-      setUnlockedDoctorId(selectedDoctorId);
-      sessionStorage.setItem("unlocked_doctor_id", selectedDoctorId);
-    } catch (err: any) {
-      setPinError(err.message || "Incorrect PIN code. Access denied.");
-    } finally {
-      setVerifyingPin(false);
-    }
   };
 
   const handleLogoutDoctor = () => {
-    setUnlockedDoctorId("");
-    sessionStorage.removeItem("unlocked_doctor_id");
-    setPin("");
-    setPinError("");
+    setSelectedDoctorId("");
+    localStorage.removeItem("selected_doctor_id");
   };
 
   const renderQueueRow = (title: string, encounters: any[], emptyMessage: string) => (
-    <section className="space-y-3">
+    <section className="glass space-y-3 p-4">
       <div className="flex items-center justify-between gap-3">
         <h4 className="text-sm font-extrabold text-slate-100">{title}</h4>
         <Tag tone={encounters.length ? "blue" : "gray"}>{encounters.length}</Tag>
@@ -125,7 +99,16 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                     <span className="text-[12px] font-bold uppercase tracking-wider text-[var(--dim)]">
                       Token: <b className="text-white text-base">{enc.token?.number || "—"}</b>
                     </span>
-                    {isRedFlag && <Tag tone="red">RED FLAG</Tag>}
+                    <div className="flex items-center gap-1.5">
+                      {enc.triage?.acuity ? (
+                        <Tag tone={["1", "2"].includes(String(enc.triage.acuity)) ? "red" : ["3"].includes(String(enc.triage.acuity)) ? "amber" : "green"}>
+                          ESI-{enc.triage.acuity}
+                        </Tag>
+                      ) : (
+                        <Tag tone="amber">Awaiting Triage</Tag>
+                      )}
+                      {isRedFlag && <Tag tone="red">RED FLAG</Tag>}
+                    </div>
                   </div>
 
                   <div>
@@ -150,7 +133,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                 </div>
 
                 <button
-                  onClick={() => onSelectPatient(enc)}
+                  onClick={() => onSelectPatient({ ...enc, _doctorName: activeDoc?.name || null })}
                   className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
                 >
                   Consult Patient <ArrowRight size={14} />
@@ -166,7 +149,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
   const renderSessionToolbar = () => {
     if (!activeDoc || !isUnlocked) return null;
     return (
-      <Card className="flex flex-col md:flex-row md:items-center justify-between gap-3 !py-2.5 !px-4 relative overflow-hidden animate-in fade-in duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.04), transparent)" }}>
+      <Card className="flex flex-col md:flex-row md:items-center justify-between gap-3 !py-2.5 !px-4 relative overflow-hidden animate-in fade-in duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.04), transparent)" }}>
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded-full bg-[var(--cyan)]/10 border border-[var(--cyan)]/25 flex items-center justify-center text-[var(--cyan)] font-extrabold text-[12px]">
             {activeDoc.name.split(" ").slice(-1)[0][0]}
@@ -211,13 +194,11 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
           </p>
           <button
             onClick={() => {
-              sessionStorage.removeItem("unlocked_doctor_id");
               localStorage.removeItem("selected_doctor_id");
               setSelectedDoctorId("");
-              setUnlockedDoctorId("");
             }}
             className="btn mx-auto font-bold"
-            style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+            style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
           >
             Reset Session &amp; Login
           </button>
@@ -239,7 +220,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                 value={selectedDoctorId}
                 onChange={(e) => handleSelectDoctor(e.target.value)}
                 className="input !py-1.5 !px-3 !w-auto text-[13.5px] font-bold"
-                style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+                style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
               >
                 <option value="">-- Choose Doctor Profile --</option>
                 {doctors?.map((doc: any) => (
@@ -255,57 +236,11 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
         renderSessionToolbar()
       )}
 
-      {/* PIN Login Form if locked */}
-      {selectedDoctorId && selectedDoctorId !== unlockedDoctorId && (
-        <div className="max-w-[440px] mx-auto py-8">
-          <Card className="space-y-4 relative overflow-hidden animate-in fade-in zoom-in-95 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.06), transparent)" }}>
-            <div className="flex flex-col items-center text-center space-y-2 pb-2">
-              <div className="w-12 h-12 rounded-full bg-[var(--cyan)]/10 border border-[var(--cyan)]/25 flex items-center justify-center text-[var(--cyan)]">
-                <User size={24} />
-              </div>
-              <h3 className="font-extrabold text-[15px] text-slate-100">{activeDoc?.name}</h3>
-              <p className="text-[12px] text-[var(--muted)]">{activeDoc?.specialty} · Room {activeDoc?.room} ({activeDoc?.floor})</p>
-            </div>
-
-            <form onSubmit={handleVerifyPin} className="space-y-3.5 text-xs">
-              <div className="space-y-1">
-                <label className="block font-bold text-slate-300 text-center">Enter Access PIN Code</label>
-                <input
-                  type="password"
-                  placeholder="••••"
-                  className="input text-center text-lg font-bold tracking-widest font-mono py-2"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  required
-                  autoFocus
-                />
-              </div>
-
-              {pinError && (
-                <div className="p-2.5 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 flex items-center gap-1.5 justify-center">
-                  <ShieldAlert size={14} />
-                  <span>{pinError}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={verifyingPin}
-                className="btn w-full font-bold py-2"
-                style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
-              >
-                {verifyingPin ? "Verifying..." : "Unlock Workspace"}
-              </button>
-            </form>
-          </Card>
-        </div>
-      )}
-
       {/* Patient Queue */}
-      {selectedDoctorId && selectedDoctorId === unlockedDoctorId && (
+      {selectedDoctorId && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="grad-text text-lg font-extrabold flex items-center gap-2">
+            <h3 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
               <Users size={18} /> Active Patient Queue
             </h3>
             <span className="live">LIVE REFRESH</span>
@@ -400,7 +335,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                       </div>
 
                       <button
-                        onClick={() => onSelectPatient(enc)}
+                        onClick={() => onSelectPatient({ ...enc, _doctorName: activeDoc?.name || null })}
                         className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
                       >
                         Consult Patient <ArrowRight size={14} />

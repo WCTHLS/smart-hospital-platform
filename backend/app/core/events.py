@@ -72,6 +72,7 @@ class Topics:
     TOKEN_ISSUED = "token.issued"
     NOTE_APPROVED = "note.approved"
     LABORDER_CREATED = "laborder.created"
+    SAMPLE_COLLECTED = "laborder.sample_collected"
     LABRESULT_PUBLISHED = "labresult.published"
     RESULT_ABNORMAL = "result.abnormal"
     PRESCRIPTION_APPROVED = "prescription.approved"

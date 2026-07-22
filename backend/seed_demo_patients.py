@@ -116,7 +116,7 @@ def seed_demo():
             
             # 3. Add Consent
             db.add(models.ConsentArtifact(
-                patient_id=patient.patient_id, purpose="CARE_MGMT", hip_id="aarogya-hip", hiu_id="aarogya-hiu",
+                patient_id=patient.patient_id, purpose="CARE_MGMT", hip_id="qconnect-hip", hiu_id="qconnect-hiu",
                 status="GRANTED", valid_from=now, valid_to=now + timedelta(days=3)
             ))
             

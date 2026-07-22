@@ -152,7 +152,7 @@ export default function LabOrdersAlert({
             key: order.key_id,
             amount: order.amount,
             currency: order.currency,
-            name: "Aarogya AI",
+            name: "Qconnect",
             description: `Lab Tests: ${pendingOrders.map((o: any) => o.test).join(", ")}`,
             order_id: order.order_id,
             prefill: order.prefill,
@@ -162,7 +162,7 @@ export default function LabOrdersAlert({
               contact: Boolean(order.prefill?.contact),
             },
             retry: { enabled: true },
-            theme: { color: "#34e1e8" },
+            theme: { color: "#2564cf" },
             modal: {
               confirm_close: true,
               ondismiss: () => {
@@ -256,7 +256,7 @@ export default function LabOrdersAlert({
             <button 
               onClick={() => setStep("date")}
               className="btn text-xs !py-1.5 px-3.5 font-extrabold flex items-center gap-1 w-full md:w-auto"
-              style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+              style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
             >
               Book Slot &amp; Pay <ChevronRight size={14} />
             </button>
@@ -317,7 +317,7 @@ export default function LabOrdersAlert({
                     onClick={() => setSelectedSlot(timeStr)}
                     className={`btn text-xs shrink-0 py-1 px-3 border transition-all ${
                       active 
-                        ? "border-[var(--cyan)] text-white bg-[rgba(52,225,232,0.15)]"
+                        ? "border-[var(--cyan)] text-white bg-[rgba(37,100,207,0.15)]"
                         : booked
                           ? "border-white/5 text-slate-600 line-through cursor-not-allowed"
                           : "border-white/10 text-slate-300 hover:border-white/30"
@@ -410,7 +410,7 @@ export default function LabOrdersAlert({
                   </button>
                 </div>
               ) : (
-                <div className="p-3 bg-blue-500/5 border border-blue-500/20 text-blue-300 rounded-xl text-xs flex gap-2.5 items-start text-left max-w-sm mx-auto">
+                <div className="p-3 bg-sky-600/5 border border-sky-600/20 text-sky-400 rounded-xl text-xs flex gap-2.5 items-start text-left max-w-sm mx-auto">
                   <AlertCircle size={16} className="shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold block mb-0.5">Check-In Unavailable</span>

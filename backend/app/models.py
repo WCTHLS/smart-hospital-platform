@@ -245,6 +245,7 @@ class LabOrder(Base):
     qr_code: Mapped[str | None] = mapped_column(String(64), unique=True)
     price: Mapped[float | None] = mapped_column(Float)
     ordered_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    sample_collected_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     
     # Lab findings & attachments
     notes: Mapped[str | None] = mapped_column(Text) # Human technician notes
@@ -299,6 +300,7 @@ class PrescriptionItem(Base):
     duration_days: Mapped[int | None] = mapped_column(Integer)
     quantity: Mapped[int | None] = mapped_column(Integer)
     substituted_from: Mapped[str | None] = mapped_column(String(120))
+    instructions: Mapped[str | None] = mapped_column(String(200))
 
     prescription: Mapped["Prescription"] = relationship(back_populates="items")
 
@@ -466,3 +468,181 @@ class LabSchedule(Base):
     slot_duration_minutes: Mapped[int] = mapped_column(Integer, default=20)
     max_capacity_per_slot: Mapped[int] = mapped_column(Integer, default=5)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+# --------------------------------------------------------------------------------- Oncology / Cancer Care
+class Diagnosis(Base):
+    """A cancer diagnosis for a patient — primary site, histology and staging."""
+
+    __tablename__ = "diagnosis"
+
+    diagnosis_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    encounter_id: Mapped[str | None] = mapped_column(ForeignKey("encounter.encounter_id"))
+    cancer_type: Mapped[str] = mapped_column(String(120))  # e.g. "Breast", "Lung (NSCLC)"
+    primary_site: Mapped[str | None] = mapped_column(String(120))
+    histology: Mapped[str | None] = mapped_column(String(160))  # e.g. "Invasive ductal carcinoma"
+    icd10_code: Mapped[str | None] = mapped_column(String(10))
+    icdo_morphology_code: Mapped[str | None] = mapped_column(String(20))  # ICD-O-3 morphology
+    grade: Mapped[str | None] = mapped_column(String(20))  # G1-G4 / Low / High
+    stage_group: Mapped[str | None] = mapped_column(String(10))  # e.g. "Stage IIB"
+    tnm_t: Mapped[str | None] = mapped_column(String(10))
+    tnm_n: Mapped[str | None] = mapped_column(String(10))
+    tnm_m: Mapped[str | None] = mapped_column(String(10))
+    metastatic: Mapped[bool] = mapped_column(Boolean, default=False)
+    metastatic_sites: Mapped[list | None] = mapped_column(JSON, default=list)
+    diagnosed_by: Mapped[str | None] = mapped_column(String(36))
+    diagnosed_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")  # ACTIVE / REMISSION / RECURRENT / RESOLVED
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    biomarkers: Mapped[list["BiomarkerTest"]] = relationship(back_populates="diagnosis", cascade="all, delete-orphan")
+    chemo_regimens: Mapped[list["ChemoRegimen"]] = relationship(back_populates="diagnosis", cascade="all, delete-orphan")
+    tumor_board_cases: Mapped[list["TumorBoardCase"]] = relationship(back_populates="diagnosis", cascade="all, delete-orphan")
+
+
+class BiomarkerTest(Base):
+    """Molecular / genetic biomarker result (e.g. ER/PR/HER2, EGFR, ALK, PD-L1, BRCA1/2)."""
+
+    __tablename__ = "biomarker_test"
+
+    biomarker_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    diagnosis_id: Mapped[str] = mapped_column(ForeignKey("diagnosis.diagnosis_id"))
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    marker_name: Mapped[str] = mapped_column(String(60))  # ER / PR / HER2 / EGFR / ALK / PD-L1 / BRCA1 ...
+    result: Mapped[str | None] = mapped_column(String(60))  # POSITIVE / NEGATIVE / MUTATED / VUS / value
+    value: Mapped[str | None] = mapped_column(String(60))  # numeric/percentage/allelic detail if applicable
+    method: Mapped[str | None] = mapped_column(String(60))  # IHC / FISH / NGS / PCR
+    lab_name: Mapped[str | None] = mapped_column(String(120))
+    tested_date: Mapped[date | None] = mapped_column(Date)
+    report_uri: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    diagnosis: Mapped["Diagnosis"] = relationship(back_populates="biomarkers")
+
+
+class ChemoRegimen(Base):
+    """A planned chemotherapy / systemic therapy regimen (protocol) for a diagnosis."""
+
+    __tablename__ = "chemo_regimen"
+
+    regimen_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    diagnosis_id: Mapped[str] = mapped_column(ForeignKey("diagnosis.diagnosis_id"))
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    protocol_name: Mapped[str] = mapped_column(String(120))  # e.g. "AC-T", "FOLFOX", "R-CHOP"
+    intent: Mapped[str | None] = mapped_column(String(20))  # CURATIVE / PALLIATIVE / NEOADJUVANT / ADJUVANT
+    line_of_therapy: Mapped[int | None] = mapped_column(Integer)  # 1 = first-line, 2 = second-line ...
+    drugs: Mapped[list | None] = mapped_column(JSON, default=list)  # [{name, dose, route}, ...]
+    cycle_length_days: Mapped[int | None] = mapped_column(Integer)
+    planned_cycles: Mapped[int | None] = mapped_column(Integer)
+    prescribed_by: Mapped[str | None] = mapped_column(String(36))
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="PLANNED")  # PLANNED / ACTIVE / COMPLETED / DISCONTINUED
+    discontinued_reason: Mapped[str | None] = mapped_column(String(200))
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    diagnosis: Mapped["Diagnosis"] = relationship(back_populates="chemo_regimens")
+    cycles: Mapped[list["ChemoCycle"]] = relationship(back_populates="regimen", cascade="all, delete-orphan")
+
+
+class ChemoCycle(Base):
+    """A single administered (or scheduled) cycle within a chemo regimen."""
+
+    __tablename__ = "chemo_cycle"
+
+    cycle_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    regimen_id: Mapped[str] = mapped_column(ForeignKey("chemo_regimen.regimen_id"))
+    cycle_number: Mapped[int] = mapped_column(Integer)
+    scheduled_date: Mapped[date | None] = mapped_column(Date)
+    administered_date: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20), default="SCHEDULED")  # SCHEDULED / ADMINISTERED / DELAYED / SKIPPED
+    delay_reason: Mapped[str | None] = mapped_column(String(200))
+    weight_kg: Mapped[float | None] = mapped_column(Float)
+    bsa_m2: Mapped[float | None] = mapped_column(Float)  # body surface area, used for dosing
+    toxicities: Mapped[list | None] = mapped_column(JSON, default=list)  # [{ctcae_term, grade}, ...]
+    administered_by: Mapped[str | None] = mapped_column(String(36))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    regimen: Mapped["ChemoRegimen"] = relationship(back_populates="cycles")
+
+
+class TumorBoardCase(Base):
+    """A multidisciplinary tumor board (MDT) discussion for a diagnosis."""
+
+    __tablename__ = "tumor_board_case"
+
+    case_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    diagnosis_id: Mapped[str] = mapped_column(ForeignKey("diagnosis.diagnosis_id"))
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    scheduled_date: Mapped[date | None] = mapped_column(Date)
+    presenting_doctor_id: Mapped[str | None] = mapped_column(String(36))
+    attendees: Mapped[list | None] = mapped_column(JSON, default=list)  # [{staff_id, name, specialty}, ...]
+    case_summary: Mapped[str | None] = mapped_column(Text)
+    recommendation: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="SCHEDULED")  # SCHEDULED / DISCUSSED / DEFERRED
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    diagnosis: Mapped["Diagnosis"] = relationship(back_populates="tumor_board_cases")
+
+
+class RadiologyReport(Base):
+    """An oncology-grade imaging report (CT/MRI/PET) with staging-relevant findings."""
+
+    __tablename__ = "radiology_report"
+
+    report_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    diagnosis_id: Mapped[str | None] = mapped_column(ForeignKey("diagnosis.diagnosis_id"))
+    lab_order_id: Mapped[str | None] = mapped_column(ForeignKey("lab_order.lab_order_id"))
+    modality: Mapped[str | None] = mapped_column(String(20))  # CT / MRI / PET-CT / X-RAY / USG
+    body_region: Mapped[str | None] = mapped_column(String(60))
+    findings: Mapped[str | None] = mapped_column(Text)
+    impression: Mapped[str | None] = mapped_column(Text)
+    recist_response: Mapped[str | None] = mapped_column(String(20))  # CR / PR / SD / PD (RECIST 1.1)
+    reported_by: Mapped[str | None] = mapped_column(String(36))
+    attachment_uri: Mapped[str | None] = mapped_column(Text)
+    reported_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class PathologyReport(Base):
+    """A histopathology / cytopathology report (biopsy, resection, cytology)."""
+
+    __tablename__ = "pathology_report"
+
+    report_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    diagnosis_id: Mapped[str | None] = mapped_column(ForeignKey("diagnosis.diagnosis_id"))
+    lab_order_id: Mapped[str | None] = mapped_column(ForeignKey("lab_order.lab_order_id"))
+    specimen_type: Mapped[str | None] = mapped_column(String(80))  # BIOPSY / RESECTION / FNAC / CORE
+    specimen_site: Mapped[str | None] = mapped_column(String(120))
+    gross_description: Mapped[str | None] = mapped_column(Text)
+    microscopic_description: Mapped[str | None] = mapped_column(Text)
+    diagnosis_text: Mapped[str | None] = mapped_column(Text)
+    margins_status: Mapped[str | None] = mapped_column(String(40))  # CLEAR / INVOLVED / CLOSE
+    lymph_nodes_examined: Mapped[int | None] = mapped_column(Integer)
+    lymph_nodes_positive: Mapped[int | None] = mapped_column(Integer)
+    reported_by: Mapped[str | None] = mapped_column(String(36))
+    attachment_uri: Mapped[str | None] = mapped_column(Text)
+    reported_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class SurvivorshipPlan(Base):
+    """Post-treatment survivorship care plan — surveillance schedule and late-effects monitoring."""
+
+    __tablename__ = "survivorship_plan"
+
+    plan_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id"))
+    diagnosis_id: Mapped[str] = mapped_column(ForeignKey("diagnosis.diagnosis_id"))
+    treatment_summary: Mapped[str | None] = mapped_column(Text)
+    surveillance_schedule: Mapped[list | None] = mapped_column(JSON, default=list)  # [{test, interval_months}, ...]
+    late_effects_risks: Mapped[list | None] = mapped_column(JSON, default=list)
+    next_followup_date: Mapped[date | None] = mapped_column(Date)
+    lifestyle_recommendations: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(36))
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")  # ACTIVE / CLOSED
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import { 
   LogOut, Clipboard, Camera, UserRound, ArrowLeft, CheckCircle2, 
-  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar, Trash2
+  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar, Trash2, Syringe
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useJourney } from "../../lib/store";
@@ -72,6 +72,11 @@ export default function PatientDashboard() {
     if (shouldOpen) sessionStorage.removeItem("open-patient-profile");
     return shouldOpen;
   });
+  const [profileModalTab, setProfileModalTab] = useState<"info" | "history">("info");
+
+  useEffect(() => {
+    if (showProfileModal) setProfileModalTab("info");
+  }, [showProfileModal]);
 
   useEffect(() => {
     if (location.state?.openPatientProfile) {
@@ -155,6 +160,14 @@ export default function PatientDashboard() {
     queryFn: () => api.triageStaff(),
   });
 
+  // Only used to conditionally surface the "Cancer Care" quick-access card below —
+  // most patients have no oncology record, so this stays empty for them.
+  const { data: oncologyDiagnoses } = useQuery({
+    queryKey: ["oncology-diagnoses", portalPatientId],
+    queryFn: () => api.oncologyDiagnoses(portalPatientId),
+    enabled: !!portalPatientId,
+  });
+
   const handleSignOut = () => {
     clearPortalPatient();
     journey.reset();
@@ -180,6 +193,20 @@ export default function PatientDashboard() {
   const todayEpisodes = episodes.filter((ep: any) => ep.date === today);
   const pastEpisodes = episodes.filter((ep: any) => ep.date !== today);
   const appointments = appointmentData?.appointments ?? [];
+
+  // Every visit, most-recent first — feeds the "Token & Billing History" tab in the
+  // patient profile modal so a patient can see every queue token + invoice in one place,
+  // the same way a doctor sees a full Patient 360 view for a chart.
+  const historyEpisodes = [...episodes].sort((a: any, b: any) => (b.date || "").localeCompare(a.date || ""));
+
+  const historyInvoiceQueries = useQueries({
+    queries: historyEpisodes.map((ep: any) => ({
+      queryKey: ["portal-history-invoice", ep.encounter_id],
+      queryFn: () => api.invoice(ep.encounter_id),
+      enabled: showProfileModal && profileModalTab === "history" && !!ep.encounter_id,
+      staleTime: 30_000,
+    })),
+  });
 
   const latestDischargeEvent = events.find((event) =>
     event.topic === "visit.discharged" &&
@@ -448,10 +475,10 @@ export default function PatientDashboard() {
           <button
             type="button"
             onClick={() => setShowProfileModal(true)}
-            className="group -m-1.5 flex w-[calc(100%+0.75rem)] items-center gap-3 rounded-xl border border-transparent p-1.5 text-left transition hover:border-cyan-500/20 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
+            className="group -m-1.5 flex w-[calc(100%+0.75rem)] items-center gap-3 rounded-xl border border-transparent p-1.5 text-left transition hover:border-sky-600/20 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/70"
             aria-label="View patient profile details"
           >
-            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5 group-hover:border-cyan-400/30">
+            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5 group-hover:border-sky-500/30">
               {(p360?.patient?.profile_photo || portalSession.profile_photo)
                 ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
                 : <UserRound size={30} className="text-[var(--dim)] group-hover:text-[var(--cyan)]" />}
@@ -461,7 +488,7 @@ export default function PatientDashboard() {
                 <span>Patient profile</span>
                 <span className="text-[9px] text-[var(--cyan)] font-extrabold group-hover:underline">View Details ➔</span>
               </div>
-              <div className="truncate text-base font-extrabold text-slate-100 transition-colors group-hover:text-cyan-300">{portalPatientName}</div>
+              <div className="truncate text-base font-extrabold text-slate-100 transition-colors group-hover:text-sky-400">{portalPatientName}</div>
               <Tag tone="cyan">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</Tag>
             </div>
           </button>
@@ -519,7 +546,7 @@ export default function PatientDashboard() {
                   className="w-full text-left p-2.5 rounded-xl border text-xs transition block hover:bg-white/5"
                   style={{
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)",
-                    background: isActive ? "rgba(52,225,232,0.05)" : "rgba(255,255,255,0.01)"
+                    background: isActive ? "rgba(37,100,207,0.05)" : "rgba(255,255,255,0.01)"
                   }}
                 >
                   <div className="flex justify-between items-center mb-1">
@@ -550,7 +577,7 @@ export default function PatientDashboard() {
                   className="w-full text-left p-2.5 rounded-xl border text-xs transition block hover:bg-white/5"
                   style={{
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)",
-                    background: isActive ? "rgba(52,225,232,0.05)" : "rgba(255,255,255,0.01)"
+                    background: isActive ? "rgba(37,100,207,0.05)" : "rgba(255,255,255,0.01)"
                   }}
                 >
                   <div className="flex justify-between items-center mb-1">
@@ -564,7 +591,28 @@ export default function PatientDashboard() {
             })}
           </div>
         </Card>
- 
+
+        {oncologyDiagnoses && oncologyDiagnoses.length > 0 && (
+          <button
+            type="button"
+            className="card w-full text-left cursor-pointer transition hover:bg-white/5"
+            onClick={() => nav("/patient/oncology")}
+          >
+            <div className="flex items-center gap-3">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ background: "rgba(37,100,207,0.15)" }}>
+                <Syringe size={18} style={{ color: "var(--cyan)" }} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-bold text-xs text-white">My Cancer Care</div>
+                <div className="truncate text-[11px] text-[var(--muted)]">
+                  {oncologyDiagnoses[0].cancer_type} · diagnosis, chemo &amp; care team updates
+                </div>
+              </div>
+              <Tag tone="violet">View</Tag>
+            </div>
+          </button>
+        )}
+
         {/* Past Visits */}
         <Card className="space-y-3">
           <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Past visits</h4>
@@ -584,7 +632,7 @@ export default function PatientDashboard() {
                   className="block w-full rounded-xl border p-2.5 text-left text-xs transition hover:bg-white/5"
                   style={{ 
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)", 
-                    background: isActive ? "rgba(52,225,232,0.05)" : "rgba(255,255,255,0.01)" 
+                    background: isActive ? "rgba(37,100,207,0.05)" : "rgba(255,255,255,0.01)" 
                   }}
                 >
                   <div className="mb-1 flex items-center justify-between">
@@ -629,7 +677,7 @@ export default function PatientDashboard() {
                 <button 
                   onClick={() => handleCancelAppointment(selectedApp.appointment_id)}
                   className="btn outline sm text-xs flex items-center gap-1.5"
-                  style={{ borderColor: "rgba(239,68,68,0.3)", color: "#fda4af" }}
+                  style={{ borderColor: "rgba(239,68,68,0.3)", color: "#b91c1c" }}
                 >
                   Cancel Visit
                 </button>
@@ -707,8 +755,8 @@ export default function PatientDashboard() {
                 );
               } else {
                 return (
-                  <div className="p-3 bg-blue-500/5 border border-blue-500/20 text-blue-300 rounded-xl text-xs flex gap-2.5 items-start mt-2">
-                    <AlertCircle size={16} className="shrink-0 mt-0.5 text-blue-400" />
+                  <div className="p-3 bg-sky-600/5 border border-sky-600/20 text-sky-400 rounded-xl text-xs flex gap-2.5 items-start mt-2">
+                    <AlertCircle size={16} className="shrink-0 mt-0.5 text-sky-500" />
                     <div>
                       <span className="font-bold block mb-0.5">Check-In Offline</span>
                       You can complete your check-in on the day of your visit: <span className="font-semibold text-white">{new Date(selectedApp.scheduled_start).toLocaleDateString()}</span>.
@@ -725,8 +773,8 @@ export default function PatientDashboard() {
           <Card 
             className="space-y-4 animate-in fade-in duration-300 relative overflow-hidden"
             style={{ 
-              background: "linear-gradient(135deg, rgba(6,182,212,0.06), rgba(139,92,246,0.06))",
-              borderColor: "rgba(6,182,212,0.25)" 
+              background: "linear-gradient(135deg, rgba(37,100,207,0.06), rgba(26,79,180,0.06))",
+              borderColor: "rgba(37,100,207,0.25)" 
             }}
           >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--glass-border)] pb-3">
@@ -739,8 +787,8 @@ export default function PatientDashboard() {
               </div>
             </div>
 
-            <div className="p-3.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 rounded-xl text-xs flex gap-2.5 items-start">
-              <CheckCircle2 size={18} className="shrink-0 text-cyan-400 mt-0.5" />
+            <div className="p-3.5 bg-sky-600/10 border border-sky-600/20 text-sky-400 rounded-xl text-xs flex gap-2.5 items-start">
+              <CheckCircle2 size={18} className="shrink-0 text-sky-500 mt-0.5" />
               <div>
                 <span className="font-bold block mb-0.5 text-white">Reports Sent to Doctor!</span>
                 Your lab results and vitals have been successfully sent to the doctor. The doctor will review your reports shortly and update your consultation advice.
@@ -751,14 +799,14 @@ export default function PatientDashboard() {
             <div 
               className="token-highlight relative flex flex-col items-center justify-center space-y-2 overflow-hidden rounded-2xl border p-3.5 text-center shadow-md max-w-sm mx-auto w-full"
               style={{ 
-                background: "rgba(6,182,212,0.03)",
-                borderColor: "rgba(6,182,212,0.2)" 
+                background: "rgba(37,100,207,0.03)",
+                borderColor: "rgba(37,100,207,0.2)" 
               }}
             >
-              <div className="rounded-full border border-cyan-400/20 bg-cyan-400/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
+              <div className="rounded-full border border-sky-500/20 bg-sky-500/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
                 E-Consultation Token
               </div>
-              <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]">
+              <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(37,100,207,0.6)]">
                 {encDetails.token?.number || "E-PENDING"}
               </div>
               
@@ -766,7 +814,7 @@ export default function PatientDashboard() {
                 <div className="text-slate-200 font-bold flex items-center justify-center gap-1">
                   <MapPin size={12} className="text-[var(--cyan)]" /> Tele-Consult / Online Review
                 </div>
-                <div className="text-[10px] text-cyan-300/80 bg-cyan-900/30 px-2 py-0.5 rounded-full border border-cyan-500/20 mt-2 inline-block">
+                <div className="text-[10px] text-sky-400/80 bg-blue-900/30 px-2 py-0.5 rounded-full border border-sky-600/20 mt-2 inline-block">
                   Waiting for doctor review...
                 </div>
               </div>
@@ -779,7 +827,7 @@ export default function PatientDashboard() {
               </div>
               <div className="kv"><span>Consulting Doctor</span><b>{encDetails.appointment?.doctor?.name || parentEncDetails?.appointment?.doctor?.name || parentEncDetails?.triage?.recommended_doctor?.name || "Assigned Doctor"}</b></div>
               <div className="kv"><span>Department</span><b>{encDetails.department || parentEncDetails?.department || "General Medicine"}</b></div>
-              <div className="kv"><span>Status</span><b className="text-cyan-400">Under Doctor Review</b></div>
+              <div className="kv"><span>Status</span><b className="text-sky-500">Under Doctor Review</b></div>
             </div>
           </Card>
         )}
@@ -837,7 +885,7 @@ export default function PatientDashboard() {
                   <div 
                     className="token-highlight relative flex flex-col items-center justify-center space-y-2 overflow-hidden rounded-2xl border p-3.5 text-center shadow-md max-w-sm mx-auto w-full"
                     style={{ 
-                      background: "linear-gradient(135deg, rgba(16,185,129,0.06), rgba(52,225,232,0.06))",
+                      background: "linear-gradient(135deg, rgba(16,185,129,0.06), rgba(37,100,207,0.06))",
                       borderColor: "rgba(16,185,129,0.25)" 
                     }}
                   >
@@ -874,14 +922,14 @@ export default function PatientDashboard() {
                   <div 
                     className="token-highlight relative flex flex-col items-center justify-center space-y-2 overflow-hidden rounded-2xl border p-3.5 text-center shadow-md max-w-sm mx-auto w-full"
                     style={{ 
-                      background: "linear-gradient(135deg, rgba(6,182,212,0.06), rgba(139,92,246,0.06))",
-                      borderColor: "rgba(6,182,212,0.25)" 
+                      background: "linear-gradient(135deg, rgba(37,100,207,0.06), rgba(26,79,180,0.06))",
+                      borderColor: "rgba(37,100,207,0.25)" 
                     }}
                   >
-                    <div className="rounded-full border border-cyan-400/20 bg-cyan-400/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
+                    <div className="rounded-full border border-sky-500/20 bg-sky-500/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
                       E-Consultation Token
                     </div>
-                    <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]">
+                    <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(37,100,207,0.6)]">
                       {tokenNum}
                     </div>
                     
@@ -889,7 +937,7 @@ export default function PatientDashboard() {
                       <div className="text-slate-200 font-bold flex items-center justify-center gap-1">
                         <MapPin size={12} className="text-[var(--cyan)]" /> Tele-Consult / Online Review
                       </div>
-                      <div className="text-[10px] text-cyan-300/80 bg-cyan-900/30 px-2 py-0.5 rounded-full border border-cyan-500/20 mt-2 inline-block">
+                      <div className="text-[10px] text-sky-400/80 bg-blue-900/30 px-2 py-0.5 rounded-full border border-sky-600/20 mt-2 inline-block">
                         Waiting for doctor review...
                       </div>
                     </div>
@@ -915,14 +963,14 @@ export default function PatientDashboard() {
                 <div 
                   className="token-highlight relative flex flex-col items-center justify-center space-y-2 overflow-hidden rounded-2xl border p-3.5 text-center shadow-md max-w-sm mx-auto w-full"
                   style={{ 
-                    background: "linear-gradient(135deg, rgba(52,225,232,0.06), rgba(139,92,246,0.06))",
-                    borderColor: "rgba(52,225,232,0.25)" 
+                    background: "linear-gradient(135deg, rgba(37,100,207,0.06), rgba(26,79,180,0.06))",
+                    borderColor: "rgba(37,100,207,0.25)" 
                   }}
                 >
-                  <div className="rounded-full border border-cyan-400/20 bg-cyan-400/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
+                  <div className="rounded-full border border-sky-500/20 bg-sky-500/5 px-2.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">
                     Triage Queue Token
                   </div>
-                  <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(52,225,232,0.6)]">
+                  <div className="text-4xl font-black tracking-wider text-white drop-shadow-[0_0_12px_rgba(37,100,207,0.6)]">
                     {triageTokenNum}
                   </div>
                   
@@ -1006,16 +1054,16 @@ export default function PatientDashboard() {
                 <div 
                   className="token-highlight relative flex flex-col items-center justify-center space-y-3 overflow-hidden rounded-2xl border-2 p-5 text-center shadow-lg sm:p-7"
                   style={{ 
-                    background: "linear-gradient(135deg, rgba(52,225,232,0.1), rgba(139,92,246,0.1))",
-                    borderColor: "rgba(52,225,232,0.3)" 
+                    background: "linear-gradient(135deg, rgba(37,100,207,0.1), rgba(26,79,180,0.1))",
+                    borderColor: "rgba(37,100,207,0.3)" 
                   }}
                 >
                   <div className="absolute top-0 right-0 p-2 opacity-5">
                     <Ticket size={120} />
                   </div>
                   
-                  <div className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[var(--cyan)]">Your Queue Token</div>
-                  <div className="text-5xl font-black tracking-wider text-white drop-shadow-[0_0_16px_rgba(52,225,232,0.8)] sm:text-6xl">
+                  <div className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[var(--cyan)]">Your Queue Token</div>
+                  <div className="text-5xl font-black tracking-wider text-white drop-shadow-[0_0_16px_rgba(37,100,207,0.8)] sm:text-6xl">
                     {encDetails.token.number}
                   </div>
                   
@@ -1028,7 +1076,7 @@ export default function PatientDashboard() {
                     </div>
                   </div>
                   
-                  <div className="text-[10px] font-semibold text-cyan-300/80 bg-cyan-900/30 px-2.5 py-0.5 rounded-full border border-cyan-500/20 mt-1 animate-pulse">
+                  <div className="text-[10px] font-semibold text-sky-400/80 bg-blue-900/30 px-2.5 py-0.5 rounded-full border border-sky-600/20 mt-1 animate-pulse">
                     Waiting for doctor call...
                   </div>
                 </div>
@@ -1065,9 +1113,9 @@ export default function PatientDashboard() {
           <>
             {currentEpisode && (
               <Card 
-                className="p-4 space-y-4 border-cyan-500/20 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300"
+                className="p-4 space-y-4 border-sky-600/20 bg-slate-900/40 backdrop-blur-md animate-in fade-in duration-300"
                 style={{ 
-                  background: "linear-gradient(135deg, rgba(6,182,212,0.04), rgba(139,92,246,0.04))",
+                  background: "linear-gradient(135deg, rgba(37,100,207,0.04), rgba(26,79,180,0.04))",
                   borderColor: "rgba(255,255,255,0.05)"
                 }}
               >
@@ -1129,7 +1177,7 @@ export default function PatientDashboard() {
                       marker = "✓";
                     } else if (activeLab) {
                       statusText = `Checked-in (${activeLab.token?.number || "L-101"})`;
-                      stepColorClass = "bg-cyan-500 text-white border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse";
+                      stepColorClass = "bg-sky-600 text-white border-sky-600/20 shadow-[0_0_10px_rgba(37,100,207,0.3)] animate-pulse";
                       marker = "⚡";
                     }
 
@@ -1163,7 +1211,7 @@ export default function PatientDashboard() {
                       statusText = activeFollowup.visit_type === "E_CONSULT" 
                         ? `E-Consult Active (${activeFollowup.token?.number || "E-501"})`
                         : `Re-visit Active (${activeFollowup.token?.number || "T-101"})`;
-                      stepColorClass = "bg-cyan-500 text-white border-cyan-500/20 shadow-[0_0_10px_rgba(6,182,212,0.3)] animate-pulse";
+                      stepColorClass = "bg-sky-600 text-white border-sky-600/20 shadow-[0_0_10px_rgba(37,100,207,0.3)] animate-pulse";
                       marker = "⚡";
                     }
 
@@ -1322,13 +1370,13 @@ export default function PatientDashboard() {
               <Card 
                 className="space-y-3.5 relative overflow-hidden"
                 style={{ 
-                  background: "linear-gradient(135deg, rgba(6,182,212,0.08), rgba(139,92,246,0.08))", 
-                  borderColor: "rgba(6,182,212,0.2)" 
+                  background: "linear-gradient(135deg, rgba(37,100,207,0.08), rgba(26,79,180,0.08))", 
+                  borderColor: "rgba(37,100,207,0.2)" 
                 }}
               >
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 pb-3">
                   <div>
-                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-cyan-400">Follow-up Care Portal</span>
+                    <span className="text-[9px] font-extrabold uppercase tracking-wider text-sky-500">Follow-up Care Portal</span>
                     <h3 className="text-sm font-black text-white mt-0.5">Post-Consultation &amp; Lab Review</h3>
                   </div>
                   <Tag tone="green">Ready for Review</Tag>
@@ -1364,7 +1412,7 @@ export default function PatientDashboard() {
 
                   if (activeFollowup) {
                     return (
-                      <div className="p-3 text-xs bg-cyan-500/10 border-cyan-500/20 text-cyan-300 rounded-xl border flex gap-2">
+                      <div className="p-3 text-xs bg-sky-600/10 border-sky-600/20 text-sky-400 rounded-xl border flex gap-2">
                         <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
                         <div>
                           <strong>Follow-up Consultation Active:</strong> You are currently in the doctor's queue for report review. Token: <strong>{activeFollowup.token?.number}</strong>.
@@ -1375,8 +1423,8 @@ export default function PatientDashboard() {
 
                   if (bookedRevisit) {
                     return (
-                      <div className="space-y-3 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs">
-                        <div className="flex gap-2 text-cyan-300">
+                      <div className="space-y-3 rounded-xl border border-sky-600/20 bg-sky-600/5 p-3 text-xs">
+                        <div className="flex gap-2 text-sky-400">
                           <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
                           <div>
                             <strong className="block text-white">Follow-up appointment booked</strong>
@@ -1401,7 +1449,7 @@ export default function PatientDashboard() {
 
                   if (activeLab) {
                     return (
-                      <div className="p-3 text-xs bg-cyan-500/10 border-cyan-500/20 text-cyan-300 rounded-xl border flex gap-2">
+                      <div className="p-3 text-xs bg-sky-600/10 border-sky-600/20 text-sky-400 rounded-xl border flex gap-2">
                         <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
                         <div>
                           <strong>Lab Check-in Active:</strong> Please complete your sample collection at the clinical lab. Token: <strong>{activeLab.token?.number}</strong>.
@@ -1412,7 +1460,7 @@ export default function PatientDashboard() {
 
                   if (econsultSuccessMsg) {
                     return (
-                      <div className="p-3 text-xs bg-cyan-500/10 border-cyan-500/20 text-cyan-300 rounded-xl border flex gap-2">
+                      <div className="p-3 text-xs bg-sky-600/10 border-sky-600/20 text-sky-400 rounded-xl border flex gap-2">
                         <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
                         <div>{econsultSuccessMsg}</div>
                       </div>
@@ -1441,7 +1489,7 @@ export default function PatientDashboard() {
                                 setShowRevisitModal(true);
                               }}
                               className="btn sm"
-                              style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                              style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
                             >
                               🏥 Book In-Person Re-Visit
                             </button>
@@ -1449,7 +1497,7 @@ export default function PatientDashboard() {
                               onClick={() => handleRequestEconsult(docId)}
                               disabled={requestingEconsult}
                               className="btn outline sm flex items-center gap-1.5"
-                              style={{ borderColor: "rgba(52,225,232,0.3)", color: "var(--cyan)" }}
+                              style={{ borderColor: "rgba(37,100,207,0.3)", color: "var(--cyan)" }}
                             >
                               💬 Request E-Consultation (Remote Review)
                             </button>
@@ -1475,7 +1523,7 @@ export default function PatientDashboard() {
                                 setShowRevisitModal(true);
                               }}
                               className="btn sm"
-                              style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                              style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
                             >
                               📂 Upload Reports &amp; Book Re-Visit
                             </button>
@@ -1549,7 +1597,7 @@ export default function PatientDashboard() {
                   <button 
                     onClick={() => setShowRevisitModal(false)}
                     className="btn w-full font-bold"
-                    style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "white" }}
+                    style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
                   >
                     Close
                   </button>
@@ -1622,7 +1670,7 @@ export default function PatientDashboard() {
                         setRevisitSlot("");
                       }}
                       className="input w-full"
-                      style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "white" }}
+                      style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
                     />
                   </div>
 
@@ -1644,7 +1692,7 @@ export default function PatientDashboard() {
                               className="p-1.5 border rounded-lg text-center font-semibold transition"
                               style={{
                                 borderColor: isSelected ? "var(--cyan)" : "var(--glass-border)",
-                                background: isSelected ? "rgba(52,225,232,0.1)" : "rgba(255,255,255,0.02)",
+                                background: isSelected ? "rgba(37,100,207,0.1)" : "rgba(255,255,255,0.02)",
                                 color: isSelected ? "white" : "var(--dim)",
                               }}
                             >
@@ -1664,7 +1712,7 @@ export default function PatientDashboard() {
                     }}
                     disabled={bookingRevisit || uploadingReport || !revisitDate || !revisitSlot || (uploadedDocUri === null && !(encDetails?.labs?.length > 0 && encDetails.labs.every((o: any) => o.status === "RESULTED")))}
                     className="btn w-full font-bold py-2 mt-2"
-                    style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                    style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
                   >
                     {bookingRevisit ? "Booking..." : "Confirm Free Re-visit"}
                   </button>
@@ -1679,8 +1727,8 @@ export default function PatientDashboard() {
       {showProfileModal && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
           <div 
-            className="w-full max-w-md space-y-4 rounded-3xl border border-cyan-500/30 p-6 shadow-2xl animate-in zoom-in-95 duration-200"
-            style={{ background: "linear-gradient(135deg, #0d1527, #0a0f1d)" }}
+            className="w-full max-w-md space-y-4 rounded-3xl border border-sky-600/30 p-6 shadow-2xl animate-in zoom-in-95 duration-200"
+            style={{ background: "linear-gradient(135deg, #0d3c66, #062038)" }}
           >
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2.5">
@@ -1695,15 +1743,34 @@ export default function PatientDashboard() {
               </button>
             </div>
 
-            <div className="flex items-center gap-4 bg-cyan-500/5 border border-cyan-500/10 p-3.5 rounded-2xl">
-              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-cyan-400/20 bg-white/5">
+            <div className="flex rounded-lg border border-white/10 bg-white/[0.02] p-1">
+              <button
+                type="button"
+                onClick={() => setProfileModalTab("info")}
+                className={`flex-1 rounded-md px-3 py-1.5 text-[11px] font-bold transition ${profileModalTab === "info" ? "bg-white/10 text-white" : "text-[var(--muted)]"}`}
+              >
+                Profile Info
+              </button>
+              <button
+                type="button"
+                onClick={() => setProfileModalTab("history")}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-[11px] font-bold transition ${profileModalTab === "history" ? "bg-white/10 text-white" : "text-[var(--muted)]"}`}
+              >
+                <Ticket size={12} /> Token &amp; Billing
+              </button>
+            </div>
+
+            {profileModalTab === "info" && (
+            <>
+            <div className="flex items-center gap-4 bg-sky-600/5 border border-sky-600/10 p-3.5 rounded-2xl">
+              <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-sky-500/20 bg-white/5">
                 {(p360?.patient?.profile_photo || portalSession.profile_photo)
                   ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
                   : <UserRound size={32} className="text-[var(--cyan)]" />}
               </div>
               <div>
                 <h4 className="font-black text-lg text-white">{p360?.patient?.name || portalPatientName}</h4>
-                <div className="mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
+                <div className="mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-blue-950/80 text-sky-400 border border-sky-600/30">
                   {p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}
                 </div>
               </div>
@@ -1740,7 +1807,7 @@ export default function PatientDashboard() {
             <div className="space-y-2.5 text-xs">
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Medical Record Number (MRN)</span>
-                <span className="font-mono font-bold text-cyan-300">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</span>
+                <span className="font-mono font-bold text-sky-400">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</span>
               </div>
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Mobile Number</span>
@@ -1766,7 +1833,7 @@ export default function PatientDashboard() {
               </div>
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Blood Group</span>
-                <span className="font-bold text-cyan-400">{p360?.patient?.blood_group || "N/A"}</span>
+                <span className="font-bold text-sky-500">{p360?.patient?.blood_group || "N/A"}</span>
               </div>
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">ABHA Number</span>
@@ -1781,6 +1848,84 @@ export default function PatientDashboard() {
                 <span className="font-medium text-slate-200 block bg-slate-900/60 p-2 rounded-xl border border-white/5">{p360?.patient?.address || "12 MG Road, Pune, Maharashtra"}</span>
               </div>
             </div>
+            </>
+            )}
+
+            {profileModalTab === "history" && (
+              <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                {!historyEpisodes.length && (
+                  <div className="holo p-3 text-center text-xs text-[var(--muted)]">No visit history available yet.</div>
+                )}
+                {historyEpisodes.map((ep: any, idx: number) => {
+                  const invoice = historyInvoiceQueries[idx]?.data as any;
+                  const invoiceLoading = historyInvoiceQueries[idx]?.isLoading;
+                  const subVisits = [...(ep.labs || []), ...(ep.followups || [])];
+                  return (
+                    <div key={ep.encounter_id} className="space-y-2.5 rounded-2xl border border-white/10 bg-white/[0.02] p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs font-bold text-white">{ep.date}</div>
+                          <div className="text-[10px] text-[var(--dim)]">{ep.department} department</div>
+                        </div>
+                        <Tag tone={ep.status === "DISCHARGED" ? "green" : "blue"}>{ep.status}</Tag>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {ep.token && (
+                          <div className="flex items-center justify-between rounded-lg border border-sky-600/10 bg-sky-600/5 px-2.5 py-1.5 text-[11px]">
+                            <span className="flex items-center gap-1.5 text-slate-200">
+                              <Ticket size={12} className="text-[var(--cyan)]" /> Queue token
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-white">{ep.token.number}</span>
+                              <Tag tone={["DONE", "SERVED", "COMPLETED"].includes(ep.token.status) ? "green" : "amber"}>{ep.token.status}</Tag>
+                            </span>
+                          </div>
+                        )}
+                        {subVisits.map((sv: any) => sv.token && (
+                          <div key={sv.encounter_id} className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.02] px-2.5 py-1.5 text-[11px]">
+                            <span className="flex items-center gap-1.5 text-slate-300">
+                              <Ticket size={12} className="text-emerald-400" /> {sv.department || "Follow-up"} token
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-white">{sv.token.number}</span>
+                              <Tag tone={["DONE", "SERVED", "COMPLETED"].includes(sv.token.status) ? "green" : "amber"}>{sv.token.status}</Tag>
+                            </span>
+                          </div>
+                        ))}
+                        {!ep.token && !subVisits.some((sv: any) => sv.token) && (
+                          <div className="text-[10px] text-[var(--dim)]">No queue token recorded for this visit.</div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between border-t border-white/5 pt-2 text-[11px]">
+                        <span className="flex items-center gap-1.5 text-slate-300">
+                          <Receipt size={12} className="text-[var(--cyan)]" /> Billing
+                        </span>
+                        {invoiceLoading ? (
+                          <span className="text-[var(--dim)]">Loading…</span>
+                        ) : invoice ? (
+                          <span className="flex items-center gap-2">
+                            <b className="text-white">₹{Number(invoice.total || 0).toFixed(2)}</b>
+                            <Tag tone={invoice.status === "PAID" ? "green" : "amber"}>{invoice.status || "UNPAID"}</Tag>
+                          </span>
+                        ) : (
+                          <span className="text-[var(--dim)]">No invoice yet</span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => { handleEpisodeClick(ep); setShowProfileModal(false); }}
+                        className="btn ghost sm w-full text-[10px] !py-1"
+                      >
+                        View full visit details
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="pt-2 flex justify-end">
               <button 

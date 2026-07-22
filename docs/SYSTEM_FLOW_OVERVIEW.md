@@ -1,4 +1,4 @@
-# Aarogya AI — Complete System Flow Overview
+# Qconnect — Complete System Flow Overview
 
 > This document describes the **full end-to-end patient journey** across all modules.
 > Read this first before diving into any workspace-specific documentation.

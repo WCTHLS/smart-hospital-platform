@@ -74,6 +74,36 @@ def ambient_note(encounter_id: str, body: AmbientRequest, db: Session = Depends(
     return {"note_id": note.note_id, **result}
 
 
+# ---------------------------------------------------------------- Ambient live dictation (audio -> text)
+@router.post("/encounters/{encounter_id}/ambient/transcribe-audio")
+async def ambient_transcribe_audio(encounter_id: str, audio: UploadFile = File(...)) -> dict:
+    """Transcribe a short chunk of consultation audio locally (faster-whisper, "small" model
+    + tuned voice-activity detection) — no audio ever leaves this server. Also tags the chunk
+    with a best-effort "Speaker N" label (offline speaker-embedding clustering, scoped to this
+    encounter) so the live transcript can distinguish doctor/patient turns. The frontend calls
+    this every few seconds while "Start listening" is active and appends the result to the
+    live transcript."""
+    from app.ai import asr
+
+    data = await audio.read()
+    suffix = os.path.splitext(audio.filename or "")[1] or ".webm"
+    try:
+        result = asr.transcribe_audio(data, suffix=suffix, encounter_id=encounter_id)
+    except RuntimeError as err:
+        raise HTTPException(503, str(err))
+    return result
+
+
+@router.post("/encounters/{encounter_id}/ambient/reset-speakers")
+def ambient_reset_speakers(encounter_id: str) -> dict:
+    """Forget the remembered speaker voices for this encounter (call when starting a fresh
+    listening session so old voice clusters from a previous consultation don't leak in)."""
+    from app.ai import asr
+
+    asr.reset_speakers(encounter_id)
+    return {"ok": True}
+
+
 @router.post("/notes/{note_id}/approve")
 def approve_note(note_id: str, body: ApproveNoteRequest, db: Session = Depends(get_db)) -> dict:
     note = db.get(models.ClinicalNote, note_id)
@@ -173,7 +203,7 @@ def _check_and_discharge_lab_visit(db: Session, patient_id: str, encounter_id: s
                 select(func.count())
                 .select_from(models.LabOrder)
                 .where(models.LabOrder.encounter_id == target_enc_id)
-                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "SAMPLE_COLLECTED"]))
             ) or 0
         elif lab_enc.notes and "," in lab_enc.notes:
             order_ids = lab_enc.notes.split(",")
@@ -181,7 +211,7 @@ def _check_and_discharge_lab_visit(db: Session, patient_id: str, encounter_id: s
                 select(func.count())
                 .select_from(models.LabOrder)
                 .where(models.LabOrder.lab_order_id.in_(order_ids))
-                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED"]))
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "SAMPLE_COLLECTED"]))
             ) or 0
         else:
             pending_count = 0
@@ -249,6 +279,7 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
     out = []
     for order, fn, ln in results:
         token_number = None
+        slot_time = None
         lab_enc = db.scalar(
             select(models.Encounter)
             .where(models.Encounter.patient_id == order.patient_id)
@@ -263,6 +294,7 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
             )
             if token:
                 token_number = token.token_number
+                slot_time = token.issued_ts.isoformat() if token.issued_ts else None
 
         lab_results = db.scalars(select(models.LabResult).where(models.LabResult.lab_order_id == order.lab_order_id)).all()
         res_list = [{"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag} for r in lab_results]
@@ -274,6 +306,9 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
             "status": order.status,
             "qr_code": order.qr_code,
             "ordered_ts": order.ordered_ts.isoformat() if order.ordered_ts else None,
+            "sample_collected_ts": order.sample_collected_ts.isoformat() if order.sample_collected_ts else None,
+            "slot_time": slot_time,
+            "ordered_by": order.ordered_by,
             "patient_name": f"{fn} {ln}",
             "encounter_id": order.encounter_id,
             "notes": order.notes,
@@ -301,18 +336,31 @@ def submit_results(lab_order_id: str, body: LabResultSubmitRequest, db: Session 
 
     cat = services.catalog_for(order.test_name or "")
     input_vals = {r.analyte.lower().strip(): r.value for r in body.results}
-    
+    input_units = {r.analyte.lower().strip(): getattr(r, "unit", None) for r in body.results}
+
     results_payload = []
-    for analyte, unit, low, high, demo in cat["analytes"]:
-        val = input_vals.get(analyte.lower().strip(), demo)
-        res = models.LabResult(
-            lab_order_id=lab_order_id, test_code=cat["code"], analyte=analyte,
-            value=val, unit=unit, reference_low=low, reference_high=high, status="FINAL",
-        )
-        db.add(res)
-        results_payload.append({"analyte": analyte, "value": val, "unit": unit,
-                                "reference_low": low, "reference_high": high})
-                                
+    if cat["analytes"]:
+        for analyte, unit, low, high, demo in cat["analytes"]:
+            val = input_vals.get(analyte.lower().strip(), demo)
+            res = models.LabResult(
+                lab_order_id=lab_order_id, test_code=cat["code"], analyte=analyte,
+                value=val, unit=unit, reference_low=low, reference_high=high, status="FINAL",
+            )
+            db.add(res)
+            results_payload.append({"analyte": analyte, "value": val, "unit": unit,
+                                    "reference_low": low, "reference_high": high})
+    else:
+        # Custom/unrecognized test with no built-in catalog entry — accept whatever
+        # analyte rows the technician entered directly (no fixed reference ranges).
+        for item in body.results:
+            unit = input_units.get(item.analyte.lower().strip())
+            res = models.LabResult(
+                lab_order_id=lab_order_id, test_code=cat["code"], analyte=item.analyte,
+                value=item.value, unit=unit, reference_low=None, reference_high=None, status="FINAL",
+            )
+            db.add(res)
+            results_payload.append({"analyte": item.analyte, "value": item.value, "unit": unit,
+                                    "reference_low": None, "reference_high": None})
     order.status = "RESULTED"
     if body.notes is not None:
         order.notes = body.notes
@@ -626,6 +674,7 @@ def create_prescription(body: PrescriptionCreateRequest, db: Session = Depends(g
         db.add(models.PrescriptionItem(
             rx_id=rx.rx_id, drug_name=item.drug_name, dose=item.dose, route=item.route,
             frequency=item.frequency, duration_days=item.duration_days, quantity=item.quantity or 1,
+            instructions=item.instructions,
         ))
     db.commit()
     return {"rx_id": rx.rx_id, "status": rx.status, **cds}
@@ -773,6 +822,21 @@ def confirm_lab_order(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
     return {"status": "success", "lab_order_id": lab_order_id}
 
 
+@router.post("/lab-orders/{lab_order_id}/collect-sample")
+def collect_lab_sample(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
+    order = db.get(models.LabOrder, lab_order_id)
+    if not order:
+        raise HTTPException(404, "Lab order not found")
+    if order.status != "CONFIRMED":
+        raise HTTPException(400, "Sample can only be marked collected once payment is confirmed.")
+    order.status = "SAMPLE_COLLECTED"
+    order.sample_collected_ts = datetime.now(timezone.utc)
+    db.commit()
+    bus.publish(Topics.SAMPLE_COLLECTED, {"lab_order_id": lab_order_id, "test": order.test_name,
+                                          "encounter_id": order.encounter_id})
+    return {"status": "success", "lab_order_id": lab_order_id, "order_status": order.status}
+
+
 @router.get("/pharmacy/lookup")
 def pharmacy_lookup(search: str, db: Session = Depends(get_db)) -> list[dict]:
     # Search can be patient mobile number or queue Token number
@@ -826,6 +890,7 @@ def pharmacy_lookup(search: str, db: Session = Depends(get_db)) -> list[dict]:
                         "dose": item.dose,
                         "frequency": item.frequency,
                         "duration_days": item.duration_days,
+                        "instructions": item.instructions,
                         "quantity": item.quantity or 1,
                         "unit_price": db.scalar(
                             select(models.PharmacyStock.unit_price)
@@ -1032,6 +1097,7 @@ def list_prepaid_prescriptions(db: Session = Depends(get_db)) -> list[dict]:
                     "dose": item.dose,
                     "frequency": item.frequency,
                     "duration_days": item.duration_days,
+                    "instructions": item.instructions,
                     "quantity": item.quantity or 1,
                     "unit_price": db.scalar(
                         select(models.PharmacyStock.unit_price)

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Plus, CheckCircle2, Pill, BadgeCheck } from "lucide-react";
+import { Trash2, Plus, CheckCircle2, Pill, BadgeCheck, AlertTriangle } from "lucide-react";
 import { api } from "../../../lib/api";
 import { useJourney } from "../../../lib/store";
 import { Card } from "../../../components/ui";
 
-type Item = { drug_name: string; dose: string; frequency: string; duration_days?: string | number | null };
+type Item = { drug_name: string; dose: string; frequency: string; duration_days?: string | number | null; instructions?: string | null };
 
 interface PrescriptionProps {
   encounterId: string;
@@ -47,6 +47,7 @@ export default function Prescription({
   const [activeDrugInput, setActiveDrugInput] = useState<number | null>(null);
   const [discharging, setDischarging] = useState(false);
   const [dischargeError, setDischargeError] = useState<string | null>(null);
+  const [dischargeResult, setDischargeResult] = useState<any>(null);
 
   const { data: stock } = useQuery({
     queryKey: ["pharmacy-stock"],
@@ -96,9 +97,9 @@ export default function Prescription({
     setDischarging(true);
     setDischargeError(null);
     try {
-      await api.discharge(encounterId);
+      const result = await api.discharge(encounterId);
       await queryClient.invalidateQueries({ queryKey: ["doctor-queue"] });
-      onDischarged();
+      setDischargeResult(result);
     } catch (error: any) {
       setDischargeError(error?.message || "Failed to complete and discharge this visit.");
     } finally {
@@ -127,12 +128,12 @@ export default function Prescription({
   return (
     <div className="w-full animate-in fade-in duration-300 space-y-3">
       {/* AI Generic Formulary Guidance Advisory Panel */}
-      <Card className="border border-cyan-500/30 bg-cyan-950/20">
+      <Card className="border border-sky-600/30 bg-blue-950/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-base">💡</span>
             <div>
-              <h4 className="font-bold text-xs text-cyan-300">AI Pharmacological & Generic Formula Guidance</h4>
+              <h4 className="font-bold text-xs text-sky-400">AI Pharmacological & Generic Formula Guidance</h4>
               <p className="text-[11px] text-slate-400">
                 Analyzes patient issues and local PyTorch AI diagnostic reports to suggest generic formulations.
               </p>
@@ -149,9 +150,9 @@ export default function Prescription({
         </div>
 
         {guidanceData && showGuidance && (
-          <div className="mt-3 pt-3 border-t border-cyan-500/20 space-y-2.5 animate-in fade-in duration-200 text-xs">
+          <div className="mt-3 pt-3 border-t border-sky-600/20 space-y-2.5 animate-in fade-in duration-200 text-xs">
             {/* Clean Summary Banner */}
-            <div className="flex items-center gap-2 text-[11.5px] bg-cyan-950/30 p-2.5 rounded-lg border border-cyan-500/20 text-cyan-200 font-medium">
+            <div className="flex items-center gap-2 text-[11.5px] bg-blue-950/30 p-2.5 rounded-lg border border-sky-600/20 text-sky-200 font-medium">
               <span>💡</span>
               <span>
                 Based on patient's current presentation <b>({guidanceData.chief_complaint?.replace(/parent:[^;]+;\s*/, "") || "Fever & cough"})</b>, active lab diagnostic reports ({guidanceData.ai_diagnostics_evaluated?.map((d: any) => d.test_name).join(", ") || "None"}), and medical history, here are the AI-suggested generic formulations:
@@ -162,9 +163,9 @@ export default function Prescription({
             <div className="space-y-2 pt-1">
               <h5 className="font-semibold text-slate-300 text-xs">Generic Formula Recommendations for Clinical Consideration:</h5>
               {guidanceData.formula_recommendations?.map((f: any, idx: number) => (
-                <div key={idx} className="p-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-cyan-500/40 transition-all">
+                <div key={idx} className="p-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-sky-600/40 transition-all">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-cyan-300 text-xs">{f.formula_name}</span>
+                    <span className="font-bold text-sky-400 text-xs">{f.formula_name}</span>
                     <span className="text-[10px] text-slate-400 px-2 py-0.5 rounded-full bg-white/5">{f.category}</span>
                   </div>
                   <div className="mt-1 text-[11.5px] text-slate-200 font-mono">
@@ -185,7 +186,7 @@ export default function Prescription({
 
       <Card className="space-y-4">
         <div className="mb-2 flex items-center justify-between">
-          <h4 className="font-bold text-slate-100" style={{ color: "#d7e5ff" }}>Prescription Form</h4>
+          <h4 className="font-bold text-slate-100" style={{ color: "#123a7a" }}>Prescription Form</h4>
           <div className="flex gap-1">
             <button type="button" className="chip" onClick={() => add({ drug_name: "Azithromycin 500mg", dose: "500 mg", frequency: "1-0-0", duration_days: 3 })}>+ Azithromycin</button>
             <button type="button" className="chip" onClick={() => add({ drug_name: "Paracetamol 650mg", dose: "650 mg", frequency: "SOS", duration_days: 5 })}>+ Paracetamol</button>
@@ -262,6 +263,12 @@ export default function Prescription({
                   <input className="input" type="number" value={it.duration_days ?? ""} placeholder="Days" onChange={(e) => setItem(i, "duration_days", e.target.value)} />
                   <button type="button" className="chip text-rose-400 border-rose-500/10 hover:bg-rose-950/15" onClick={() => del(i)}><Trash2 size={14} /></button>
                 </div>
+                <input
+                  className="input w-full mt-2"
+                  value={it.instructions ?? ""}
+                  placeholder="Instructions (e.g. after food, avoid alcohol)"
+                  onChange={(e) => setItem(i, "instructions", e.target.value)}
+                />
                 
                 {it.drug_name.trim() && (
                   <div className="mt-1.5 px-1 flex items-center justify-between text-[11px]">
@@ -324,6 +331,7 @@ export default function Prescription({
                   <th className="px-3 py-2">Dose</th>
                   <th className="px-3 py-2">Frequency</th>
                   <th className="px-3 py-2">Duration</th>
+                  <th className="px-3 py-2">Instructions</th>
                   <th className="px-3 py-2">Quantity</th>
                 </tr>
               </thead>
@@ -334,6 +342,7 @@ export default function Prescription({
                     <td className="px-3 py-2.5">{item.dose || "—"}</td>
                     <td className="px-3 py-2.5">{item.frequency || "—"}</td>
                     <td className="px-3 py-2.5">{item.duration_days ? `${item.duration_days} days` : "—"}</td>
+                    <td className="px-3 py-2.5">{item.instructions || "—"}</td>
                     <td className="px-3 py-2.5">{item.quantity ?? "—"}</td>
                   </tr>
                 ))}
@@ -343,7 +352,7 @@ export default function Prescription({
         </Card>
       )}
 
-      {canDischarge && (
+      {canDischarge && !dischargeResult && (
         <Card className="mt-4 space-y-2 border border-emerald-500/20">
           <div className="flex items-center gap-2 text-sm font-bold text-emerald-400">
             <CheckCircle2 size={17} /> Consultation and prescription are complete.
@@ -358,6 +367,29 @@ export default function Prescription({
             {discharging ? "Completing Visit..." : "Complete & Discharge"}
           </button>
           {dischargeError && <div className="alertbox text-rose-400">{dischargeError}</div>}
+        </Card>
+      )}
+
+      {dischargeResult && (
+        <Card className="mt-4 space-y-3 border border-emerald-500/20">
+          <div className="flex items-center gap-2 text-sm font-bold text-emerald-400">
+            <CheckCircle2 size={17} /> Patient discharged. Prescription and discharge summary sent to the patient app.
+          </div>
+          {dischargeResult.compliance?.result?.gaps?.length > 0 && (
+            <div className="space-y-1.5 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+              <div className="flex items-center gap-2 text-[13px] font-bold text-amber-400">
+                <AlertTriangle size={15} /> Compliance gaps noted (discharge still went through)
+              </div>
+              <ul className="list-inside list-disc text-[12.5px] text-amber-200/90">
+                {dischargeResult.compliance.result.gaps.map((gap: any, i: number) => (
+                  <li key={i}><b>{gap.area}:</b> {gap.detail}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <button type="button" className="btn ghost w-full justify-center" onClick={onDischarged}>
+            Return to queue
+          </button>
         </Card>
       )}
     </div>

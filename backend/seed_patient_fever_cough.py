@@ -58,8 +58,8 @@ def seed_patient():
         db.add(models.ConsentArtifact(
             patient_id=patient.patient_id,
             purpose="CARE_MGMT",
-            hip_id="aarogya-hip",
-            hiu_id="aarogya-hiu",
+            hip_id="qconnect-hip",
+            hiu_id="qconnect-hiu",
             status="GRANTED",
             valid_from=now,
             valid_to=now + timedelta(days=2)

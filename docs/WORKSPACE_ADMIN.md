@@ -1,4 +1,4 @@
-# Aarogya AI — Admin / Command Center
+# Qconnect — Admin / Command Center
 
 > **Audience:** Admin portal developer
 > Read `SYSTEM_FLOW_OVERVIEW.md` first for the big picture.
@@ -17,7 +17,7 @@ This is a **read-only analytics + alerting** dashboard. Admins do not perform cl
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  Aarogya AI — Command Center          13 July 2026 | 11:42 AM           │
+│  Qconnect — Command Center          13 July 2026 | 11:42 AM           │
 ├──────────────────────┬───────────────────────────────────────────────────┤
 │  TODAY'S SNAPSHOT    │  LIVE QUEUE MAP                                   │
 │                      │                                                   │

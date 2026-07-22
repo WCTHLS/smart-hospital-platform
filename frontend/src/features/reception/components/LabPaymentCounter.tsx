@@ -45,7 +45,7 @@ export default function LabPaymentCounter() {
     <Card className="h-full flex flex-col space-y-4">
       <div className="flex items-center justify-between border-b border-white/5 pb-3">
         <div>
-          <h3 className="text-sm font-extrabold text-[#dce9ff]">🧪 Lab Payments Counter</h3>
+          <h3 className="text-sm font-extrabold text-[var(--ink)]">🧪 Lab Payments Counter</h3>
           <p className="text-[11px] text-[var(--muted)]">Collect cash/UPI for pending doctor-ordered tests.</p>
         </div>
         <button

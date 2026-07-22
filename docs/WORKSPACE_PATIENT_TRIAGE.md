@@ -1,4 +1,4 @@
-# Aarogya AI — Patient App + Receptionist UI + Triage/Nurse UI
+# Qconnect — Patient App + Receptionist UI + Triage/Nurse UI
 
 > **Audience:** Teammate working on Patient & Triage sections
 > **Covers:** Patient App, Receptionist UI, Triage Nurse UI

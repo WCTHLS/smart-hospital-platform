@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.ai import agents
 from app.ai.knowledge import route_specialty
+from app.api.routes_clinical import _check_and_discharge_lab_visit
 from app.core.database import get_db
 from app.core.events import Topics, bus
 from app.core.security import audit, require_active_consent
@@ -760,6 +761,12 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
     patient = _get_patient(db, patient_id)
     consent_id = require_active_consent(db, patient_id)  # enforcement point
 
+    # Self-heal: any LAB visit whose orders have all completed (e.g. a race
+    # between concurrent result submissions previously left it stuck) gets
+    # its encounter/token flipped to DISCHARGED/COMPLETED before we read.
+    _check_and_discharge_lab_visit(db, patient_id)
+    db.commit()
+
     encounters = db.scalars(
         select(models.Encounter).where(models.Encounter.patient_id == patient_id)
         .order_by(models.Encounter.arrival_ts.desc()).limit(40)
@@ -879,6 +886,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
                             "dose": i.dose, 
                             "frequency": i.frequency, 
                             "duration_days": i.duration_days, 
+                            "instructions": i.instructions,
                             "quantity": i.quantity,
                             "unit_price": db.scalar(
                                 select(models.PharmacyStock.unit_price)
@@ -988,6 +996,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}",
         "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
         "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
+        "weight_kg": latest_vitals.weight_kg, "height_cm": latest_vitals.height_cm,
     }
 
     summary_res = None
@@ -1087,7 +1096,7 @@ def generate_patient_summary(patient_id: str, db: Session = Depends(get_db)) -> 
     
     # If it succeeded, save to database
     summary_text = summary_res.get("result", {}).get("summary")
-    if summary_text and summary_text != "AI responses did not give any response":
+    if summary_text and summary_text != "No response was returned":
         patient.summary = summary_text
         db.commit()
 
@@ -1119,6 +1128,36 @@ def add_patient_issue(patient_id: str, body: IssueCreateSchema, db: Session = De
 def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get_db)) -> dict:
     encounter = _get_encounter(db, encounter_id)
     patient = _get_patient(db, encounter.patient_id)
+
+    # Guard against duplicate triage submissions (e.g. double-click / retry on
+    # a slow request): if this encounter has already been triaged, return the
+    # existing token instead of creating a second orphaned WAITING token.
+    if encounter.status in ("TRIAGED", "EMERGENCY"):
+        existing_triage = db.scalar(
+            select(models.Triage)
+            .where(models.Triage.encounter_id == encounter_id)
+            .order_by(models.Triage.created_ts.desc())
+        )
+        existing_token = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == encounter_id)
+            .order_by(models.Token.token_id.desc())
+        )
+        if existing_triage and existing_token:
+            doctor = db.get(models.Staff, encounter.doctor_id) if encounter.doctor_id else None
+            appt = db.get(models.Appointment, encounter.appointment_id) if encounter.appointment_id else None
+            return {
+                "intake": None,
+                "triage": None,
+                "vitals": None,
+                "doctor": None if not doctor else {"id": doctor.staff_id, "name": doctor.name, "specialty": doctor.specialty},
+                "token": {"number": existing_token.token_number, "department": existing_token.department,
+                          "room": existing_token.room, "floor": existing_token.floor,
+                          "eta_minutes": _calculate_live_eta(db, encounter_id),
+                          "patients_ahead": _calculate_patients_ahead(db, encounter_id)},
+                "encounter_status": encounter.status,
+                "scheduled_start": appt.scheduled_start.isoformat() if (appt and appt.scheduled_start) else None,
+            }
 
     intake = agents.intake_agent(body.symptom_text, duration=body.duration)
     chief = intake["result"]["chief_complaint"]
@@ -1343,6 +1382,7 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
             "items": [
                 {"drug_name": i.drug_name, "dose": i.dose, "route": i.route,
                  "frequency": i.frequency, "duration_days": i.duration_days,
+                 "instructions": i.instructions,
                  "quantity": i.quantity,
                  "unit_price": db.scalar(
                      select(models.PharmacyStock.unit_price)
@@ -1573,6 +1613,41 @@ def lab_check_in(body: LabCheckInRequest, db: Session = Depends(get_db)) -> dict
     dt_local = datetime.combine(body.booking_date, time_part, tzinfo=ZoneInfo("Asia/Kolkata"))
     dt_utc = dt_local.astimezone(timezone.utc)
 
+    # Find confirmed lab orders for this patient to track during check-in
+    confirmed_orders = db.scalars(
+        select(models.LabOrder)
+        .where(models.LabOrder.patient_id == body.patient_id)
+        .where(models.LabOrder.status == "CONFIRMED")
+    ).all()
+    confirmed_ids = [o.lab_order_id for o in confirmed_orders]
+    notes_value = ",".join(confirmed_ids) if confirmed_ids else None
+
+    # Guard against duplicate check-in: if the patient already has an active
+    # (non-discharged) LAB visit tracking the exact same set of confirmed
+    # orders (or the same no-orders state), reuse its existing token instead
+    # of creating a second one. SQLAlchemy translates `== None` to `IS NULL`,
+    # so this also de-dupes check-ins with no confirmed orders yet.
+    existing_lab_enc = db.scalar(
+        select(models.Encounter)
+        .where(models.Encounter.patient_id == body.patient_id)
+        .where(models.Encounter.visit_type == "LAB")
+        .where(models.Encounter.status != "DISCHARGED")
+        .where(models.Encounter.notes == notes_value)
+        .order_by(models.Encounter.arrival_ts.desc())
+    )
+    if existing_lab_enc:
+        existing_token = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == existing_lab_enc.encounter_id)
+            .order_by(models.Token.token_id.desc())
+        )
+        if existing_token:
+            return {
+                "encounter_id": existing_lab_enc.encounter_id,
+                "token_number": existing_token.token_number,
+                "status": existing_lab_enc.status,
+            }
+
     # Create a mock appointment for the lab visit to store scheduled time
     appointment = models.Appointment(
         patient_id=body.patient_id,
@@ -1587,14 +1662,6 @@ def lab_check_in(body: LabCheckInRequest, db: Session = Depends(get_db)) -> dict
     db.add(appointment)
     db.flush()
 
-    # Find confirmed lab orders for this patient to track during check-in
-    confirmed_orders = db.scalars(
-        select(models.LabOrder)
-        .where(models.LabOrder.patient_id == body.patient_id)
-        .where(models.LabOrder.status == "CONFIRMED")
-    ).all()
-    confirmed_ids = [o.lab_order_id for o in confirmed_orders]
-
     # Create a new encounter for the Lab visit
     encounter = models.Encounter(
         patient_id=body.patient_id,
@@ -1602,7 +1669,7 @@ def lab_check_in(body: LabCheckInRequest, db: Session = Depends(get_db)) -> dict
         visit_type="LAB",
         department="Laboratory",
         status="CHECKED_IN",
-        notes=",".join(confirmed_ids) if confirmed_ids else None,
+        notes=notes_value,
     )
     db.add(encounter)
     db.flush()
@@ -1731,14 +1798,39 @@ def request_econsult(patient_id: str, body: EconsultRequestPayload, db: Session 
     doctor = db.get(models.Staff, body.doctor_id)
     if not doctor or doctor.role != "DOCTOR":
         raise HTTPException(404, "Doctor not found")
-        
+
+    # Guard against duplicate e-consult requests: reuse the existing active
+    # E_CONSULT visit/token for this same parent encounter instead of
+    # creating a second one (e.g. on a double-click / repeat submission).
+    parent_notes = f"parent:{body.parent_encounter_id}"
+    existing_econsult = db.scalar(
+        select(models.Encounter)
+        .where(models.Encounter.patient_id == patient_id)
+        .where(models.Encounter.visit_type == "E_CONSULT")
+        .where(models.Encounter.status != "DISCHARGED")
+        .where(models.Encounter.notes == parent_notes)
+        .order_by(models.Encounter.arrival_ts.desc())
+    )
+    if existing_econsult:
+        existing_token = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == existing_econsult.encounter_id)
+            .order_by(models.Token.token_id.desc())
+        )
+        if existing_token:
+            return {
+                "encounter_id": existing_econsult.encounter_id,
+                "token_number": existing_token.token_number,
+                "status": existing_econsult.status,
+            }
+
     encounter = models.Encounter(
         patient_id=patient_id,
         doctor_id=body.doctor_id,
         department=doctor.department,
         visit_type="E_CONSULT",
         status="CHECKED_IN",
-        notes=f"parent:{body.parent_encounter_id}",
+        notes=parent_notes,
     )
     db.add(encounter)
     db.flush()

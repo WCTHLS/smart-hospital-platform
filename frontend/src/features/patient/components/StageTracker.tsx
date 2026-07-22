@@ -31,7 +31,7 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
           <Activity size={16} /> Live Visit Tracker
         </h3>
         {token && (
-          <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/5 px-3 py-2 text-left text-xs sm:text-right">
+          <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 px-3 py-2 text-left text-xs sm:text-right">
             <span className="text-[10px]" style={{ color: "var(--dim)" }}>QUEUE TOKEN:</span> <b>{token.number}</b>
             {token.room && <span className="text-[11px] text-[var(--cyan)] block">{token.room} ({token.floor})</span>}
           </div>
@@ -55,8 +55,8 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
                   style={{
                     borderColor: done || current ? "var(--cyan)" : "var(--line2)",
                     background: done || current ? "linear-gradient(150deg,var(--cyan),var(--violet))" : "var(--bg2)",
-                    color: done || current ? "#04121a" : "var(--dim)",
-                    boxShadow: current ? "0 0 14px rgba(52,225,232,.55)" : "none",
+                    color: done || current ? "#ffffff" : "var(--dim)",
+                    boxShadow: current ? "0 0 14px rgba(37,100,207,.55)" : "none",
                   }}
                   title={item.label}
                 >
@@ -66,7 +66,7 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
             );
           })}
         </div>
-        <div className="mt-3 rounded-xl border border-cyan-400/25 bg-cyan-400/[0.07] px-3 py-2.5 text-center">
+        <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/[0.07] px-3 py-2.5 text-center">
           <div className="text-xs font-extrabold text-white">
             {STAGES[activeStage].label}
             <span className="ml-2 text-[9px] uppercase tracking-wider text-[var(--cyan)]">Current</span>
@@ -85,9 +85,9 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
               className={`min-w-0 flex min-h-[76px] flex-col items-center justify-between rounded-xl border px-1.5 py-2.5 text-[10px] transition lg:px-2 xl:min-h-[82px] xl:px-3 xl:text-[11px] 2xl:text-xs ${
                 current ? "border-[var(--cyan)] bg-[var(--cyan)]/5" : "border-transparent"
               }`}
-              style={{ background: current ? "rgba(52,225,232,0.05)" : "var(--panel)" }}
+              style={{ background: current ? "rgba(37,100,207,0.05)" : "var(--panel)" }}
             >
-              <span className="mb-1 text-balance font-bold leading-tight" style={{ color: current ? "white" : done ? "#bcd2ff" : "var(--dim)" }}>
+              <span className="mb-1 text-balance font-bold leading-tight" style={{ color: current ? "var(--ink)" : done ? "var(--muted)" : "var(--dim)" }}>
                 {s.label}
               </span>
               <div 

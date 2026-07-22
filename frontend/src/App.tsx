@@ -12,8 +12,10 @@ import AdminPortal from "./features/admin/AdminPortal";
 import PatientLogin from "./features/patient/PatientLogin";
 import RequirePatient from "./components/RequirePatient";
 import AppointmentBooking from "./features/patient/AppointmentBooking";
+import PatientOncologyCare from "./features/patient/PatientOncologyCare";
 import ReceptionWorkspace from "./features/reception/ReceptionWorkspace";
 import PharmacyWorkspace from "./features/pharmacy/PharmacyWorkspace";
+import OncologyWorkspace from "./features/oncology/OncologyWorkspace";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -28,6 +30,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/triage" element={<TriageWorkspace />} />
             <Route path="/copilot" element={<DoctorWorkspace />} />
+            <Route path="/oncology" element={<OncologyWorkspace />} />
             <Route path="/lab" element={<LabWorkspace />} />
             <Route path="/reception" element={<ReceptionWorkspace />} />
             <Route path="/pharmacy" element={<PharmacyWorkspace />} />
@@ -35,6 +38,7 @@ export default function App() {
             <Route path="/patient" element={<RequirePatient><PatientDashboard /></RequirePatient>} />
             <Route path="/patient/checkin" element={<RequirePatient><PatientCheckIn /></RequirePatient>} />
             <Route path="/patient/appointments/book" element={<RequirePatient><AppointmentBooking /></RequirePatient>} />
+            <Route path="/patient/oncology" element={<RequirePatient><PatientOncologyCare /></RequirePatient>} />
             <Route path="/command" element={<CommandCenter />} />
             <Route path="/admin" element={<AdminPortal />} />
           </Routes>

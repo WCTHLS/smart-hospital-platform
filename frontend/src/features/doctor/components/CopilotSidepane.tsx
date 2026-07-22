@@ -68,7 +68,7 @@ export default function CopilotSidepane({
     refetchOnWindowFocus: false,
   });
 
-  if (isLoading) return <Card className="text-center py-6 text-xs text-[var(--dim)]">Loading Copilot context...</Card>;
+  if (isLoading) return <Card className="text-center py-6 text-xs text-[var(--dim)]">Loading clinical context...</Card>;
   if (!data) return null;
 
   async function handleGenerate() {
@@ -98,24 +98,24 @@ export default function CopilotSidepane({
   return (
     <div className="space-y-3 animate-in fade-in duration-300">
       {tab === "labs" ? (
-        /* AI Suggested Orders Banner in place of Clinical Summary */
-        <Card className="border border-dashed border-[var(--cyan)]/25 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.08), transparent)" }}>
+        /* Suggested Orders Banner in place of Clinical Summary */
+        <Card className="border border-dashed border-[var(--cyan)]/25 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
-              <Activity size={13} /> AI Suggested Orders
+              <Activity size={13} /> Suggested Orders
             </div>
-            <AgentBadge label="AI" />
+            <AgentBadge label="Suggested" />
           </div>
           {suggestions.length === 0 ? (
             <div className="space-y-2">
-              <p className="text-[12px] leading-relaxed text-[var(--muted)]">Click below to query Gemini AI for clinically indicated diagnostics.</p>
+              <p className="text-[12px] leading-relaxed text-[var(--muted)]">Click below to check for clinically indicated diagnostics.</p>
               <button 
                 onClick={onGetSuggestions} 
                 disabled={loadingSuggestions} 
                 className="btn w-full !py-1 text-xs font-bold"
-                style={{ background: "rgba(52,225,232,0.08)", border: "1px solid rgba(52,225,232,0.25)", color: "var(--cyan)" }}
+                style={{ background: "rgba(37,100,207,0.08)", border: "1px solid rgba(37,100,207,0.25)", color: "var(--cyan)" }}
               >
-                {loadingSuggestions ? "Consulting AI..." : "Get AI Suggestions"}
+                {loadingSuggestions ? "Checking..." : "Get Suggested Orders"}
               </button>
             </div>
           ) : (
@@ -154,17 +154,17 @@ export default function CopilotSidepane({
           )}
         </Card>
       ) : (
-        /* AI Summary Banner */
-        <Card className="relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.08), transparent)" }}>
+        /* Summary Banner */
+        <Card className="relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
           <div className="flex items-center justify-between gap-1.5 mb-2">
             <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
-              <Activity size={13} /> AI Clinical Summary
+              <Activity size={13} /> Clinical Summary
             </div>
             {summaryText && (
               <button 
                 onClick={handleGenerate} 
                 disabled={generating} 
-                className="text-[9px] text-[var(--cyan)] hover:text-cyan-300 font-bold uppercase tracking-wider transition disabled:opacity-50"
+                className="text-[9px] text-[var(--cyan)] hover:text-sky-400 font-bold uppercase tracking-wider transition disabled:opacity-50"
               >
                 {generating ? "Updating..." : "↻ Refresh"}
               </button>
@@ -172,7 +172,7 @@ export default function CopilotSidepane({
           </div>
           
           {summaryText ? (
-            <p className="text-[11.5px] leading-relaxed text-[#d2e2ff] whitespace-pre-line">
+            <p className="text-[11.5px] leading-relaxed text-[var(--ink)] whitespace-pre-line">
               {summaryText}
             </p>
           ) : (
@@ -183,14 +183,14 @@ export default function CopilotSidepane({
                 disabled={generating} 
                 className="btn text-[11px] !py-1 !px-2.5 w-full justify-center"
               >
-                {generating ? "Generating..." : "Generate AI Summary"}
+                {generating ? "Generating..." : "Generate Summary"}
               </button>
             </div>
           )}
         </Card>
       )}
 
-      {/* CDS Agent Output Card when on Rx tab */}
+      {/* Clinical Decision Support Output Card when on Rx tab */}
       {tab === "rx" && (
         <Card className="border border-[var(--glass-border)] relative overflow-hidden mt-3" style={{ background: "rgba(255,255,255,0.01)" }}>
           {rxDone ? (
@@ -201,11 +201,11 @@ export default function CopilotSidepane({
               <p className="text-[11.5px] text-[var(--muted)]">Prescription finalized successfully.</p>
             </div>
           ) : !cds ? (
-            <Empty>The Rx CDS agent checks allergy, interactions, dose, formulary and live stock.</Empty>
+            <Empty>Allergy, interaction, dose, formulary and live stock are checked automatically.</Empty>
           ) : (
             <div className="space-y-3 text-xs">
               <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                <h4 className="font-bold text-slate-100" style={{ color: "#d7e5ff" }}>Clinical Decision Support</h4>
+                <h4 className="font-bold text-slate-100" style={{ color: "#123a7a" }}>Clinical Decision Support</h4>
                 <AgentBadge label="Rx CDS" />
               </div>
               {cds.block && (
@@ -229,10 +229,10 @@ export default function CopilotSidepane({
               {cds.suggestions?.length > 0 && (
                 <div className="holo mt-2 text-[11.5px] space-y-1.5 bg-white/[0.01] p-2.5 rounded-xl border border-white/5">
                   <div className="font-semibold text-white flex items-center gap-1">
-                    <AgentBadge label="AI" /> Suggested alternatives (click to apply):
+                    <AgentBadge label="Suggested" /> Suggested alternatives (click to apply):
                   </div>
                   {cds.suggestions.map((s: any, i: number) => {
-                    const isErr = s.suggestion === "AI responses did not give any response";
+                    const isErr = s.suggestion === "No response was returned";
                     return isErr ? (
                       <div key={i} className="text-left w-full p-2 rounded text-rose-400 border border-rose-500/20 bg-rose-950/10 mt-1 font-semibold text-[10.5px]">
                         ⚠ {s.suggestion} — <span className="text-[10px] text-[var(--muted)]">{s.reason}</span>
@@ -252,7 +252,7 @@ export default function CopilotSidepane({
               )}
               <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-white/5">
                 <label className="flex items-center gap-2 text-[11.5px] cursor-pointer" style={{ color: "var(--muted)" }}>
-                  <input type="checkbox" checked={rxAccept} onChange={(e) => { setRxAccept(e.target.checked); if (e.target.checked) setRxOverride(false); }} /> Accept AI substitutions
+                  <input type="checkbox" checked={rxAccept} onChange={(e) => { setRxAccept(e.target.checked); if (e.target.checked) setRxOverride(false); }} /> Accept suggested substitutions
                 </label>
                 {cds.block && (
                   <label className="flex items-center gap-2 text-[11.5px] text-rose-400 font-semibold cursor-pointer">

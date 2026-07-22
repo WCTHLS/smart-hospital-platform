@@ -320,8 +320,8 @@ def rx_cds_agent(
     if not ai_success:
         suggestions.append({
             "for": proposed_items[0].get("drug_name") if proposed_items else "Prescription",
-            "suggestion": "AI responses did not give any response",
-            "reason": "AI clinical model suggestion failed"
+            "suggestion": "No response was returned",
+            "reason": "Clinical model suggestion failed"
         })
         
         # Pull deterministic warnings from DB/Code as a safety net
@@ -481,7 +481,7 @@ def patient_summary_agent(
     if llm:
         summary = llm.strip()
     if not summary:
-        summary = "AI responses did not give any response"
+        summary = "No response was returned"
 
     return envelope(
         {"summary": summary},

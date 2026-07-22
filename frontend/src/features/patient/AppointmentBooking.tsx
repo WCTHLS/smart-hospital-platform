@@ -136,7 +136,7 @@ export default function AppointmentBooking() {
             key: order.key_id,
             amount: order.amount,
             currency: order.currency,
-            name: "Aarogya AI",
+            name: "Qconnect",
             description: `${selectedSlot.specialty} consultation with ${selectedSlot.doctor_name}`,
             order_id: order.order_id,
             prefill: order.prefill,
@@ -146,7 +146,7 @@ export default function AppointmentBooking() {
               contact: Boolean(order.prefill?.contact),
             },
             retry: { enabled: true },
-            theme: { color: "#34e1e8" },
+            theme: { color: "#2564cf" },
             modal: {
               confirm_close: true,
               ondismiss: () => {
@@ -194,7 +194,7 @@ export default function AppointmentBooking() {
   }
 
   return <div className="patient-page space-y-4 sm:space-y-5">
-    <SectionTitle sub={`Logged in as ${session.name}`}>Book appointment</SectionTitle>
+    <div className="glass px-5 py-4"><SectionTitle sub={`Logged in as ${session.name}`}>Book appointment</SectionTitle></div>
     <section className="card mx-auto max-w-3xl space-y-5">
       {error && <div className="alertbox">{error}</div>}
 
@@ -227,9 +227,9 @@ export default function AppointmentBooking() {
               <button 
                 className="appointment-time-slot" 
                 style={selected ? { 
-                  color: "#04121a", 
+                  color: "#ffffff", 
                   background: "linear-gradient(135deg, var(--cyan), var(--blue))", 
-                  boxShadow: "0 0 14px rgba(52, 225, 232, 0.3)", 
+                  boxShadow: "0 0 14px rgba(37,100,207, 0.3)", 
                   borderColor: "transparent" 
                 } : undefined} 
                 key={slot.scheduled_start} 

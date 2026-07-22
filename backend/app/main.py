@@ -17,6 +17,7 @@ from app.api import (
     routes_clinical,
     routes_command,
     routes_journey,
+    routes_oncology,
     routes_ws,
 )
 from app.core.config import settings
@@ -32,7 +33,7 @@ async def lifespan(app: FastAPI):
     init_db()
     hub.bind_loop(asyncio.get_running_loop())
     bus.subscribe("*", hub.on_event)  # stream every domain event to WebSocket clients
-    logging.getLogger("aarogya").info("Aarogya AI backend ready · env=%s · db=%s",
+    logging.getLogger("aarogya").info("Qconnect backend ready · env=%s · db=%s",
                                        settings.environment, settings.database_url)
     yield
 
@@ -41,7 +42,7 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description=(
-        "Open-source, ABDM-ready, agentic-AI platform orchestrating the full OPD patient journey "
+        "Open-source, ABDM-ready hospital platform orchestrating the full patient journey "
         "with a clinician-in-the-loop safety model."
     ),
     lifespan=lifespan,
@@ -65,6 +66,7 @@ app.include_router(routes_command.router)
 app.include_router(routes_ai.router)
 app.include_router(routes_ws.router)
 app.include_router(routes_admin.router)
+app.include_router(routes_oncology.router)
 
 
 @app.get("/health", tags=["meta"])

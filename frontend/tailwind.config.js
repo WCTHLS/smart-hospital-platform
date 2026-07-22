@@ -4,12 +4,12 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#e8eefc",
-        muted: "#98abcf",
-        dim: "#6f80a3",
-        cyan: "#34e1e8",
-        blue: "#4f8dff",
-        violet: "#a78bfa",
+        ink: "#eef5fc",
+        muted: "#b9cbe2",
+        dim: "#82a0c2",
+        cyan: "#2564cf",
+        blue: "#14213d",
+        violet: "#1a4fb4",
         pink: "#f472b6",
         mint: "#4ade80",
         amber: "#fbbf24",

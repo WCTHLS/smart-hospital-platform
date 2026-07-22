@@ -4,10 +4,10 @@ export function Card({ children, className = "", style }: { children: ReactNode;
   return <div className={`card ${className}`} style={style}>{children}</div>;
 }
 
-export function SectionTitle({ children, sub }: { children: ReactNode; sub?: string }) {
+export function SectionTitle({ children, sub, plain = false }: { children: ReactNode; sub?: string; plain?: boolean }) {
   return (
     <div className="mb-3">
-      <h2 className="grad-text text-xl font-extrabold">{children}</h2>
+      <h2 className={`${plain ? "grad-text-page" : "grad-text"} text-xl font-extrabold`}>{children}</h2>
       {sub && <p className="text-[13px]" style={{ color: "var(--dim)" }}>{sub}</p>}
     </div>
   );
@@ -17,7 +17,7 @@ export function Tag({ children, tone = "blue" }: { children: ReactNode; tone?: s
   return <span className={`tag ${tone}`}>{children}</span>;
 }
 
-export function AgentBadge({ label = "AI" }: { label?: string }) {
+export function AgentBadge({ label = "Info" }: { label?: string }) {
   return <span className="ai-badge">✦ {label}</span>;
 }
 
@@ -62,7 +62,7 @@ export function DeviceBar({ url, right }: { url?: string; right?: ReactNode }) {
       <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: "#28c840" }} />
       {url && (
         <span className="ml-1.5 flex-1 truncate rounded-md px-2.5 py-1 text-[11px]"
-          style={{ background: "rgba(0,0,0,.35)", border: "1px solid var(--line)", color: "var(--dim)" }}>
+          style={{ background: "rgba(20,33,61,.06)", border: "1px solid var(--line)", color: "var(--dim)" }}>
           {url}
         </span>
       )}

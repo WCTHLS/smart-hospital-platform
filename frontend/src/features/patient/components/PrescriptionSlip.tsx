@@ -31,7 +31,7 @@ export default function PrescriptionSlip({
   if (!prescription || !prescription.items || prescription.items.length === 0) {
     return (
       <Card className="space-y-3 animate-in fade-in duration-300">
-        <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#d7e5ff" }}>
+        <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#123a7a" }}>
           <Stethoscope size={16} className="text-[var(--cyan)]" /> {title || "E-Prescription Slip"}
         </h4>
         <div className="text-xs italic text-[var(--dim)]">No active prescriptions recorded for this visit.</div>
@@ -80,7 +80,7 @@ export default function PrescriptionSlip({
             key: order.key_id,
             amount: order.amount,
             currency: order.currency,
-            name: "Aarogya AI",
+            name: "Qconnect",
             description: `Medication Checkout (Rx: ${prescription.rx_id.slice(0, 8)})`,
             order_id: order.order_id,
             prefill: order.prefill,
@@ -90,7 +90,7 @@ export default function PrescriptionSlip({
               contact: Boolean(order.prefill?.contact),
             },
             retry: { enabled: true },
-            theme: { color: "#34e1e8" },
+            theme: { color: "#2564cf" },
             modal: {
               confirm_close: true,
               ondismiss: () => {
@@ -149,7 +149,7 @@ export default function PrescriptionSlip({
   return (
     <Card className="space-y-4 animate-in fade-in duration-300">
       <div className="flex justify-between items-center">
-        <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#d7e5ff" }}>
+        <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#123a7a" }}>
           <Stethoscope size={16} className="text-[var(--cyan)]" /> {title || "E-Prescription Slip"}
         </h4>
         <Tag tone={pickupToken?.status === "READY" ? "green" : getStatusTone(prescription.status)}>{displayStatus}</Tag>
@@ -227,7 +227,7 @@ export default function PrescriptionSlip({
           <button
             onClick={() => setShowPayModal(true)}
             className="btn font-bold text-xs px-6 py-2.5 flex items-center gap-1.5"
-            style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+            style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
           >
             <CreditCard size={14} /> ⚡ Pay &amp; Collect Online
           </button>
@@ -236,12 +236,12 @@ export default function PrescriptionSlip({
 
       {prescription.status === "PREPAID" && pickupToken && pickupToken.status !== "READY" && (
         <div className="mt-3 p-3.5 rounded-xl border space-y-3" style={{
-          background: pickupToken.status === "READY" ? "rgba(16,185,129,0.06)" : "rgba(52,225,232,0.06)",
-          borderColor: pickupToken.status === "READY" ? "rgba(16,185,129,0.2)" : "rgba(52,225,232,0.2)"
+          background: pickupToken.status === "READY" ? "rgba(16,185,129,0.06)" : "rgba(37,100,207,0.06)",
+          borderColor: pickupToken.status === "READY" ? "rgba(16,185,129,0.2)" : "rgba(37,100,207,0.2)"
         }}>
           {pickupToken.status === "WAITING" && (
             <div className="space-y-3">
-              <div className="flex items-start gap-2.5 text-xs text-cyan-300">
+              <div className="flex items-start gap-2.5 text-xs text-sky-400">
                 <Clock size={16} className="shrink-0 mt-0.5 animate-pulse text-[var(--cyan)]" />
                 <div>
                   <strong className="text-white block mb-0.5">⏳ Packaging in Progress</strong>
@@ -249,7 +249,7 @@ export default function PrescriptionSlip({
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-2 bg-slate-950/40 p-2.5 rounded-xl text-[11px] font-medium border border-cyan-500/10">
+              <div className="grid grid-cols-2 gap-2 bg-slate-950/40 p-2.5 rounded-xl text-[11px] font-medium border border-sky-600/10">
                 <div>
                   <span className="text-[var(--dim)] block text-[9px] uppercase tracking-wider">Pickup Counter</span>
                   <span className="text-slate-100 font-bold">{pickupToken.room || "Pharmacy Counter 3"}</span>
@@ -314,8 +314,8 @@ export default function PrescriptionSlip({
           <Card 
             className="w-full max-w-md space-y-4 relative overflow-hidden animate-in zoom-in-95 duration-200 text-xs"
             style={{ 
-              background: "#0c1524", 
-              border: "1px solid rgba(52, 225, 232, 0.2)",
+              background: "#0a1e30", 
+              border: "1px solid rgba(37,100,207, 0.2)",
               boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7)"
             }}
           >

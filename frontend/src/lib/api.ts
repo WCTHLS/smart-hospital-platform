@@ -41,6 +41,19 @@ export const api = {
   aiStatus: () => get<any>("/api/v1/ai/status"),
   intakePreview: (symptom_text: string, duration?: string) =>
     post<any>("/api/v1/ai/intake", { symptom_text, duration }),
+  registrationVoiceIntake: (blob: Blob, filename: string) => {
+    const formData = new FormData();
+    formData.append("audio", blob, filename);
+    return fetch(`${BASE}/api/v1/ai/registration/voice-intake`, {
+      method: "POST",
+      body: formData,
+    }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new ApiError(res.status, data?.detail ?? data);
+      return data as { transcript: string; fields: Record<string, string | null> };
+    });
+  },
 
   // journey
   checkin: (body: any) => post<any>("/api/v1/checkin", body),
@@ -86,13 +99,30 @@ export const api = {
   // clinical
   ambient: (encounter_id: string, transcript: string) =>
     post<any>(`/api/v1/encounters/${encounter_id}/ambient`, { encounter_id, transcript }),
+  ambientTranscribeAudio: (encounter_id: string, blob: Blob, filename: string) => {
+    const formData = new FormData();
+    formData.append("audio", blob, filename);
+    return fetch(`${BASE}/api/v1/encounters/${encounter_id}/ambient/transcribe-audio`, {
+      method: "POST",
+      body: formData,
+    }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new ApiError(res.status, data?.detail ?? data);
+      return data as { text: string; speaker: string | null };
+    });
+  },
+  ambientResetSpeakers: (encounter_id: string) =>
+    post<any>(`/api/v1/encounters/${encounter_id}/ambient/reset-speakers`, {}),
   approveNote: (note_id: string, body: any) => post<any>(`/api/v1/notes/${note_id}/approve`, body),
-  createLabOrders: (encounter_id: string, tests: string[]) =>
-    post<any>("/api/v1/lab-orders", { encounter_id, tests }),
+  createLabOrders: (encounter_id: string, tests: string[], ordered_by?: string | null) =>
+    post<any>("/api/v1/lab-orders", { encounter_id, tests, ordered_by: ordered_by || undefined }),
   publishResult: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/publish-result`),
   confirmLabOrder: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/confirm`),
+  collectLabSample: (lab_order_id: string) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/collect-sample`),
   labCheckIn: (body: any) => post<any>("/api/v1/labs/check-in", body),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
@@ -206,4 +236,25 @@ export const api = {
   cancelLabOrder: (labOrderId: string) => del<any>(`/api/v1/labs/orders/${labOrderId}`),
   listLabSchedules: (category: string = "ALL") => get<any[]>(`/api/v1/admin/lab-schedules?category=${category}`),
   updateLabSchedules: (body: any[]) => post<any>(`/api/v1/admin/lab-schedules`, body),
+
+  // oncology
+  oncologyPatients: () => get<any[]>("/api/v1/oncology/patients"),
+  searchAllPatients: (q: string) => get<any[]>(`/api/v1/oncology/patients/search?q=${encodeURIComponent(q)}`),
+  oncologyDiagnoses: (patientId: string) => get<any[]>(`/api/v1/oncology/patients/${patientId}/diagnoses`),
+  oncologyDiagnosis: (diagnosisId: string) => get<any>(`/api/v1/oncology/diagnoses/${diagnosisId}`),
+  createOncologyDiagnosis: (body: any) => post<any>("/api/v1/oncology/diagnoses", body),
+  updateOncologyDiagnosis: (diagnosisId: string, body: any) => put<any>(`/api/v1/oncology/diagnoses/${diagnosisId}`, body),
+  addBiomarker: (diagnosisId: string, body: any) => post<any>(`/api/v1/oncology/diagnoses/${diagnosisId}/biomarkers`, body),
+  createChemoRegimen: (diagnosisId: string, body: any) => post<any>(`/api/v1/oncology/diagnoses/${diagnosisId}/chemo-regimens`, body),
+  updateChemoRegimen: (regimenId: string, body: any) => put<any>(`/api/v1/oncology/chemo-regimens/${regimenId}`, body),
+  addChemoCycle: (regimenId: string, body: any) => post<any>(`/api/v1/oncology/chemo-regimens/${regimenId}/cycles`, body),
+  updateChemoCycle: (cycleId: string, body: any) => put<any>(`/api/v1/oncology/chemo-cycles/${cycleId}`, body),
+  createTumorBoardCase: (diagnosisId: string, body: any) => post<any>(`/api/v1/oncology/diagnoses/${diagnosisId}/tumor-board`, body),
+  updateTumorBoardCase: (caseId: string, body: any) => put<any>(`/api/v1/oncology/tumor-board/${caseId}`, body),
+  oncologyRadiologyReports: (patientId: string) => get<any[]>(`/api/v1/oncology/patients/${patientId}/radiology-reports`),
+  createRadiologyReport: (body: any) => post<any>("/api/v1/oncology/radiology-reports", body),
+  oncologyPathologyReports: (patientId: string) => get<any[]>(`/api/v1/oncology/patients/${patientId}/pathology-reports`),
+  createPathologyReport: (body: any) => post<any>("/api/v1/oncology/pathology-reports", body),
+  oncologySurvivorshipPlans: (patientId: string) => get<any[]>(`/api/v1/oncology/patients/${patientId}/survivorship-plans`),
+  createSurvivorshipPlan: (diagnosisId: string, body: any) => post<any>(`/api/v1/oncology/diagnoses/${diagnosisId}/survivorship-plan`, body),
 };

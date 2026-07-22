@@ -67,3 +67,19 @@ def init_db() -> None:
     if engine.dialect.name == "postgresql":
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE document ALTER COLUMN uri TYPE TEXT"))
+
+    # Keep existing demo databases compatible with doctor-only AI lab analysis.
+    if "ai_analysis_summary" not in {column["name"] for column in inspect(engine).get_columns("lab_order")}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE lab_order ADD COLUMN ai_analysis_summary TEXT"))
+
+    # Keep existing demo databases compatible with prescription dosing instructions.
+    if "instructions" not in {column["name"] for column in inspect(engine).get_columns("prescription_item")}:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE prescription_item ADD COLUMN instructions VARCHAR(200)"))
+
+    # Keep existing demo databases compatible with the sample-collection workflow step.
+    if "sample_collected_ts" not in {column["name"] for column in inspect(engine).get_columns("lab_order")}:
+        column_type = "TIMESTAMP WITH TIME ZONE" if engine.dialect.name == "postgresql" else "TIMESTAMP"
+        with engine.begin() as connection:
+            connection.execute(text(f"ALTER TABLE lab_order ADD COLUMN sample_collected_ts {column_type}"))

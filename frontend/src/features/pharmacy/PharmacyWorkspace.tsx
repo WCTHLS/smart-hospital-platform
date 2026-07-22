@@ -116,8 +116,8 @@ export default function PharmacyWorkspace() {
             onClick={() => setActiveTab("lookup")}
             className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[12.5px] font-semibold transition"
             style={{
-              color: activeTab === "lookup" ? "#eafcff" : "var(--muted)",
-              background: activeTab === "lookup" ? "linear-gradient(90deg, rgba(52,225,232,.1), rgba(167,139,250,.1))" : "var(--panel)",
+              color: activeTab === "lookup" ? "#123a7a" : "var(--muted)",
+              background: activeTab === "lookup" ? "linear-gradient(90deg, rgba(37,100,207,.1), rgba(26,79,180,.1))" : "var(--panel)",
               border: `1px solid ${activeTab === "lookup" ? "var(--line2)" : "var(--glass-border)"}`,
             }}
           >
@@ -127,8 +127,8 @@ export default function PharmacyWorkspace() {
             onClick={() => setActiveTab("prepaid")}
             className="inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-[12.5px] font-semibold transition relative"
             style={{
-              color: activeTab === "prepaid" ? "#eafcff" : "var(--muted)",
-              background: activeTab === "prepaid" ? "linear-gradient(90deg, rgba(52,225,232,.1), rgba(167,139,250,.1))" : "var(--panel)",
+              color: activeTab === "prepaid" ? "#123a7a" : "var(--muted)",
+              background: activeTab === "prepaid" ? "linear-gradient(90deg, rgba(37,100,207,.1), rgba(26,79,180,.1))" : "var(--panel)",
               border: `1px solid ${activeTab === "prepaid" ? "var(--line2)" : "var(--glass-border)"}`,
             }}
           >
@@ -162,12 +162,12 @@ export default function PharmacyWorkspace() {
                   value={searchVal}
                   onChange={(e) => setSearchVal(e.target.value)}
                   className="input flex-1 px-3 py-2 text-xs"
-                  style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+                  style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
                 />
                 <button
                   type="submit"
                   className="btn font-bold text-xs px-5 py-2 flex items-center gap-1.5"
-                  style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                  style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
                 >
                   <Search size={14} /> Search
                 </button>
@@ -201,7 +201,7 @@ export default function PharmacyWorkspace() {
                             className="w-full text-left p-3 rounded-xl border text-xs transition block hover:bg-white/5"
                             style={{
                               borderColor: isActive ? "var(--line2)" : "var(--glass-border)",
-                              background: isActive ? "rgba(52,225,232,0.05)" : "rgba(255,255,255,0.02)"
+                              background: isActive ? "rgba(37,100,207,0.05)" : "rgba(255,255,255,0.02)"
                             }}
                           >
                             <div className="font-bold text-white mb-0.5">{rx.patient_name}</div>
@@ -249,6 +249,7 @@ export default function PharmacyWorkspace() {
                                   <th className="p-3">Medicine</th>
                                   <th className="p-3">Dosage</th>
                                   <th className="p-3">Frequency</th>
+                                  <th className="p-3">Instructions</th>
                                   <th className="p-3 text-right">Qty</th>
                                 </tr>
                               </thead>
@@ -258,6 +259,7 @@ export default function PharmacyWorkspace() {
                                     <td className="p-3 font-bold text-white">{item.drug_name}</td>
                                     <td className="p-3">{item.dose || "—"}</td>
                                     <td className="p-3">{item.frequency || "As directed"}</td>
+                                    <td className="p-3">{item.instructions || "—"}</td>
                                     <td className="p-3 text-right font-medium text-[var(--cyan)]">{item.quantity}</td>
                                   </tr>
                                 ))}
@@ -313,12 +315,12 @@ export default function PharmacyWorkspace() {
                         className="w-full text-left p-3 rounded-xl border text-xs transition block hover:bg-white/5"
                         style={{
                           borderColor: isActive ? "var(--line2)" : "var(--glass-border)",
-                          background: isActive ? "rgba(52,225,232,0.05)" : "rgba(255,255,255,0.02)"
+                          background: isActive ? "rgba(37,100,207,0.05)" : "rgba(255,255,255,0.02)"
                         }}
                       >
                         <div className="flex justify-between items-start mb-0.5">
                           <span className="font-bold text-white truncate max-w-[120px]">{rx.patient_name}</span>
-                          <span className="font-mono text-[10px] font-extrabold text-[var(--cyan)] bg-cyan-500/10 px-1 rounded">
+                          <span className="font-mono text-[10px] font-extrabold text-[var(--cyan)] bg-sky-600/10 px-1 rounded">
                             {rx.pickup_token?.number}
                           </span>
                         </div>
@@ -366,6 +368,7 @@ export default function PharmacyWorkspace() {
                               <th className="p-3">Medicine</th>
                               <th className="p-3">Dosage</th>
                               <th className="p-3">Frequency</th>
+                              <th className="p-3">Instructions</th>
                               <th className="p-3 text-right">Price</th>
                               <th className="p-3 text-right">Qty</th>
                               <th className="p-3 text-right">Subtotal</th>
@@ -380,6 +383,7 @@ export default function PharmacyWorkspace() {
                                   <td className="p-3 font-bold text-white">{item.drug_name}</td>
                                   <td className="p-3">{item.dose || "—"}</td>
                                   <td className="p-3">{item.frequency || "As directed"}</td>
+                                  <td className="p-3">{item.instructions || "—"}</td>
                                   <td className="p-3 text-right">₹{price.toFixed(2)}</td>
                                   <td className="p-3 text-right font-medium text-[var(--cyan)]">{qty}</td>
                                   <td className="p-3 text-right">₹{(qty * price).toFixed(2)}</td>
@@ -412,7 +416,7 @@ export default function PharmacyWorkspace() {
                           onClick={() => readyMutation.mutate(activePrepaid.rx_id)}
                           disabled={readyMutation.isPending}
                           className="btn font-bold text-xs px-6 py-2.5 flex items-center gap-1.5"
-                          style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                          style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
                         >
                           <PackageCheck size={15} /> Pack &amp; Mark Ready for Pickup
                         </button>
@@ -528,7 +532,7 @@ export default function PharmacyWorkspace() {
             onClick={() => releaseMutation.mutate()}
             disabled={releaseMutation.isPending}
             className="btn outline w-full text-xs font-bold py-2 flex items-center justify-center gap-1.5"
-            style={{ borderColor: "rgba(239,68,68,0.2)", color: "#fda4af" }}
+            style={{ borderColor: "rgba(239,68,68,0.2)", color: "#b91c1c" }}
           >
             <RefreshCw size={13} className={releaseMutation.isPending ? "animate-spin" : ""} />
             Trigger 24h Expiry Release

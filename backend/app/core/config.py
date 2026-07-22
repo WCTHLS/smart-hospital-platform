@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     )
 
     # App
-    app_name: str = "Aarogya AI — Smart Hospital Platform"
+    app_name: str = "Qconnect — Smart Hospital Platform"
     app_version: str = "0.1.0"
     environment: str = "development"
 
@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     grok_api_key: str | None = None
     grok_api: str | None = None
     ai_timeout_seconds: float = 20.0
+
+    # Local speech-to-text (Ambient SOAP live dictation) — faster-whisper, fully offline
+    whisper_model_size: str = "small"
 
     # Security
     jwt_secret: str = "dev-secret-change-me"

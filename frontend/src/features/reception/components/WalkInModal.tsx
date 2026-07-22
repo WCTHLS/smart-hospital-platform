@@ -1,7 +1,15 @@
-import { useState, useEffect } from "react";
-import { User, Calendar, CreditCard, Shield, X, Scan } from "lucide-react";
+import { useRef, useState, useEffect } from "react";
+import { User, Calendar, CreditCard, Shield, X, Scan, Mic, Square, Loader2 } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Field } from "../../../components/ui";
+
+function pickMimeType(): string {
+  const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/ogg"];
+  for (const type of candidates) {
+    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported?.(type)) return type;
+  }
+  return "";
+}
 
 interface WalkInModalProps {
   onClose: () => void;
@@ -27,6 +35,21 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
   // Existing profiles lookup
   const [existingProfiles, setExistingProfiles] = useState<any[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+
+  // Voice-fill (speak the patient's details instead of typing them)
+  const [voiceRecording, setVoiceRecording] = useState(false);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+
+  useEffect(() => {
+    return () => {
+      voiceStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
 
   // Step 2: Doctor and Slots
   const [selectedDoctorId, setSelectedDoctorId] = useState("");
@@ -108,6 +131,74 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
     setAllergies("Penicillin");
     setReason("Fever and cough for 3 days");
     setError("");
+  };
+
+  // Voice-fill: receptionist speaks the patient's details naturally (e.g. "Ravi Kumar, male,
+  // 34 years old, mobile 9876543210, complains of fever and cough for two days") and the
+  // recording is transcribed + the fields extracted (locally, no third-party cloud speech
+  // service — same self-hosted approach as the Ambient SOAP dictation feature) to auto-fill
+  // the form below. The receptionist can review/correct anything before submitting.
+  const startVoiceFill = async () => {
+    if (!voiceSupported) {
+      setVoiceError("Voice fill needs a modern browser (Chrome, Edge, Firefox) with microphone support.");
+      return;
+    }
+    setVoiceError("");
+    setVoiceTranscript("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      voiceStreamRef.current = stream;
+      const mimeType = pickMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      const parts: BlobPart[] = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) parts.push(e.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        voiceStreamRef.current = null;
+        if (!parts.length) return;
+        const blob = new Blob(parts, { type: recorder.mimeType || mimeType });
+        if (blob.size < 800) return;
+        setVoiceProcessing(true);
+        try {
+          const ext = (recorder.mimeType || mimeType).includes("ogg") ? "ogg" : "webm";
+          const { transcript, fields } = await api.registrationVoiceIntake(blob, `registration.${ext}`);
+          setVoiceTranscript(transcript || "");
+          if (!transcript?.trim()) {
+            setVoiceError("Didn't catch any speech — please try again.");
+            return;
+          }
+          if (fields.first_name) setFirstName(String(fields.first_name));
+          if (fields.last_name) setLastName(String(fields.last_name));
+          if (fields.mobile) setMobile(String(fields.mobile).replace(/\D/g, "").slice(0, 10));
+          if (fields.dob) setDob(String(fields.dob).substring(0, 10));
+          if (fields.gender && ["MALE", "FEMALE", "OTHER"].includes(String(fields.gender))) {
+            setGender(String(fields.gender));
+          }
+          if (fields.blood_group) setBloodGroup(String(fields.blood_group));
+          if (fields.address) setAddress(String(fields.address));
+          if (fields.allergies) setAllergies(String(fields.allergies));
+          if (fields.reason) setReason(String(fields.reason));
+        } catch (err: any) {
+          setVoiceError(err.message || "Voice fill failed — please try again or fill the form manually.");
+        } finally {
+          setVoiceProcessing(false);
+        }
+      };
+      voiceRecorderRef.current = recorder;
+      recorder.start();
+      setVoiceRecording(true);
+    } catch {
+      setVoiceError("Microphone access was denied or is unavailable.");
+    }
+  };
+
+  const stopVoiceFill = () => {
+    setVoiceRecording(false);
+    if (voiceRecorderRef.current && voiceRecorderRef.current.state !== "inactive") {
+      voiceRecorderRef.current.stop();
+    }
   };
 
   // Route the chief complaint to a specialty and load today's available doctors/slots.
@@ -276,15 +367,54 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                 <p className="text-xs text-[var(--muted)]">
                   Enter mobile to lookup returning patients or click simulate to mock ABHA scan details.
                 </p>
-                <button
-                  type="button"
-                  onClick={handleAbhaScan}
-                  className="btn ghost text-xs flex items-center gap-1.5 py-1 px-2.5"
-                  style={{ borderColor: "var(--cyan)", color: "var(--cyan)" }}
-                >
-                  <Scan size={14} /> Scan ABHA Card
-                </button>
+                <div className="flex items-center gap-2">
+                  {!voiceRecording ? (
+                    <button
+                      type="button"
+                      onClick={startVoiceFill}
+                      disabled={voiceProcessing}
+                      className="btn ghost text-xs flex items-center gap-1.5 py-1 px-2.5 disabled:opacity-50"
+                      style={{ borderColor: "var(--mint)", color: "var(--mint)" }}
+                    >
+                      {voiceProcessing ? <Loader2 size={14} className="animate-spin" /> : <Mic size={14} />}
+                      {voiceProcessing ? "Filling form…" : "Speak to fill"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={stopVoiceFill}
+                      className="btn text-xs flex items-center gap-1.5 py-1 px-2.5 animate-pulse"
+                      style={{ background: "var(--red)", color: "white", border: "none" }}
+                    >
+                      <Square size={12} /> Stop &amp; fill
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleAbhaScan}
+                    className="btn ghost text-xs flex items-center gap-1.5 py-1 px-2.5"
+                    style={{ borderColor: "var(--cyan)", color: "var(--cyan)" }}
+                  >
+                    <Scan size={14} /> Scan ABHA Card
+                  </button>
+                </div>
               </div>
+
+              {voiceRecording && (
+                <div className="p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                  <Mic size={14} className="animate-pulse" /> Listening — speak the patient's name, age/DOB, gender, mobile, address and reason for visit, then click "Stop &amp; fill".
+                </div>
+              )}
+              {voiceError && (
+                <div className="p-2.5 rounded-xl border border-red-500/20 bg-red-950/30 text-red-300 text-xs font-semibold">
+                  ⚠️ {voiceError}
+                </div>
+              )}
+              {voiceTranscript && !voiceRecording && (
+                <div className="p-2.5 rounded-xl border border-white/5 bg-white/[0.02] text-[11px] text-[var(--muted)]">
+                  <span className="font-bold text-[var(--dim)]">Heard:</span> "{voiceTranscript}" — please double-check the fields below before continuing.
+                </div>
+              )}
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Mobile Number (10 digits)">
@@ -310,7 +440,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
               </div>
 
               {existingProfiles.length > 0 && (
-                <div className="p-3 bg-blue-950/20 border border-blue-500/10 rounded-xl space-y-2">
+                <div className="p-3 bg-blue-950/20 border border-sky-600/10 rounded-xl space-y-2">
                   <div className="text-xs font-extrabold text-[var(--cyan)]">
                     Existing Profiles found:
                   </div>
@@ -319,7 +449,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
                       <div
                         key={p.patient_id}
                         onClick={() => handleSelectPatient(p)}
-                        className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] hover:bg-white/5 border border-white/5 cursor-pointer text-xs font-semibold text-[#dce9ff]"
+                        className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] hover:bg-white/5 border border-white/5 cursor-pointer text-xs font-semibold text-[var(--ink)]"
                       >
                         <span>
                           👤 {p.first_name} {p.last_name || ""} ({p.gender}, Dob: {p.dob ? p.dob.substring(0, 10) : "—"})
@@ -425,7 +555,7 @@ export default function WalkInModal({ onClose, onSuccess }: WalkInModalProps) {
 
           {step === 2 && (
             <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.06] p-3">
+              <div className="rounded-xl border border-sky-600/20 bg-sky-600/[0.06] p-3">
                 <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">Mapped specialty</div>
                 <div className="mt-1 text-sm font-extrabold text-[var(--cyan)]">{specialty || (slotsLoading ? "Mapping complaint..." : "Not available")}</div>
                 <div className="mt-1 text-[11px] text-[var(--muted)]">Based on: “{reason}”</div>

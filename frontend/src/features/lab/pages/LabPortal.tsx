@@ -161,7 +161,7 @@ export default function LabPortal() {
             <FlaskConical size={22} className="text-[var(--cyan)]" /> Lab Diagnostics Portal
           </h2>
           <p className="text-[13px] mt-1" style={{ color: "var(--muted)" }}>
-            Enter and submit clinical values for ordered patient tests. Lab AI automatically processes the result flags.
+            Enter and submit clinical values for ordered patient tests. Result flags are processed automatically.
           </p>
         </div>
         <span className="live">LIVE REFRESH</span>
@@ -196,7 +196,7 @@ export default function LabPortal() {
         {/* Left Column: Queues */}
         <div className="space-y-4">
           <Card>
-            <h3 className="text-md font-bold mb-3 flex items-center gap-2" style={{ color: "#dce9ff" }}>
+            <h3 className="text-md font-bold mb-3 flex items-center gap-2" style={{ color: "var(--ink)" }}>
               <Clipboard size={16} /> Pending Lab Tests ({pending.length})
             </h3>
             {pending.length === 0 ? (
@@ -231,7 +231,7 @@ export default function LabPortal() {
           </Card>
 
           <Card>
-            <h3 className="text-md font-bold mb-3 flex items-center gap-2" style={{ color: "#dce9ff" }}>
+            <h3 className="text-md font-bold mb-3 flex items-center gap-2" style={{ color: "var(--ink)" }}>
               <FileCheck2 size={16} /> Completed Tests ({completed.length})
             </h3>
             {completed.length === 0 ? (
@@ -276,7 +276,7 @@ export default function LabPortal() {
           )}
 
           <Card className="h-full">
-            <h3 className="text-md font-bold mb-3 flex items-center gap-2" style={{ color: "#dce9ff" }}>
+            <h3 className="text-md font-bold mb-3 flex items-center gap-2" style={{ color: "var(--ink)" }}>
               <FlaskConical size={16} /> Enter Lab Results
             </h3>
 

@@ -10,6 +10,7 @@ interface JourneyState {
   token: string | null;
   department: string | null;
   chiefComplaint: string | null;
+  doctorName: string | null;
   activeRole: Role;
   setRole: (role: Role) => void;
   set: (partial: Partial<Omit<JourneyState, "set" | "reset" | "setRole">>) => void;
@@ -23,9 +24,10 @@ export const useJourney = create<JourneyState>((set) => ({
   token: null,
   department: null,
   chiefComplaint: null,
+  doctorName: null,
   activeRole: "patient",
   setRole: (role) => set({ activeRole: role }),
   set: (partial) => set(partial),
   reset: () =>
-    set({ patientId: null, patientName: null, encounterId: null, token: null, department: null, chiefComplaint: null }),
+    set({ patientId: null, patientName: null, encounterId: null, token: null, department: null, chiefComplaint: null, doctorName: null }),
 }));

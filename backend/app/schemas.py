@@ -144,8 +144,8 @@ class ConsentRequest(BaseModel):
     patient_id: str
     purpose: str = "CARE_MGMT"
     hours: int = 24
-    hiu_id: str | None = "aarogya-hiu"
-    hip_id: str | None = "aarogya-hip"
+    hiu_id: str | None = "qconnect-hiu"
+    hip_id: str | None = "qconnect-hip"
 
 
 class VitalsIn(BaseModel):
@@ -216,6 +216,7 @@ class RxItemIn(BaseModel):
     frequency: str | None = None
     duration_days: int | None = None
     quantity: int | None = None
+    instructions: str | None = None
 
 
 class PrescriptionCreateRequest(BaseModel):
@@ -267,6 +268,7 @@ class ClaimRequest(BaseModel):
 class LabResultSubmitItem(BaseModel):
     analyte: str
     value: float
+    unit: str | None = None
 
 
 class LabResultSubmitRequest(BaseModel):
@@ -333,3 +335,133 @@ class EncounterNotesAdviceRequest(BaseModel):
 
 class DoctorAvailabilityRequest(BaseModel):
     available: bool
+
+
+# --------------------------------------------------------------------------------- Oncology
+class DiagnosisCreateRequest(BaseModel):
+    patient_id: str
+    encounter_id: str | None = None
+    cancer_type: str
+    primary_site: str | None = None
+    histology: str | None = None
+    icd10_code: str | None = None
+    icdo_morphology_code: str | None = None
+    grade: str | None = None
+    stage_group: str | None = None
+    tnm_t: str | None = None
+    tnm_n: str | None = None
+    tnm_m: str | None = None
+    metastatic: bool = False
+    metastatic_sites: list[str] = Field(default_factory=list)
+    diagnosed_by: str | None = None
+    diagnosed_date: date | None = None
+    notes: str | None = None
+
+
+class DiagnosisUpdateRequest(BaseModel):
+    stage_group: str | None = None
+    tnm_t: str | None = None
+    tnm_n: str | None = None
+    tnm_m: str | None = None
+    metastatic: bool | None = None
+    metastatic_sites: list[str] | None = None
+    status: str | None = Field(default=None, description="ACTIVE / REMISSION / RECURRENT / RESOLVED")
+    notes: str | None = None
+
+
+class BiomarkerTestCreateRequest(BaseModel):
+    patient_id: str
+    marker_name: str
+    result: str | None = None
+    value: str | None = None
+    method: str | None = None
+    lab_name: str | None = None
+    tested_date: date | None = None
+    report_uri: str | None = None
+    notes: str | None = None
+
+
+class ChemoRegimenCreateRequest(BaseModel):
+    patient_id: str
+    protocol_name: str
+    intent: str | None = Field(default=None, description="CURATIVE / PALLIATIVE / NEOADJUVANT / ADJUVANT")
+    line_of_therapy: int | None = None
+    drugs: list[dict] = Field(default_factory=list)
+    cycle_length_days: int | None = None
+    planned_cycles: int | None = None
+    prescribed_by: str | None = None
+    start_date: date | None = None
+
+
+class ChemoRegimenUpdateRequest(BaseModel):
+    status: str | None = Field(default=None, description="PLANNED / ACTIVE / COMPLETED / DISCONTINUED")
+    discontinued_reason: str | None = None
+    end_date: date | None = None
+
+
+class ChemoCycleCreateRequest(BaseModel):
+    cycle_number: int
+    scheduled_date: date | None = None
+    weight_kg: float | None = None
+    bsa_m2: float | None = None
+
+
+class ChemoCycleUpdateRequest(BaseModel):
+    status: str | None = Field(default=None, description="SCHEDULED / ADMINISTERED / DELAYED / SKIPPED")
+    administered_date: date | None = None
+    delay_reason: str | None = None
+    toxicities: list[dict] | None = None
+    administered_by: str | None = None
+    notes: str | None = None
+
+
+class TumorBoardCaseCreateRequest(BaseModel):
+    patient_id: str
+    scheduled_date: date | None = None
+    presenting_doctor_id: str | None = None
+    attendees: list[dict] = Field(default_factory=list)
+    case_summary: str | None = None
+
+
+class TumorBoardCaseUpdateRequest(BaseModel):
+    recommendation: str | None = None
+    status: str | None = Field(default=None, description="SCHEDULED / DISCUSSED / DEFERRED")
+
+
+class RadiologyReportCreateRequest(BaseModel):
+    patient_id: str
+    diagnosis_id: str | None = None
+    lab_order_id: str | None = None
+    modality: str | None = Field(default=None, description="CT / MRI / PET-CT / X-RAY / USG")
+    body_region: str | None = None
+    findings: str | None = None
+    impression: str | None = None
+    recist_response: str | None = Field(default=None, description="CR / PR / SD / PD")
+    reported_by: str | None = None
+    attachment_uri: str | None = None
+
+
+class PathologyReportCreateRequest(BaseModel):
+    patient_id: str
+    diagnosis_id: str | None = None
+    lab_order_id: str | None = None
+    specimen_type: str | None = None
+    specimen_site: str | None = None
+    gross_description: str | None = None
+    microscopic_description: str | None = None
+    diagnosis_text: str | None = None
+    margins_status: str | None = None
+    lymph_nodes_examined: int | None = None
+    lymph_nodes_positive: int | None = None
+    reported_by: str | None = None
+    attachment_uri: str | None = None
+
+
+class SurvivorshipPlanCreateRequest(BaseModel):
+    patient_id: str
+    treatment_summary: str | None = None
+    surveillance_schedule: list[dict] = Field(default_factory=list)
+    late_effects_risks: list[str] = Field(default_factory=list)
+    next_followup_date: date | None = None
+    lifestyle_recommendations: str | None = None
+    created_by: str | None = None

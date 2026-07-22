@@ -327,7 +327,7 @@ export default function AdminPortal() {
       {/* Header Banner */}
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="grad-text text-3xl font-extrabold tracking-tight">⚙ Hospital Administration</h1>
+          <h1 className="grad-text-page text-3xl font-extrabold tracking-tight">⚙ Hospital Administration</h1>
           <p className="text-[13px]" style={{ color: "var(--muted)" }}>
             Configure staff directory, OPD rosters, lab operating hours, slot durations, and capacity limits.
           </p>
@@ -349,7 +349,7 @@ export default function AdminPortal() {
               : "text-[var(--muted)] hover:text-white"
           }`}
         >
-          <Users size={14} className="text-violet-400" /> 👨‍⚕️ Clinical Directory &amp; OPD Rosters
+          <Users size={14} className="text-sky-500" /> 👨‍⚕️ Clinical Directory &amp; OPD Rosters
         </button>
         <button
           onClick={() => setAdminTab("LAB")}
@@ -391,8 +391,8 @@ export default function AdminPortal() {
           <div className="grid gap-6 lg:grid-cols-[440px_1fr]">
             {/* Lab Slot Timings Form */}
             <div className="space-y-4">
-              <SectionTitle>Configure Operating Hours &amp; Slots</SectionTitle>
-              <Card className="space-y-4 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.06), transparent)" }}>
+              <SectionTitle plain>Configure Operating Hours &amp; Slots</SectionTitle>
+              <Card className="space-y-4 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.06), transparent)" }}>
                 <div className="flex items-center justify-between mb-1 pb-2 border-b border-white/5">
                   <div className="flex items-center gap-2">
                     <Clock className="text-[var(--cyan)]" size={16} />
@@ -499,7 +499,7 @@ export default function AdminPortal() {
                     type="submit"
                     disabled={submitting}
                     className="btn w-full font-bold py-2.5 text-center"
-                    style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                    style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
                   >
                     {submitting ? "Saving Lab Timings..." : "Save Lab Operating Schedule & Slots"}
                   </button>
@@ -509,7 +509,7 @@ export default function AdminPortal() {
 
             {/* Generated Timetable Preview */}
             <div className="space-y-4">
-              <SectionTitle>Generated Lab Slot Timetable Preview</SectionTitle>
+              <SectionTitle plain>Generated Lab Slot Timetable Preview</SectionTitle>
               <Card className="space-y-4 min-h-[400px]">
                 <div className="flex items-center justify-between">
                   <h4 className="font-bold text-[13px] text-slate-200 flex items-center gap-2">
@@ -562,12 +562,12 @@ export default function AdminPortal() {
           {/* Onboard / Edit Doctor */}
           {!schedulingDoctor && (
             <>
-              <SectionTitle>{editingDoctorId ? "Modify Practitioner" : "Onboard Practitioner"}</SectionTitle>
-              <Card className="space-y-4 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(139,92,246,0.06), transparent)" }}>
+              <SectionTitle plain>{editingDoctorId ? "Modify Practitioner" : "Onboard Practitioner"}</SectionTitle>
+              <Card className="space-y-4 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(26,79,180,0.06), transparent)" }}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    {editingDoctorId ? <Edit className="text-amber-400" size={16} /> : <Plus className="text-violet-400" size={16} />}
-                    <span className="font-extrabold text-[12px] text-violet-300 uppercase tracking-widest">
+                    {editingDoctorId ? <Edit className="text-amber-400" size={16} /> : <Plus className="text-sky-500" size={16} />}
+                    <span className="font-extrabold text-[12px] text-sky-400 uppercase tracking-widest">
                       {editingDoctorId ? "Edit Form" : "Registration Form"}
                     </span>
                   </div>
@@ -754,7 +754,7 @@ export default function AdminPortal() {
                       type="submit"
                       disabled={submitting}
                       className="btn font-bold py-2 flex-[2] text-center"
-                      style={{ background: editingDoctorId ? "linear-gradient(135deg, #f59e0b, #d97706)" : "linear-gradient(135deg, #8b5cf6, #6d28d9)", color: "white", border: "none" }}
+                      style={{ background: editingDoctorId ? "linear-gradient(135deg, #f59e0b, #d97706)" : "linear-gradient(135deg, #1a4fb4, #003966)", color: "white", border: "none" }}
                     >
                       {submitting ? "Saving..." : editingDoctorId ? "Save Changes" : "Register Doctor"}
                     </button>
@@ -767,8 +767,8 @@ export default function AdminPortal() {
           {/* Roster & Slots Scheduler */}
           {schedulingDoctor && (
             <>
-              <SectionTitle>Roster Settings</SectionTitle>
-              <Card className="space-y-4 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(52,225,232,0.06), transparent)" }}>
+              <SectionTitle plain>Roster Settings</SectionTitle>
+              <Card className="space-y-4 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.06), transparent)" }}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-1.5">
                     <Calendar className="text-[var(--cyan)]" size={16} />
@@ -862,7 +862,7 @@ export default function AdminPortal() {
                       type="submit"
                       disabled={submitting}
                       className="btn font-bold py-2 flex-[2] text-center"
-                      style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+                      style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
                     >
                       {submitting ? "Saving..." : "Save Roster"}
                     </button>
@@ -875,7 +875,7 @@ export default function AdminPortal() {
 
         {/* Doctor Directory List */}
         <div className="space-y-4">
-          <SectionTitle>Clinical Directory</SectionTitle>
+          <SectionTitle plain>Clinical Directory</SectionTitle>
           <Card className="min-h-[400px]">
             <div className="mb-4 flex items-center gap-2">
               <div className="relative flex-1">
@@ -915,7 +915,7 @@ export default function AdminPortal() {
                     {filteredDoctors.map((d: any) => (
                       <tr key={d.doctor_id} className={`border-b border-white/5 last:border-0 hover:bg-white/[0.01] transition-colors ${editingDoctorId === d.doctor_id || schedulingDoctor?.doctor_id === d.doctor_id ? "bg-white/[0.02]" : ""}`}>
                         <td className="py-3.5 flex items-center gap-2">
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center font-extrabold text-[11px] ${d.role === "NURSE" ? "bg-cyan-500/10 border border-cyan-500/25 text-cyan-400" : "bg-violet-500/10 border border-violet-500/25 text-violet-400"}`}>
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center font-extrabold text-[11px] ${d.role === "NURSE" ? "bg-rose-500/10 border border-rose-500/25 text-rose-400" : "bg-sky-600/10 border border-sky-600/25 text-sky-500"}`}>
                             {d.name.split(" ").slice(-1)[0][0]}
                           </div>
                           <div>
@@ -936,7 +936,7 @@ export default function AdminPortal() {
                         <td className="py-3.5 text-right font-mono font-bold text-slate-200">
                           {d.role === "NURSE" ? "N/A" : `₹${d.opd_fee}`}
                         </td>
-                        <td className="py-3.5 text-center font-mono font-bold text-violet-400">
+                        <td className="py-3.5 text-center font-mono font-bold text-sky-500">
                           {d.access_pin}
                         </td>
                         <td className="py-3.5 text-center">
@@ -950,7 +950,7 @@ export default function AdminPortal() {
                             {d.role !== "NURSE" && (
                               <button
                                 onClick={() => handleOpenRoster(d)}
-                                className="btn ghost !py-1 !px-2 text-[10.5px] font-bold inline-flex items-center gap-0.5 text-[var(--cyan)] hover:text-cyan-300"
+                                className="btn ghost !py-1 !px-2 text-[10.5px] font-bold inline-flex items-center gap-0.5 text-[var(--cyan)] hover:text-sky-400"
                               >
                                 <Calendar size={10.5} /> Roster
                               </button>

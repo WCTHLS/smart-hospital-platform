@@ -1,1 +1,1 @@
-"""Aarogya AI backend package."""
+"""Qconnect backend package."""

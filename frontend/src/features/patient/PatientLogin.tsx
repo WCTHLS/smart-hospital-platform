@@ -168,7 +168,7 @@ export default function PatientLogin() {
       <Card className="space-y-6">
         <div className="space-y-2 text-center">
           <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl" style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))" }}>
-            <ShieldCheck size={24} color="#04121a" />
+            <ShieldCheck size={24} color="#ffffff" />
           </div>
           <h2 className="grad-text text-2xl font-extrabold">Patient login</h2>
           <p className="text-[13px]" style={{ color: "var(--muted)" }}>Verify your mobile number to continue securely.</p>

@@ -74,7 +74,7 @@ export default function CheckIn() {
   }
 
   return <div className="checkin-page space-y-5">
-    <SectionTitle sub={`Logged in as ${session.name}`}>Patient check-in</SectionTitle>
+    <div className="glass px-5 py-4"><SectionTitle sub={`Logged in as ${session.name}`}>Patient check-in</SectionTitle></div>
     <div className="bar-tk" aria-hidden="true"><i style={{ width: step === "appointments" ? "50%" : "100%" }} /></div>
     <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <section className="card h-fit">

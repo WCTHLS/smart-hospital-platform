@@ -24,11 +24,23 @@ export default function LabWorkspace() {
     return isPending && (deptFilter === "ALL" || category === deptFilter);
   }) || [];
 
+  const collected = orders?.filter((o: any) => {
+    const isCollected = o.status === "SAMPLE_COLLECTED";
+    const category = o.category || "PATHOLOGY";
+    return isCollected && (deptFilter === "ALL" || category === deptFilter);
+  }) || [];
+
   const completed = orders?.filter((o: any) => {
     const isCompleted = o.status === "RESULTED";
     const category = o.category || "PATHOLOGY";
     return isCompleted && (deptFilter === "ALL" || category === deptFilter);
   }) || [];
+
+  // Keep the selected order in sync with the latest polled/refetched data
+  // (e.g. after marking a sample collected) instead of a stale snapshot.
+  const liveSelectedOrder = selectedOrder
+    ? orders?.find((o: any) => o.lab_order_id === selectedOrder.lab_order_id) || selectedOrder
+    : null;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -39,7 +51,7 @@ export default function LabWorkspace() {
             <FlaskConical size={22} className="text-[var(--cyan)]" /> Lab Diagnostics Portal
           </h2>
           <p className="text-[13px] mt-1 text-[var(--muted)]">
-            Enter and submit clinical values for ordered patient tests. Lab AI automatically processes the result flags.
+            Enter and submit clinical values for ordered patient tests. Result flags are processed automatically.
           </p>
         </div>
         <span className="live">LIVE REFRESH</span>
@@ -73,13 +85,14 @@ export default function LabWorkspace() {
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,480px)] 2xl:gap-6">
         <LabOrdersQueue
           pending={pending}
+          collected={collected}
           completed={completed}
           selectedOrderId={selectedOrder?.lab_order_id}
           onSelectOrder={setSelectedOrder}
         />
         
         <LabResultForm
-          selectedOrder={selectedOrder}
+          selectedOrder={liveSelectedOrder}
           onClearSelection={() => setSelectedOrder(null)}
           onSubmitSuccess={() => {
             refetch();

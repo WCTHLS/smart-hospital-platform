@@ -16,14 +16,10 @@ export default function Triage() {
   const setJourney = useJourney((s) => s.set);
 
   const [selectedStaffId, setSelectedStaffId] = useState(() => localStorage.getItem("selected_triage_staff_id") || "");
-  const [unlockedStaffId, setUnlockedStaffId] = useState(() => sessionStorage.getItem("unlocked_triage_staff_id") || "");
-  const [pin, setPin] = useState("");
-  const [pinError, setPinError] = useState("");
-  const [verifyingPin, setVerifyingPin] = useState(false);
 
   const [symptom, setSymptom] = useState("Fever and cough for 3 days, mild breathlessness");
   const [duration, setDuration] = useState("3 days");
-  const [v, setV] = useState({ bp_systolic: 128, bp_diastolic: 82, spo2: 97, heart_rate: 96, temperature: 101.2 });
+  const [v, setV] = useState({ bp_systolic: 128, bp_diastolic: 82, spo2: 97, heart_rate: 96, temperature: 101.2, weight_kg: 68, height_cm: 165 });
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<any>(null);
 
@@ -35,7 +31,7 @@ export default function Triage() {
   const { data: queue, refetch: refetchQueue } = useQuery({
     queryKey: ["triage-queue"],
     queryFn: api.pendingTriageEncounters,
-    enabled: !!selectedStaffId && selectedStaffId === unlockedStaffId,
+    enabled: !!selectedStaffId,
     refetchInterval: 5000,
   });
 
@@ -44,34 +40,14 @@ export default function Triage() {
   const selectStaff = (staffId: string) => {
     setSelectedStaffId(staffId);
     localStorage.setItem("selected_triage_staff_id", staffId);
-    setPin("");
-    setPinError("");
-  };
-
-  const verifyPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStaffId || !pin) return;
-    setVerifyingPin(true);
-    setPinError("");
-    try {
-      await api.verifyTriagePin(selectedStaffId, pin);
-      journey.reset();
-      setRes(null);
-      setUnlockedStaffId(selectedStaffId);
-      sessionStorage.setItem("unlocked_triage_staff_id", selectedStaffId);
-    } catch (err: any) {
-      setPinError(err.message || "Incorrect PIN code. Access denied.");
-    } finally {
-      setVerifyingPin(false);
-    }
+    journey.reset();
+    setRes(null);
   };
 
   const lockPortal = () => {
     journey.reset();
-    setUnlockedStaffId("");
-    sessionStorage.removeItem("unlocked_triage_staff_id");
-    setPin("");
-    setPinError("");
+    setSelectedStaffId("");
+    localStorage.removeItem("selected_triage_staff_id");
     setRes(null);
   };
 
@@ -85,6 +61,8 @@ export default function Triage() {
       spo2: "" as any,
       heart_rate: "" as any,
       temperature: "" as any,
+      weight_kg: "" as any,
+      height_cm: "" as any,
     });
     setJourney({
       patientId: encounter.patient.patient_id,
@@ -97,6 +75,11 @@ export default function Triage() {
   };
 
   const backToQueue = () => {
+    if (journey.encounterId && !res) {
+      if (!window.confirm("This patient hasn't been triaged yet. Go back to the queue anyway?")) {
+        return;
+      }
+    }
     journey.reset();
     setRes(null);
     refetchQueue();
@@ -129,7 +112,7 @@ export default function Triage() {
   const tr = res?.triage?.result;
 
   // Render Login state
-  if (!selectedStaffId || selectedStaffId !== unlockedStaffId) {
+  if (!selectedStaffId) {
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
         <Card className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -159,48 +142,12 @@ export default function Triage() {
           </div>
         </Card>
 
-        {selectedStaffId && (
-          <div className="max-w-[440px] mx-auto py-8">
-            <Card className="space-y-4">
-              <div className="flex flex-col items-center text-center space-y-2">
-                <div className="w-12 h-12 rounded-full bg-[var(--cyan)]/10 border border-[var(--cyan)]/25 flex items-center justify-center text-[var(--cyan)]">
-                  <User size={24} />
-                </div>
-                <h3 className="font-extrabold text-[15px] text-slate-100">{activeStaff?.name}</h3>
-                <p className="text-[12px] text-[var(--muted)]">
-                  {activeStaff?.specialty} · {activeStaff?.room} ({activeStaff?.floor})
-                </p>
-              </div>
-              <form onSubmit={verifyPin} className="space-y-3.5 text-xs">
-                <label className="block font-bold text-slate-300 text-center">Enter Access PIN Code</label>
-                <input 
-                  type="password" 
-                  placeholder="••••" 
-                  className="input text-center text-lg font-bold tracking-widest font-mono py-2" 
-                  value={pin} 
-                  onChange={(e) => setPin(e.target.value)} 
-                  required 
-                  autoFocus 
-                />
-                {pinError && (
-                  <div className="p-2.5 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 flex items-center gap-1.5 justify-center">
-                    <ShieldAlert size={14} />{pinError}
-                  </div>
-                )}
-                <button type="submit" disabled={verifyingPin} className="btn w-full font-bold py-2">
-                  {verifyingPin ? "Verifying..." : "Unlock Triage Workspace"}
-                </button>
-              </form>
-            </Card>
-          </div>
-        )}
-
         {!selectedStaffId && (
           <Card className="text-center py-10">
             <HeartPulse size={48} className="mx-auto text-[var(--dim)] opacity-40 mb-3" />
             <h3 className="font-bold text-base text-slate-200">Select Profile to Begin</h3>
             <p className="text-[13px] mt-1 text-[var(--muted)]">
-              Choose your triage clinical profile and enter your PIN to retrieve today's queue.
+              Choose your triage clinical profile to retrieve today's queue.
             </p>
           </Card>
         )}
@@ -246,7 +193,7 @@ export default function Triage() {
                       <span className="text-[11px] text-[var(--muted)]">{encounter.visit_type}</span>
                     </div>
                     <div>
-                      <h4 className="text-base font-extrabold text-[#dce9ff]">{encounter.patient?.name}</h4>
+                      <h4 className="text-base font-extrabold text-[var(--ink)]">{encounter.patient?.name}</h4>
                       <p className="text-[12px] text-[var(--muted)]">
                         {encounter.patient?.age} yrs · {encounter.patient?.gender} · {encounter.patient?.mobile}
                       </p>
@@ -277,7 +224,7 @@ export default function Triage() {
     <div className="space-y-4 animate-in fade-in duration-300">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="grad-text text-2xl font-extrabold">{journey.patientName}</h1>
+          <h1 className="grad-text-page text-2xl font-extrabold">{journey.patientName}</h1>
           <p className="text-[12px] text-[var(--muted)]">Triage assessment in progress</p>
         </div>
         <button className="btn ghost" onClick={backToQueue}>
@@ -288,7 +235,9 @@ export default function Triage() {
       <div className="grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1fr)_clamp(340px,28vw,480px)] 2xl:gap-7">
         {/* Left/Middle Column: Entry Form */}
         <div>
-          <SectionTitle sub="Symptoms + vitals in, acuity + routing + token out — in seconds.">Intake &amp; Triage</SectionTitle>
+          <div className="glass mb-3 px-5 py-4">
+            <SectionTitle sub="Symptoms + vitals in, acuity + routing + token out — in seconds.">Intake &amp; Triage</SectionTitle>
+          </div>
           <Card className="space-y-3">
             <Field label="Presenting complaint">
               <textarea 
@@ -354,16 +303,36 @@ export default function Triage() {
                   disabled={busy || !!res}
                 />
               </Field>
+              <Field label="Weight kg">
+                <input
+                  className="input text-center"
+                  type="number"
+                  step="0.1"
+                  value={v.weight_kg}
+                  onChange={(e) => upd("weight_kg", e.target.value)}
+                  disabled={busy || !!res}
+                />
+              </Field>
+              <Field label="Height cm">
+                <input
+                  className="input text-center"
+                  type="number"
+                  step="0.1"
+                  value={v.height_cm}
+                  onChange={(e) => upd("height_cm", e.target.value)}
+                  disabled={busy || !!res}
+                />
+              </Field>
             </div>
             {!res && (
               <button className="btn w-full" disabled={busy} onClick={run}>
-                <HeartPulse size={16} /> {busy ? "Assessing Vitals via AI…" : "Calculate Acuity & Run AI Triage"}
+                <HeartPulse size={16} /> {busy ? "Assessing Vitals…" : "Calculate Acuity & Triage"}
               </button>
             )}
           </Card>
         </div>
 
-        {/* Right Column: AI Triage results */}
+        {/* Right Column: Triage results */}
         <div>
           {!res ? (
             <Card className="flex h-full items-center justify-center text-center py-12 text-slate-400">

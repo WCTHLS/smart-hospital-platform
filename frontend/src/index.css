@@ -4,26 +4,33 @@
 
 /* ============================================================= Design tokens */
 :root {
-  --bg: #05070e;
-  --bg2: #0a0f1c;
-  --ink: #e8eefc;
-  --muted: #98abcf;
-  --dim: #6f80a3;
-  --panel: rgba(255, 255, 255, 0.045);
-  --panel2: rgba(255, 255, 255, 0.07);
-  --line: rgba(120, 180, 255, 0.14);
-  --line2: rgba(120, 180, 255, 0.22);
-  --cyan: #34e1e8;
-  --blue: #4f8dff;
-  --violet: #a78bfa;
+  --bg: #f3f7fc;
+  --bg2: #dfeaf6;
+  --ink: #14213d;
+  --muted: #3d5573;
+  --dim: #64748b;
+  --panel: rgba(255, 255, 255, 0.6);
+  --panel2: rgba(255, 255, 255, 0.46);
+  --line: rgba(20, 33, 61, 0.1);
+  --line2: rgba(20, 33, 61, 0.16);
+  --cyan: #2564cf;
+  --blue: #14213d;
+  --violet: #1a4fb4;
   --pink: #f472b6;
   --mint: #4ade80;
   --amber: #fbbf24;
   --red: #fb6f6f;
-  --glass-border: rgba(120, 190, 255, 0.18);
-  --lit: rgba(80, 230, 240, 0.55);
-  --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
-  --glow-c: 0 0 18px rgba(52, 225, 232, 0.35);
+  --glass-border: rgba(255, 255, 255, 0.7);
+  --lit: rgba(37,100,207, 0.55);
+  --shadow: 0 14px 32px rgba(6, 22, 44, 0.12);
+  --glow-c: 0 0 18px rgba(37,100,207, 0.35);
+
+  /* Full-white transparent glass: every panel is a frosted, translucent white
+     surface (bright sheen + soft blue-gray floor shadow) that lets the page's
+     light background show through the blur, with dark ink text on top. */
+  --glass-sheen: linear-gradient(165deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0) 45%);
+  --glass-highlight: radial-gradient(120% 70% at 12% -10%, rgba(255, 255, 255, 0.6), transparent 60%);
+  --glass-floor: rgba(148, 178, 214, 0.16);
 }
 
 @media (max-width: 640px) {
@@ -76,10 +83,10 @@
 }
 
 .token-highlight {
-  border-color: rgba(52, 225, 232, 0.75);
-  background: radial-gradient(circle at 50% 20%, rgba(52, 225, 232, 0.2), transparent 48%),
-    linear-gradient(135deg, rgba(52, 225, 232, 0.12), rgba(139, 92, 246, 0.14));
-  box-shadow: 0 0 0 1px rgba(52, 225, 232, 0.16), 0 0 30px rgba(52, 225, 232, 0.24), var(--shadow);
+  border-color: rgba(37,100,207, 0.75);
+  background: radial-gradient(circle at 50% 20%, rgba(37,100,207, 0.2), transparent 48%),
+    linear-gradient(135deg, rgba(37,100,207, 0.12), rgba(26,79,180, 0.14));
+  box-shadow: 0 0 0 1px rgba(37,100,207, 0.16), 0 0 30px rgba(37,100,207, 0.24), var(--shadow);
 }
 
 * {
@@ -97,10 +104,11 @@ body {
   font-size: 15px;
   line-height: 1.6;
   background:
-    radial-gradient(1200px 620px at 12% -8%, rgba(79, 141, 255, 0.22), transparent 60%),
-    radial-gradient(1100px 560px at 100% -4%, rgba(167, 139, 250, 0.18), transparent 58%),
-    radial-gradient(1000px 640px at 50% 118%, rgba(52, 225, 232, 0.14), transparent 60%),
-    linear-gradient(180deg, #060912, #05070e);
+    radial-gradient(1200px 620px at 12% -8%, rgba(20,33,61, 0.14), transparent 60%),
+    radial-gradient(1100px 560px at 100% -4%, rgba(26,79,180, 0.12), transparent 58%),
+    radial-gradient(900px 520px at 82% 30%, rgba(37,100,207, 0.07), transparent 62%),
+    radial-gradient(1000px 640px at 50% 118%, rgba(37,100,207, 0.1), transparent 60%),
+    linear-gradient(180deg, #f3f7fc, #ffffff);
   background-attachment: fixed;
   min-height: 100vh;
 }
@@ -125,10 +133,10 @@ body::before {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.5;
+  opacity: 0.6;
   background-image:
-    linear-gradient(rgba(120, 180, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(120, 180, 255, 0.05) 1px, transparent 1px);
+    linear-gradient(rgba(20,33,61, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(20,33,61, 0.05) 1px, transparent 1px);
   background-size: 40px 40px, 40px 40px;
   mask-image: radial-gradient(1400px 900px at 50% 0%, #000 30%, transparent 85%);
 }
@@ -142,18 +150,20 @@ a {
 @layer components {
   .glass {
     @apply relative rounded-2xl;
-    background: var(--panel);
+    background-image: var(--glass-highlight), var(--glass-sheen), linear-gradient(var(--panel), var(--panel));
     border: 1px solid var(--glass-border);
-    backdrop-filter: blur(12px) saturate(140%);
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -14px 22px -16px var(--glass-floor);
   }
 
   .card {
     @apply relative min-w-0 rounded-2xl p-4;
-    background: var(--panel);
+    background-image: var(--glass-highlight), var(--glass-sheen), linear-gradient(var(--panel), var(--panel));
     border: 1px solid var(--glass-border);
-    backdrop-filter: blur(12px) saturate(140%);
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(28px) saturate(180%);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -14px 22px -16px var(--glass-floor);
   }
   .card::before {
     content: "";
@@ -165,11 +175,11 @@ a {
   }
 
   .chip {
-    @apply inline-flex flex-col rounded-xl px-3 py-2 text-[12.5px] font-semibold;
-    background: var(--panel2);
+    @apply inline-flex flex-col rounded-xl px-3 py-2 text-[12.5px] font-semibold overflow-hidden relative;
+    background-image: var(--glass-sheen), linear-gradient(var(--panel2), var(--panel2));
     border: 1px solid var(--line2);
-    color: #e6eeff;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    color: var(--ink);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
   .chip small {
     @apply font-normal text-[11px];
@@ -182,16 +192,22 @@ a {
 
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition;
-    color: #04121a;
-    background: linear-gradient(135deg, var(--cyan), var(--blue));
-    box-shadow: 0 0 16px rgba(52, 225, 232, 0.4);
+    color: #ffffff;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 55%), linear-gradient(135deg, var(--cyan), var(--blue));
+    box-shadow: 0 0 16px rgba(37,100,207, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3);
     cursor: pointer;
   }
   .btn:hover { filter: brightness(1.08); transform: translateY(-1px); }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; filter: none; }
-  .btn.g { background: linear-gradient(135deg, #6ee7a8, var(--mint)); box-shadow: 0 0 16px rgba(74, 222, 128, 0.4); }
+  .btn.g { background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 55%), linear-gradient(135deg, #6ee7a8, var(--mint)); box-shadow: 0 0 16px rgba(74, 222, 128, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
   .btn.ghost { background: transparent; color: var(--cyan); border: 1px solid var(--lit); box-shadow: none; }
-  .btn.danger { background: linear-gradient(135deg, #ff9d9d, var(--red)); box-shadow: 0 0 16px rgba(251, 111, 111, 0.4); }
+  /* `.btn.outline` is used across the app for secondary/danger actions (Cancel Visit,
+     Trigger expiry release, Request e-consult, etc.) with an inline `color`/`borderColor`
+     override — but had no CSS rule, so it silently fell back to the solid gradient `.btn`
+     fill, making colored inline text illegible against it. Give it a transparent/bordered
+     look like `.btn.ghost` so the inline color overrides read correctly. */
+  .btn.outline { background: transparent; background-image: none; box-shadow: none; border: 1px solid var(--glass-border); }
+  .btn.danger { background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 55%), linear-gradient(135deg, #ff9d9d, var(--red)); box-shadow: 0 0 16px rgba(251, 111, 111, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.3); }
   .btn.sm { @apply px-3 py-1.5 text-[12.5px]; }
   .btn.w-full { width: 100%; }
 
@@ -254,7 +270,7 @@ a {
     border: 1px solid transparent;
   }
   .stage-item.is-active {
-    background: linear-gradient(90deg, rgba(52, 225, 232, 0.1), rgba(167, 139, 250, 0.08));
+    background: linear-gradient(90deg, rgba(37,100,207, 0.1), rgba(26,79,180, 0.08));
     border-color: var(--line2);
   }
   .stage-num {
@@ -264,10 +280,10 @@ a {
     color: var(--muted);
   }
   .stage-num.is-active {
-    color: #04121a;
+    color: #ffffff;
     background: linear-gradient(135deg, var(--cyan), var(--blue));
     border-color: transparent;
-    box-shadow: 0 0 12px rgba(52, 225, 232, 0.45);
+    box-shadow: 0 0 12px rgba(37,100,207, 0.45);
   }
   .stage-num.is-done {
     color: var(--mint);
@@ -278,15 +294,15 @@ a {
   .appointment-time-slot {
     @apply shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition;
     color: var(--cyan);
-    background: rgba(52, 225, 232, 0.08);
+    background: rgba(37,100,207, 0.08);
     border: 1px solid var(--lit);
     cursor: pointer;
   }
 
   .appointment-time-slot:hover {
-    color: #04121a;
+    color: #ffffff;
     background: linear-gradient(135deg, var(--cyan), var(--blue));
-    box-shadow: 0 0 14px rgba(52, 225, 232, 0.3);
+    box-shadow: 0 0 14px rgba(37,100,207, 0.3);
   }
 
   .appointment-time-slot:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -295,33 +311,33 @@ a {
     @apply inline-block rounded-full px-2.5 py-0.5 text-[11px] font-extrabold;
     border: 1px solid transparent;
   }
-  .tag.red { background: rgba(251, 111, 111, 0.16); color: #ffb4b4; border-color: rgba(251, 111, 111, 0.4); }
-  .tag.amber { background: rgba(251, 191, 36, 0.16); color: #ffe0a3; border-color: rgba(251, 191, 36, 0.4); }
-  .tag.green { background: rgba(74, 222, 128, 0.15); color: #a7f3c4; border-color: rgba(74, 222, 128, 0.4); }
-  .tag.blue { background: rgba(79, 141, 255, 0.18); color: #bcd6ff; border-color: rgba(79, 141, 255, 0.4); }
-  .tag.violet { background: rgba(167, 139, 250, 0.18); color: #d6c9ff; border-color: rgba(167, 139, 250, 0.4); }
+  .tag.red { background: rgba(251, 111, 111, 0.16); color: #b91c1c; border-color: rgba(251, 111, 111, 0.4); }
+  .tag.amber { background: rgba(251, 191, 36, 0.16); color: #92400e; border-color: rgba(251, 191, 36, 0.4); }
+  .tag.green { background: rgba(74, 222, 128, 0.15); color: #15803d; border-color: rgba(74, 222, 128, 0.4); }
+  .tag.blue { background: rgba(20,33,61, 0.18); color: #14213d; border-color: rgba(20,33,61, 0.4); }
+  .tag.violet { background: rgba(26,79,180, 0.18); color: #5b21b6; border-color: rgba(26,79,180, 0.4); }
 
   .ai-badge {
     @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-extrabold;
-    color: #eafcff;
-    background: linear-gradient(90deg, rgba(52, 225, 232, 0.3), rgba(167, 139, 250, 0.35));
+    color: #123a7a;
+    background: linear-gradient(90deg, rgba(37,100,207, 0.22), rgba(26,79,180, 0.22));
     border: 1px solid var(--lit);
-    box-shadow: 0 0 12px rgba(120, 120, 255, 0.35);
+    box-shadow: 0 0 12px rgba(120, 120, 255, 0.2);
   }
 
   .holo {
     @apply relative rounded-xl px-3.5 py-3 text-[13px];
-    background: linear-gradient(180deg, rgba(52, 225, 232, 0.06), rgba(167, 139, 250, 0.05));
+    background: linear-gradient(180deg, rgba(37,100,207, 0.06), rgba(26,79,180, 0.05));
     border: 1px solid var(--line2);
-    box-shadow: inset 0 0 24px rgba(52, 225, 232, 0.06);
+    box-shadow: inset 0 0 24px rgba(37,100,207, 0.06);
   }
-  .holo b { color: #9ff0f6; }
+  .holo b { color: var(--cyan); }
 
   .alertbox {
     @apply rounded-xl px-3.5 py-2.5 text-[12.5px];
     border: 1px solid rgba(251, 111, 111, 0.5);
     border-inline-start: 4px solid var(--red);
-    color: #ffc9c9;
+    color: #b91c1c;
     background: linear-gradient(90deg, rgba(251, 111, 111, 0.14), transparent);
     box-shadow: 0 0 18px rgba(251, 111, 111, 0.22);
   }
@@ -329,9 +345,9 @@ a {
   .device {
     @apply relative overflow-hidden rounded-2xl;
     border: 1px solid var(--glass-border);
-    background: linear-gradient(180deg, rgba(12, 18, 32, 0.9), rgba(8, 12, 22, 0.92));
-    backdrop-filter: blur(14px);
-    box-shadow: var(--shadow), 0 0 30px rgba(52, 225, 232, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    background-image: var(--glass-sheen), linear-gradient(180deg, rgba(22, 16, 32, 0.9), rgba(14, 10, 22, 0.92));
+    backdrop-filter: blur(18px) saturate(150%);
+    box-shadow: var(--shadow), 0 0 30px rgba(37,100,207, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
   .device .bar {
     @apply flex items-center gap-2 px-3.5 py-2.5 text-[12px];
@@ -344,27 +360,27 @@ a {
     @apply flex items-center justify-between gap-2.5 py-1.5 text-[13px];
     border-bottom: 1px dashed var(--line);
   }
-  .kv b { color: #dce9ff; }
+  .kv b { color: var(--ink); }
 
   .bubble {
     @apply my-1.5 rounded-2xl px-3 py-2 text-[13px];
     max-width: 86%;
-    background: rgba(79, 141, 255, 0.12);
+    background: rgba(20,33,61, 0.12);
     border: 1px solid var(--line);
     border-bottom-left-radius: 4px;
   }
   .bubble.me {
     margin-inline-start: auto;
-    background: linear-gradient(135deg, rgba(74, 222, 128, 0.16), rgba(52, 225, 232, 0.12));
+    background: linear-gradient(135deg, rgba(74, 222, 128, 0.16), rgba(37,100,207, 0.12));
     border-color: rgba(74, 222, 128, 0.3);
     border-radius: 13px 13px 4px 13px;
   }
 
   .metric {
-    @apply relative rounded-2xl p-3 text-center;
-    background: var(--panel);
+    @apply relative rounded-2xl p-3 text-center overflow-hidden;
+    background-image: var(--glass-highlight), var(--glass-sheen), linear-gradient(var(--panel), var(--panel));
     border: 1px solid var(--glass-border);
-    box-shadow: inset 0 0 20px rgba(79, 141, 255, 0.06);
+    box-shadow: inset 0 0 20px rgba(20,33,61, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.14);
   }
   .metric .v {
     @apply text-2xl font-extrabold;
@@ -380,22 +396,69 @@ a {
 
   .input {
     @apply w-full rounded-xl px-3 py-2 text-sm outline-none;
-    background: rgba(0, 0, 0, 0.35);
+    background: rgba(255, 255, 255, 0.55);
     border: 1px solid var(--line2);
     color: var(--ink);
   }
-  .input:focus { border-color: var(--lit); box-shadow: 0 0 0 3px rgba(52, 225, 232, 0.12); }
+  .input:focus { border-color: var(--lit); box-shadow: 0 0 0 3px rgba(37,100,207, 0.12); }
   
   select option {
-    background-color: #0a0f1d;
-    color: #dce9ff;
+    background-color: #ffffff;
+    color: #14213d;
   }
 
   .bar-tk { @apply h-2 overflow-hidden rounded-md; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line); }
-  .bar-tk i { @apply block h-full transition-all duration-500 ease-out; background: linear-gradient(90deg, var(--cyan), var(--blue)); box-shadow: 0 0 12px rgba(52, 225, 232, 0.5); }
+  .bar-tk i { @apply block h-full transition-all duration-500 ease-out; background: linear-gradient(90deg, var(--cyan), var(--blue)); box-shadow: 0 0 12px rgba(37,100,207, 0.5); }
 
   .grad-text {
-    background: linear-gradient(92deg, #c9f7ff, #8fb4ff 45%, #c7a9ff);
+    background: linear-gradient(92deg, #14213d, #2564cf 65%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Utility-class overrides: many feature components were authored assuming
+     dark navy `.card`/`.glass` panels, so they lean on Tailwind's `text-white`
+     / `bg-white/5` / `bg-white/10` utilities for emphasis + hover feedback.
+     Now that panels are white/frosted glass, repoint those utilities to dark-
+     ink equivalents so text stays legible and hover states stay visible. */
+  .text-white,
+  .hover\:text-white:hover {
+    color: var(--ink) !important;
+  }
+  .bg-white\/5,
+  .hover\:bg-white\/5:hover {
+    background-color: rgba(20, 33, 61, 0.05) !important;
+  }
+  .bg-white\/10,
+  .hover\:bg-white\/10:hover {
+    background-color: rgba(20, 33, 61, 0.08) !important;
+  }
+  .bg-white\/\[0\.02\],
+  .bg-white\/\[0\.01\] {
+    background-color: rgba(20, 33, 61, 0.03) !important;
+  }
+  .border-white\/5,
+  .border-white\/10 {
+    border-color: rgba(20, 33, 61, 0.1) !important;
+  }
+  /* Same issue for literal Tailwind slate-50/100/200/300 text utilities — these
+     were used as near-white "on dark navy" text/heading colors and are almost
+     invisible on the new white/frosted glass panels. */
+  .text-slate-50,
+  .text-slate-100,
+  .text-slate-200 {
+    color: var(--ink) !important;
+  }
+  .text-slate-300 {
+    color: var(--muted) !important;
+  }
+
+  /* Same "branded gradient heading" look as .grad-text, but tuned for headings
+     that sit bare on the light page body (not inside a dark .card/.glass panel).
+     .grad-text's near-white start color is illegible on --bg; this starts dark. */
+  .grad-text-page {
+    background: linear-gradient(92deg, #14213d, #2564cf 65%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
@@ -430,17 +493,17 @@ a {
   display: grid;
   place-items: center;
   background: conic-gradient(from -90deg, var(--cyan), var(--violet) var(--p, 70%), rgba(255, 255, 255, 0.08) var(--p, 70%));
-  box-shadow: 0 0 18px rgba(52, 225, 232, 0.35);
+  box-shadow: 0 0 18px rgba(37,100,207, 0.35);
 }
 .ring i {
   position: absolute;
   inset: 8px;
   border-radius: 50%;
-  background: #0a1120;
+  background: #ffffff;
   display: grid;
   place-items: center;
   font-weight: 800;
-  color: #eafcff;
+  color: var(--ink);
   font-style: normal;
   text-align: center;
   line-height: 1.1;
@@ -452,11 +515,11 @@ a {
   width: 3px;
   border-radius: 3px;
   background: linear-gradient(var(--cyan), var(--violet));
-  box-shadow: 0 0 6px rgba(52, 225, 232, 0.55);
+  box-shadow: 0 0 6px rgba(37,100,207, 0.55);
   animation: wv 1s ease-in-out infinite;
 }
 @keyframes wv { 0%, 100% { height: 6px; } 50% { height: 24px; } }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: rgba(120, 180, 255, 0.18); border-radius: 8px; }
+::-webkit-scrollbar-thumb { background: rgba(37,100,207, 0.22); border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

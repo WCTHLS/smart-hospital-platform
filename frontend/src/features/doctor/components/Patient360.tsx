@@ -1,8 +1,56 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, CheckCircle2, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Tag, Empty } from "../../../components/ui";
+
+/* ------------------------------------------------------------------ Vitals threshold coloring */
+type VitalTone = "normal" | "warning" | "critical";
+
+const VITAL_TONE_CLASS: Record<VitalTone, string> = {
+  normal: "",
+  warning: "border border-amber-500/40 bg-amber-500/10",
+  critical: "border border-rose-500/50 bg-rose-500/10",
+};
+
+function bpTone(bp: string | null | undefined): VitalTone {
+  if (!bp) return "normal";
+  const [sysStr, diaStr] = bp.split("/");
+  const sys = Number(sysStr);
+  const dia = Number(diaStr);
+  if (!sys || !dia) return "normal";
+  if (sys >= 180 || sys < 90 || dia >= 120 || dia < 60) return "critical";
+  if (sys >= 140 || dia >= 90) return "warning";
+  return "normal";
+}
+
+function spo2Tone(spo2: number | null | undefined): VitalTone {
+  if (spo2 == null) return "normal";
+  if (spo2 < 90) return "critical";
+  if (spo2 < 95) return "warning";
+  return "normal";
+}
+
+function heartRateTone(hr: number | null | undefined): VitalTone {
+  if (hr == null) return "normal";
+  if (hr > 130 || hr < 40) return "critical";
+  if (hr > 100 || hr < 55) return "warning";
+  return "normal";
+}
+
+function temperatureTone(tempF: number | null | undefined): VitalTone {
+  if (tempF == null) return "normal";
+  if (tempF >= 103 || tempF < 95) return "critical";
+  if (tempF >= 100.4) return "warning";
+  return "normal";
+}
+
+function bmiTone(bmi: number | null | undefined): VitalTone {
+  if (bmi == null) return "normal";
+  if (bmi < 16 || bmi >= 40) return "critical";
+  if (bmi < 18.5 || bmi >= 30) return "warning";
+  return "normal";
+}
 
 /* ------------------------------------------------------------------ Historical Visit Dropdown */
 function HistoricalVisitDropdown({ encounter }: { encounter: any }) {
@@ -247,7 +295,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
       {/* Chronic Medical Issues (Problem List) */}
       <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(239,68,68,0.04), transparent)" }}>
         <div className="flex justify-between items-center pb-1.5 border-b border-white/5">
-          <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#d7e5ff" }}>
+          <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#123a7a" }}>
             Chronic Medical Issues (Problem List)
           </h4>
           <span className="text-[10px] uppercase font-extrabold tracking-wider text-[var(--dim)]">Persists Across Encounters</span>
@@ -278,7 +326,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
               value={newIssueName}
               onChange={(e) => setNewIssueName(e.target.value)}
               required
-              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
             />
           </div>
           <div className="sm:col-span-3">
@@ -288,7 +336,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
               className="input w-full py-1.5 px-3 text-xs"
               value={newIssueOnset}
               onChange={(e) => setNewIssueOnset(e.target.value)}
-              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
             />
           </div>
           <div className="sm:col-span-3">
@@ -296,7 +344,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
               type="submit"
               disabled={addingIssue}
               className="btn w-full py-1.5 px-4 text-xs font-bold"
-              style={{ background: "linear-gradient(135deg, var(--cyan), #2563eb)", color: "white", border: "none" }}
+              style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
             >
               {addingIssue ? "Saving..." : "Add Issue"}
             </button>
@@ -306,10 +354,10 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
 
       {/* Today's Consultation Notes & Advice */}
       {encounterId && (
-        <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(139,92,246,0.06), transparent)" }}>
+        <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(26,79,180,0.06), transparent)" }}>
           <div className="flex items-center justify-between">
-            <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#dce9ff" }}>
-              <FileText size={16} className="text-violet-400" /> Active Consultation Notes &amp; Advice
+            <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#123a7a" }}>
+              <FileText size={16} className="text-sky-500" /> Active Consultation Notes &amp; Advice
             </h4>
             {notesSuccess && (
               <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
@@ -347,12 +395,12 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
               <div 
                 className="p-3 rounded-xl border text-[11px] space-y-1 mb-2.5 animate-in fade-in duration-200"
                 style={{ 
-                  background: "rgba(139, 92, 246, 0.05)", 
-                  borderColor: "rgba(139, 92, 246, 0.25)",
-                  color: "#dce9ff"
+                  background: "rgba(26,79,180, 0.05)", 
+                  borderColor: "rgba(26,79,180, 0.25)",
+                  color: "var(--ink)"
                 }}
               >
-                <div className="font-bold flex items-center gap-1.5 text-violet-300">
+                <div className="font-bold flex items-center gap-1.5 text-sky-400">
                   <span>📝</span> Parent Visit Diagnosis & Advice ({parentEncounter.arrival?.slice(0, 10)})
                 </div>
                 <div className="text-[11px] whitespace-pre-line text-slate-300 text-left">
@@ -370,7 +418,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                 setNotesSuccess(false);
               }}
               placeholder="Enter active clinical findings, general advice, lifestyle instructions, or diagnosis summary for today's encounter..."
-              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "#dce9ff" }}
+              style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
             />
             <div className="flex justify-end">
               <button
@@ -378,7 +426,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                 onClick={handleSaveNotes}
                 disabled={savingNotes}
                 className="btn !py-1 !px-4 text-xs font-bold"
-                style={{ background: "linear-gradient(135deg, #8b5cf6, #6d28d9)", color: "white", border: "none" }}
+                style={{ background: "linear-gradient(135deg, #1a4fb4, #003966)", color: "white", border: "none" }}
               >
                 {savingNotes ? "Saving..." : "Save Consultation Notes"}
               </button>
@@ -389,13 +437,35 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
 
       {/* Latest Vitals Card at the Top */}
       <Card>
-        <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Latest vitals</h4>
+        <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Latest vitals</h4>
         {data.latest_vitals ? (
           <div className="grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
-            <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Blood Pressure</small><br /><b className="text-[15px]">{data.latest_vitals.bp}</b></div>
-            <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b className="text-[15px]">{data.latest_vitals.spo2}%</b></div>
-            <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Heart Rate</small><br /><b className="text-[15px]">{data.latest_vitals.heart_rate} bpm</b></div>
-            <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Temperature</small><br /><b className="text-[15px]">{data.latest_vitals.temperature}°F</b></div>
+            <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[bpTone(data.latest_vitals.bp)]}`}>
+              {bpTone(data.latest_vitals.bp) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${bpTone(data.latest_vitals.bp) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
+              <small style={{ color: "var(--dim)" }}>Blood Pressure</small><br /><b className="text-[15px]">{data.latest_vitals.bp}</b>
+            </div>
+            <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[spo2Tone(data.latest_vitals.spo2)]}`}>
+              {spo2Tone(data.latest_vitals.spo2) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${spo2Tone(data.latest_vitals.spo2) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
+              <small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b className="text-[15px]">{data.latest_vitals.spo2}%</b>
+            </div>
+            <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[heartRateTone(data.latest_vitals.heart_rate)]}`}>
+              {heartRateTone(data.latest_vitals.heart_rate) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${heartRateTone(data.latest_vitals.heart_rate) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
+              <small style={{ color: "var(--dim)" }}>Heart Rate</small><br /><b className="text-[15px]">{data.latest_vitals.heart_rate} bpm</b>
+            </div>
+            <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[temperatureTone(data.latest_vitals.temperature)]}`}>
+              {temperatureTone(data.latest_vitals.temperature) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${temperatureTone(data.latest_vitals.temperature) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
+              <small style={{ color: "var(--dim)" }}>Temperature</small><br /><b className="text-[15px]">{data.latest_vitals.temperature}°F</b>
+            </div>
+            {(data.latest_vitals.weight_kg != null || data.latest_vitals.height_cm != null || data.latest_vitals.bmi != null) && (
+              <>
+                <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Weight</small><br /><b className="text-[15px]">{data.latest_vitals.weight_kg != null ? `${data.latest_vitals.weight_kg} kg` : "—"}</b></div>
+                <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Height</small><br /><b className="text-[15px]">{data.latest_vitals.height_cm != null ? `${data.latest_vitals.height_cm} cm` : "—"}</b></div>
+                <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[bmiTone(data.latest_vitals.bmi)]}`}>
+                  {bmiTone(data.latest_vitals.bmi) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${bmiTone(data.latest_vitals.bmi) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
+                  <small style={{ color: "var(--dim)" }}>BMI</small><br /><b className="text-[15px]">{data.latest_vitals.bmi != null ? data.latest_vitals.bmi : "—"}</b>
+                </div>
+              </>
+            )}
           </div>
         ) : <Empty>No vitals captured yet for this patient.</Empty>}
       </Card>
@@ -405,7 +475,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
       <div className="grid gap-4 md:grid-cols-2">
         {/* Column 1: Recent Results */}
         <Card className="flex flex-col h-full">
-          <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Recent results</h4>
+          <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Recent results</h4>
           <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">Lab Diagnostics</div>
           <div className="max-h-[360px] flex-1 space-y-2 overflow-y-auto pr-1">
             {recentLabSections.length ? (
@@ -439,7 +509,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
 
         {/* Column 2: Previous visit records (Raw history) */}
         <Card className="flex flex-col h-full">
-          <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Previous visit records (Raw history)</h4>
+          <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Previous visit records (Raw history)</h4>
           <div className="space-y-2 flex-1 overflow-y-auto">
             {data.encounters?.map((e: any) => (
               <HistoricalVisitDropdown key={e.encounter_id} encounter={e} />
@@ -451,7 +521,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
       {/* Uploaded Documents & External Reports */}
       {data.documents && data.documents.length > 0 && (
         <Card className="animate-in fade-in duration-300">
-          <h4 className="mb-3 font-bold flex items-center gap-2" style={{ color: "#d7e5ff" }}>
+          <h4 className="mb-3 font-bold flex items-center gap-2" style={{ color: "#123a7a" }}>
             <FileText size={18} className="text-[var(--cyan)]" /> External Reports & Uploaded Documents
           </h4>
           <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
@@ -464,14 +534,18 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                   <div className="font-semibold text-slate-300 truncate">{d.title}</div>
                   <div className="text-[10px] text-[var(--muted)] mt-1">{d.date} · {d.doc_type}</div>
                 </div>
-                <a 
-                  href={d.uri.startsWith("http") ? d.uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${d.uri}`}
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="btn ghost sm !py-1 !px-2.5 font-bold text-[11px] text-[var(--cyan)] hover:underline shrink-0 ml-2"
-                >
-                  View Report
-                </a>
+                {d.uri ? (
+                  <a 
+                    href={d.uri.startsWith("http") ? d.uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${d.uri}`}
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="btn ghost sm !py-1 !px-2.5 font-bold text-[11px] text-[var(--cyan)] hover:underline shrink-0 ml-2"
+                  >
+                    View Report
+                  </a>
+                ) : (
+                  <span className="text-[10px] text-[var(--dim)] shrink-0 ml-2">No file</span>
+                )}
               </div>
             ))}
           </div>

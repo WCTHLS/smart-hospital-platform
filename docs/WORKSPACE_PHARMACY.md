@@ -1,4 +1,4 @@
-# Aarogya AI — Pharmacy Module
+# Qconnect — Pharmacy Module
 
 > **Audience:** Pharmacy module developer
 > Read `SYSTEM_FLOW_OVERVIEW.md` first for the big picture.
@@ -23,7 +23,7 @@ Simple lookup interface:
 
 ```
 ┌──────────────────────────────────────┐
-│  Pharmacy — Aarogya AI               │
+│  Pharmacy — Qconnect               │
 │                                      │
 │  Patient Lookup                      │
 │  Enter Mobile Number:                │
@@ -79,7 +79,7 @@ Pharmacist reviews prescription
       ✅ Prescription marked as Dispensed
       ✅ Timestamp recorded
       ✅ Patient app record updated:
-            "Prescription dispensed at Aarogya Pharmacy — 13 July 2026, 3:15 PM"
+            "Prescription dispensed at Qconnect Pharmacy — 13 July 2026, 3:15 PM"
 ```
 
 ---
