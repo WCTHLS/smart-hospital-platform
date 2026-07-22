@@ -360,6 +360,39 @@ def _generate_unique_mrn(db: Session) -> str:
         total += 1
 
 
+def _get_or_create_triage_token(
+    db: Session,
+    encounter: models.Encounter,
+    triage_staff: models.Staff | None,
+) -> models.Token:
+    """Return the persisted pre-triage queue token for an encounter."""
+    token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter.encounter_id)
+        .where(models.Token.department == "Triage")
+        .order_by(models.Token.issued_ts.desc())
+    )
+    if token:
+        return token
+
+    total = db.scalar(
+        select(func.count()).select_from(models.Token)
+        .where(models.Token.token_number.like("T-%"))
+    ) or 0
+    token = models.Token(
+        encounter_id=encounter.encounter_id,
+        token_number=f"T-{total + 101:03d}",
+        department="Triage",
+        room=triage_staff.room if triage_staff and triage_staff.room else "Triage Room",
+        floor=triage_staff.floor if triage_staff and triage_staff.floor else "Ground Floor",
+        eta_minutes=_calculate_live_eta(db, encounter.encounter_id),
+        status="WAITING",
+    )
+    db.add(token)
+    db.flush()
+    return token
+
+
 # --------------------------------------------------------------------------------- Check-in
 @router.post("/checkin")
 def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
@@ -402,6 +435,9 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
                     .where(models.Staff.available.is_(True))
                     .order_by(models.Staff.name)
                 )
+                if existing_encounter.status == "CHECKED_IN" and existing_encounter.visit_type not in ["LAB", "E_CONSULT"]:
+                    _get_or_create_triage_token(db, existing_encounter, triage_staff)
+                    db.commit()
                 return {
                     "patient": _patient_brief(patient),
                     "encounter_id": existing_encounter.encounter_id,
@@ -446,6 +482,8 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         .where(models.Staff.available.is_(True))
         .order_by(models.Staff.name)
     )
+    if encounter.visit_type not in ["LAB", "E_CONSULT"]:
+        _get_or_create_triage_token(db, encounter, triage_staff)
 
     audit(db, actor_id=patient.patient_id, actor_role="PATIENT", action="CHECK_IN",
           entity_type="encounter", entity_id=encounter.encounter_id, metadata={"channel": body.channel})
@@ -1243,6 +1281,16 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
     )
     db.add(token)
 
+    triage_queue_token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter_id)
+        .where(models.Token.department == "Triage")
+        .where(models.Token.status == "WAITING")
+        .order_by(models.Token.issued_ts.desc())
+    )
+    if triage_queue_token:
+        triage_queue_token.status = "COMPLETED"
+
     audit(db, actor_id="triage-agent", actor_role="AI", action="TRIAGE_COMPLETED",
           entity_type="encounter", entity_id=encounter_id,
           metadata={"acuity": tr["acuity_level"], "specialty": tr["specialty"], "red_flag": tr["red_flag"]})
@@ -1274,8 +1322,21 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     appointment_doctor = db.get(models.Staff, appointment.doctor_id) if appointment and appointment.doctor_id else None
     triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id)
                        .order_by(models.Triage.created_ts.desc()))
-    token = db.scalar(select(models.Token).where(models.Token.encounter_id == encounter_id)
-                      .order_by(models.Token.issued_ts.desc()))
+    token_query = select(models.Token).where(models.Token.encounter_id == encounter_id)
+    if e.status == "CHECKED_IN" and e.visit_type not in ["LAB", "E_CONSULT"]:
+        token_query = token_query.where(models.Token.department == "Triage")
+    token = db.scalar(token_query.order_by(models.Token.issued_ts.desc()))
+    if not token and e.status == "CHECKED_IN" and e.visit_type not in ["LAB", "E_CONSULT"]:
+        # Backfill encounters checked in before triage-token issuance was added.
+        triage_staff = db.scalar(
+            select(models.Staff)
+            .where(models.Staff.role == "NURSE")
+            .where(models.Staff.department == "Triage")
+            .where(models.Staff.available.is_(True))
+            .order_by(models.Staff.name)
+        )
+        token = _get_or_create_triage_token(db, e, triage_staff)
+        db.commit()
     recommended_doctor = (
         db.get(models.Staff, triage.recommended_doctor_id)
         if triage and triage.recommended_doctor_id else None
