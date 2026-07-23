@@ -15,6 +15,7 @@ const NAV = [
   { to: "/", label: "Home", icon: Activity, end: true },
   { to: "/patient/checkin", label: "Check-in", icon: MessageSquareHeart, roles: ["patient"] },
   { to: "/patient", label: "My Status", icon: Smartphone, roles: ["patient"] },
+  { to: "/triage", label: "Triage Desk", icon: HeartPulse, roles: ["nurse"] },
   { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, roles: ["doctor"] },
   { to: "/oncology", label: "Oncology & Cancer Care", icon: Syringe, roles: ["doctor"] },
   { to: "/lab", label: "Lab Workspace", icon: FlaskConical, roles: ["lab"] },
