@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { FileText, CheckCircle2, ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Tag, Empty } from "../../../components/ui";
 
@@ -391,28 +391,34 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
       <div className="patient-360-columns grid min-w-0 gap-4">
         {/* Column 1: Recent Results */}
         <Card className="flex min-w-0 flex-col">
-          <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Recent results</h4>
-          <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">Lab Diagnostics</div>
-          <div className="max-h-[360px] flex-1 space-y-2 overflow-y-auto pr-1">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h4 className="font-bold" style={{ color: "#123a7a" }}>Recent results</h4>
+            <span className="rounded-full bg-[rgba(37,100,207,0.08)] px-2 py-0.5 text-[10px] font-bold text-[var(--cyan)]">
+              {recentLabSections.length} {recentLabSections.length === 1 ? "test" : "tests"}
+            </span>
+          </div>
+          <div className="max-h-[360px] flex-1 space-y-2 overflow-x-hidden overflow-y-auto pr-1">
             {recentLabSections.length ? (
               recentLabSections.map((lab: any) => (
-                <div key={lab.lab_order_id} className="rounded-xl border border-white/5 bg-white/[0.02] p-3">
-                  <div className="mb-2 flex items-center justify-between gap-2 border-b border-white/5 pb-2">
-                    <b className="text-xs text-slate-200">{lab.test}</b>
-                    <span className="text-[10px] text-[var(--dim)]">{lab.date}</span>
+                <div key={lab.lab_order_id} className="min-w-0 rounded-xl border border-[var(--line)] bg-white/20 p-2.5">
+                  <div className="mb-2 flex min-w-0 items-start justify-between gap-2 border-b border-[var(--line)] pb-2">
+                    <b className="min-w-0 break-words text-xs leading-tight text-[var(--ink)]">{lab.test}</b>
+                    <span className="shrink-0 text-[9px] text-[var(--dim)]">{lab.date}</span>
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="divide-y divide-[var(--line)]">
                     {lab.results.map((r: any, i: number) => (
                       r.analyte === "Lab Findings" ? (
-                        <div key={`${r.analyte}-${i}`} className="rounded-lg border border-white/5 bg-black/10 p-2 text-[11px] leading-relaxed text-slate-300">
-                          <span className="mb-1 block text-[10px] font-bold uppercase tracking-wide text-[var(--dim)]">Lab Findings</span>
-                          {r.value || "Result completed"}
+                        <div key={`${r.analyte}-${i}`} className="py-2 text-[11px] leading-relaxed text-[var(--muted)]">
+                          <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wide text-[var(--dim)]">Findings</span>
+                          <span className="break-words">{r.value || "Result completed"}</span>
                         </div>
                       ) : (
-                        <div key={`${r.analyte}-${i}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 text-[12px]">
-                          <span className="min-w-0 break-words text-slate-300">{r.analyte}</span>
-                          <span className="whitespace-nowrap">{r.value} {r.unit}</span>
-                          <Tag tone={flag(r.flag)}>{r.flag}</Tag>
+                        <div key={`${r.analyte}-${i}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-1.5 text-[11px]">
+                          <span className="min-w-0 break-words text-[var(--muted)]">{r.analyte}</span>
+                          <span className="flex shrink-0 items-center gap-1.5">
+                            <b className="whitespace-nowrap text-[var(--ink)]">{r.value} {r.unit}</b>
+                            <Tag tone={flag(r.flag)}>{r.flag}</Tag>
+                          </span>
                         </div>
                       )
                     ))}
@@ -435,18 +441,26 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
 
         {/* Column 3: Uploaded reports */}
         <Card className="flex min-w-0 flex-col animate-in fade-in duration-300">
-          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#123a7a" }}>
-            <FileText size={16} className="text-[var(--cyan)]" /> Uploaded reports
-          </h4>
-          <div className="max-h-[360px] flex-1 space-y-2 overflow-y-auto pr-1">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h4 className="flex items-center gap-2 font-bold" style={{ color: "#123a7a" }}>
+              <FileText size={16} className="text-[var(--cyan)]" /> Uploaded reports
+            </h4>
+            <span className="rounded-full bg-[rgba(37,100,207,0.08)] px-2 py-0.5 text-[10px] font-bold text-[var(--cyan)]">
+              {data.documents?.length || 0}
+            </span>
+          </div>
+          <div className="max-h-[360px] flex-1 space-y-2 overflow-x-hidden overflow-y-auto pr-1">
             {data.documents?.length ? data.documents.map((d: any) => (
               <div 
                 key={d.document_id} 
-                className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.01] p-3 text-xs"
+                className="flex min-w-0 items-start gap-2.5 rounded-xl border border-[var(--line)] bg-white/20 p-2.5 text-xs"
               >
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[rgba(37,100,207,0.08)] text-[var(--cyan)]">
+                  <FileText size={14} />
+                </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-slate-300 truncate">{d.title}</div>
-                  <div className="text-[10px] text-[var(--muted)] mt-1">{d.date} · {d.doc_type}</div>
+                  <div className="break-words font-semibold leading-tight text-[var(--ink)]">{d.title}</div>
+                  <div className="mt-1 text-[10px] text-[var(--muted)]">{d.date} · {d.doc_type}</div>
                 </div>
                 {d.uri ? (
                   <a 
@@ -457,12 +471,12 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                     }
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="btn ghost sm !py-1 !px-2.5 font-bold text-[11px] text-[var(--cyan)] hover:underline shrink-0 ml-2"
+                    className="inline-flex shrink-0 items-center gap-1 pt-0.5 text-[10px] font-bold text-[var(--cyan)] hover:underline"
                   >
-                    View Report
+                    Open <ExternalLink size={10} />
                   </a>
                 ) : (
-                  <span className="text-[10px] text-[var(--dim)] shrink-0 ml-2">No file</span>
+                  <span className="shrink-0 pt-0.5 text-[10px] text-[var(--dim)]">Unavailable</span>
                 )}
               </div>
             )) : <Empty>No uploaded reports</Empty>}

@@ -598,7 +598,7 @@ export default function PatientDashboard() {
         </Card>
 
         {/* Booked appointments and all non-discharged visits */}
-        <Card className="space-y-3">
+        <Card className="flex h-[360px] flex-col">
           <div className="flex items-center justify-between gap-2">
             <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Appointments</h4>
             <button 
@@ -609,9 +609,9 @@ export default function PatientDashboard() {
             </button>
           </div>
           {!appointments.length && !activeEpisodes.length && (
-            <div className="holo text-xs text-[var(--muted)]">No current or upcoming appointments.</div>
+            <div className="holo mt-3 text-xs text-[var(--muted)]">No current or upcoming appointments.</div>
           )}
-          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+          <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {appointments.map((appointment: any) => {
               const isActive = appointment.appointment_id === showAppointmentId;
               const appointmentDate = appointment.scheduled_start?.slice(0, 10);
@@ -624,7 +624,7 @@ export default function PatientDashboard() {
                     setSelectedEncounterId(null);
                     setShowMobileVisitList(false);
                   }}
-                  className="w-full text-left p-2.5 rounded-xl border text-xs transition block hover:bg-[rgba(37,100,207,0.06)]"
+                  className="block h-[90px] w-full overflow-hidden rounded-xl border p-2.5 text-left text-xs transition hover:bg-[rgba(37,100,207,0.06)]"
                   style={{
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)",
                     background: isActive ? "rgba(37,100,207,0.05)" : "rgba(255,255,255,0.01)"
@@ -657,7 +657,7 @@ export default function PatientDashboard() {
                 <button
                   key={ep.encounter_id}
                   onClick={() => handleEpisodeClick(ep)}
-                  className="w-full text-left p-2.5 rounded-xl border text-xs transition block hover:bg-[rgba(37,100,207,0.06)]"
+                  className="block h-[90px] w-full overflow-hidden rounded-xl border p-2.5 text-left text-xs transition hover:bg-[rgba(37,100,207,0.06)]"
                   style={{
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)",
                     background: isActive ? "rgba(37,100,207,0.05)" : "rgba(255,255,255,0.01)"
@@ -700,12 +700,12 @@ export default function PatientDashboard() {
         )}
 
         {/* Past Visits */}
-        <Card className="space-y-3">
+        <Card className="flex h-[360px] flex-col">
           <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Past visits</h4>
           {!pastEpisodes.length && (
-            <div className="holo text-xs text-[var(--muted)]">No past visits available.</div>
+            <div className="holo mt-3 text-xs text-[var(--muted)]">No past visits available.</div>
           )}
-          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+          <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {pastEpisodes.map((ep: any) => {
               const isActive = ep.encounter_id === showEncounterId || 
                                ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
@@ -715,7 +715,7 @@ export default function PatientDashboard() {
                 <button
                   key={ep.encounter_id}
                   onClick={() => handleEpisodeClick(ep)}
-                  className="block w-full rounded-xl border p-2.5 text-left text-xs transition hover:bg-[rgba(37,100,207,0.06)]"
+                  className="block h-[90px] w-full overflow-hidden rounded-xl border p-2.5 text-left text-xs transition hover:bg-[rgba(37,100,207,0.06)]"
                   style={{ 
                     borderColor: isActive ? "var(--line2)" : "var(--glass-border)", 
                     background: isActive ? "rgba(37,100,207,0.05)" : "rgba(255,255,255,0.01)" 

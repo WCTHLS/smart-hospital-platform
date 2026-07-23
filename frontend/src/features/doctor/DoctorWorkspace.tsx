@@ -167,51 +167,48 @@ export default function DoctorWorkspace() {
           className="pointer-events-none absolute inset-0"
           style={{ background: "radial-gradient(360px 140px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}
         />
-        <div className="relative flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <div className="avatar-disc h-14 w-14 text-lg">{initials}</div>
-            <div className="min-w-0">
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
-                <h1 className="grad-text-page min-w-0 truncate text-2xl font-extrabold leading-tight">{journey.patientName}</h1>
-                <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
-                  {encDetails?.patient?.gender && (
-                    <span className="rounded-full border border-[var(--line2)] bg-[rgba(37,100,207,0.05)] px-2.5 py-1 text-[var(--muted)]">
-                      {encDetails.patient.gender}
-                    </span>
-                  )}
-                  {encDetails?.patient?.age != null && (
-                    <span className="rounded-full border border-[var(--line2)] bg-[rgba(37,100,207,0.05)] px-2.5 py-1 text-[var(--muted)]">
-                      {encDetails.patient.age} yrs
-                    </span>
-                  )}
-                  {encDetails?.patient?.blood_group && encDetails.patient.blood_group !== "UNK" && (
-                    <span className="rounded-full border border-rose-500/20 bg-rose-500/5 px-2.5 py-1 text-rose-700">
-                      Blood: {encDetails.patient.blood_group}
-                    </span>
-                  )}
+        <div className="relative space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="avatar-disc h-11 w-11 text-sm">{initials}</div>
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                  <h1 className="grad-text-page min-w-0 truncate text-xl font-extrabold leading-tight">{journey.patientName}</h1>
+                  <span className="text-[12px] font-semibold text-[var(--muted)]">
+                    {[
+                      encDetails?.patient?.age != null ? `${encDetails.patient.age} yrs` : null,
+                      encDetails?.patient?.gender,
+                      encDetails?.patient?.blood_group && encDetails.patient.blood_group !== "UNK"
+                        ? `Blood ${encDetails.patient.blood_group}`
+                        : null,
+                    ].filter(Boolean).join(" · ")}
+                  </span>
+                </div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] font-bold">
+                  {journey.department && <span className="text-[var(--muted)]">{journey.department}</span>}
+                  {journey.token && <span className="text-[var(--cyan)]">Token {journey.token}</span>}
                 </div>
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
-                <Tag tone="green">ABHA verified</Tag>
-                {journey.department && <Tag tone="blue">{journey.department}</Tag>}
-                {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
-              </div>
-              {(journey.chiefComplaint || encDetails?.triage?.chief_complaint) && (
-                <div className="mt-1.5 text-[12.5px] flex items-center flex-wrap gap-1.5" style={{ color: "var(--dim)" }}>
-                  Reason for visit — <b style={{ color: "var(--cyan)" }}>{encDetails?.triage?.chief_complaint || journey.chiefComplaint}</b>
-                  {encDetails?.patient_original_reason && encDetails.patient_original_reason !== (encDetails?.triage?.chief_complaint || journey.chiefComplaint) && (
-                    <span className="text-[11px] text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 font-medium">
-                      Patient reported: "{encDetails.patient_original_reason}"
-                    </span>
-                  )}
-                  <button 
-                    onClick={() => setShowHistoryModal(true)}
-                    className="btn ghost !py-0.5 !px-2 text-[11px] font-bold text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/10 inline-flex items-center gap-1"
-                    title="View complete intake version history and audit log"
-                  >
-                    <History size={12} /> Audit History
-                  </button>
-                </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <LiveDot label="Session active" tone="mint" />
+              <button
+                className="btn ghost text-[11.5px] !px-2.5 !py-1.5 font-bold"
+                onClick={handleBackToQueue}
+              >
+                <ArrowLeft size={13} /> Back to Queue
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-start justify-between gap-2 border-t border-[var(--line)] pt-2">
+            <div className="min-w-0 text-[12px] leading-relaxed text-[var(--muted)]">
+              <span className="mr-1.5 font-bold text-[var(--dim)]">Reason</span>
+              <span className="font-semibold text-[var(--ink)]">
+                {encDetails?.triage?.chief_complaint || journey.chiefComplaint || "Not recorded"}
+              </span>
+              {encDetails?.patient_original_reason && encDetails.patient_original_reason !== (encDetails?.triage?.chief_complaint || journey.chiefComplaint) && (
+                <span className="ml-2 text-[11px] text-amber-700">Patient reported: “{encDetails.patient_original_reason}”</span>
               )}
             </div>
             <button

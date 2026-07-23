@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, CheckCircle2, ClipboardPlus, Plus } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ClipboardPlus, LoaderCircle, Plus } from "lucide-react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../../lib/api";
 import { getPortalPatient } from "../../lib/patientAuth";
@@ -28,7 +28,8 @@ export default function CheckIn() {
   const [step, setStep] = useState<Step>("appointments");
   const [appointments, setAppointments] = useState<any[]>([]);
   const [appointment, setAppointment] = useState<any>(null);
-  const [busy, setBusy] = useState(true);
+  const [loadingAppointments, setLoadingAppointments] = useState(true);
+  const [checkingIn, setCheckingIn] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -44,12 +45,12 @@ export default function CheckIn() {
         }
       })
       .catch((e) => setError(errorText(e)))
-      .finally(() => setBusy(false));
+      .finally(() => setLoadingAppointments(false));
   }, [searchParams, session.patient_id]);
 
   async function completeCheckIn() {
-    if (!appointment?.appointment_id) return;
-    setBusy(true);
+    if (!appointment?.appointment_id || checkingIn) return;
+    setCheckingIn(true);
     setError("");
     try {
       const result = await api.checkin({
@@ -64,7 +65,7 @@ export default function CheckIn() {
     } catch (e) {
       setError(errorText(e));
     } finally {
-      setBusy(false);
+      setCheckingIn(false);
     }
   }
 
@@ -82,12 +83,23 @@ export default function CheckIn() {
 
         {step === "appointments" && <div className="space-y-4">
           <StepHeader icon={<ClipboardPlus size={20} />} title="Today's booked appointments" />
-          {busy && <div className="holo">Loading today's appointments...</div>}
-          {!busy && !appointments.length && <div className="holo">No booked appointment was found for today.</div>}
+          {loadingAppointments && <div className="holo">Loading today's appointments...</div>}
+          {!loadingAppointments && !appointments.length && <div className="holo">No booked appointment was found for today.</div>}
           {appointments.map((item) => <div className="holo" key={item.appointment_id}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
               <div className="min-w-0"><b className="block truncate">{item.doctor?.name ?? "Assigned doctor"}</b><span className="mt-1 block text-xs leading-relaxed" style={{ color: "var(--muted)" }}>{item.specialty} · {timeLabel(item.scheduled_start)} · {item.reason || "OPD visit"}</span></div>
-              <button className="btn g w-full shrink-0 sm:w-auto" onClick={() => { setAppointment(item); setStep("details"); }}>Check in</button>
+              <button
+                type="button"
+                className="btn g w-full justify-center"
+                disabled={checkingIn}
+                onClick={() => {
+                  setAppointment(item);
+                  setStep("details");
+                  setError("");
+                }}
+              >
+                Continue to check-in
+              </button>
             </div>
           </div>)}
           <div className="actions-row between">
@@ -101,7 +113,12 @@ export default function CheckIn() {
           <div className="grid gap-x-6 md:grid-cols-2">
             <Detail label="Doctor" value={appointment.doctor?.name} /><Detail label="Speciality" value={appointment.specialty} /><Detail label="Reason for visit" value={appointment.reason} /><Detail label="Date" value={appointment.scheduled_start?.slice(0, 10)} /><Detail label="Time" value={timeLabel(appointment.scheduled_start)} /><Detail label="Room / floor" value={[appointment.doctor?.room, appointment.doctor?.floor].filter(Boolean).join(" / ")} /><Detail label="Payment" value="Paid" />
           </div>
-          <div className="actions-row between"><button className="btn-link" onClick={() => setStep("appointments")}><ArrowLeft size={14} /> Back</button><button className="btn g" disabled={busy} onClick={completeCheckIn}>Complete check-in <CheckCircle2 size={16} /></button></div>
+          <div className="mt-5 grid items-center gap-3 border-t border-[var(--line)] pt-4 sm:grid-cols-[1fr_190px]">
+            <button type="button" className="btn-link justify-self-center sm:justify-self-start" disabled={checkingIn} onClick={() => setStep("appointments")}><ArrowLeft size={14} /> Back</button>
+            <button type="button" className="btn g w-full justify-center" disabled={checkingIn} aria-busy={checkingIn} onClick={completeCheckIn}>
+              {checkingIn ? <>Checking in <LoaderCircle className="animate-spin" size={16} /></> : <>Complete check-in <CheckCircle2 size={16} /></>}
+            </button>
+          </div>
         </div>}
       </section>
       <aside className="card order-first grid h-fit grid-cols-2 gap-2 lg:order-none lg:block lg:space-y-3"><Stage number={1} title="Today's appointment" active={step === "appointments"} done={step !== "appointments"} /><Stage number={2} title="Complete check-in" active={step !== "appointments"} done={false} /></aside>

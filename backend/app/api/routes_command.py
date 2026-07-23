@@ -30,6 +30,15 @@ def metrics(db: Session = Depends(get_db)) -> dict:
         select(func.avg(models.Token.eta_minutes)).where(models.Token.status == "WAITING")
     )
     door_to_doctor = int(avg_wait) if avg_wait else 13
+    doctors_total = db.scalar(
+        select(func.count()).select_from(models.Staff)
+        .where(models.Staff.role == "DOCTOR")
+    ) or 0
+    doctors_available = db.scalar(
+        select(func.count()).select_from(models.Staff)
+        .where(models.Staff.role == "DOCTOR")
+        .where(models.Staff.available.is_(True))
+    ) or 0
 
     # Compliance gaps: active encounters without an approved note
     active_ids = set(db.scalars(
@@ -64,6 +73,8 @@ def metrics(db: Session = Depends(get_db)) -> dict:
             "door_to_doctor_min": door_to_doctor,
             "in_queue": in_queue,
             "compliance_gaps": compliance_gaps,
+            "doctors_available": doctors_available,
+            "doctors_total": doctors_total,
         },
         "queue_by_department": queue_by_department,
         "low_stock": low_stock,

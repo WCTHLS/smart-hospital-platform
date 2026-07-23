@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, CheckCircle2, ShieldAlert, BadgeCheck, Plus, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "../../../lib/api";
@@ -88,6 +88,11 @@ export default function CopilotSidepane({
   const [deletingMedId, setDeletingMedId] = useState<string | null>(null);
   const [showAllIssues, setShowAllIssues] = useState(false);
   const [showAllMedications, setShowAllMedications] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(tab === "p360");
+
+  useEffect(() => {
+    setSummaryOpen(tab === "p360");
+  }, [tab]);
   
   const { data, isLoading } = useQuery({
     queryKey: ["p360", patientId],
@@ -184,10 +189,49 @@ export default function CopilotSidepane({
     setCds(null);
   };
 
+  const renderSummaryCard = () => (
+    <Card className="order-2 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
+      <div className={`flex items-center justify-between gap-2 ${summaryOpen ? "mb-2" : ""}`}>
+        <button
+          type="button"
+          onClick={() => setSummaryOpen((open) => !open)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[11px] font-extrabold uppercase tracking-wider text-[var(--cyan)]"
+          aria-expanded={summaryOpen}
+        >
+          <Activity size={13} /> Clinical Summary
+          {summaryOpen ? <ChevronUp size={13} className="ml-auto" /> : <ChevronDown size={13} className="ml-auto" />}
+        </button>
+        {summaryOpen && summaryText && (
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-[var(--cyan)] transition hover:text-sky-400 disabled:opacity-50"
+          >
+            {generating ? "Updating..." : "↻ Refresh"}
+          </button>
+        )}
+      </div>
+      {summaryOpen && (
+        summaryText ? (
+          <p className="whitespace-pre-line text-[11.5px] leading-relaxed text-[var(--ink)]">{summaryText}</p>
+        ) : (
+          <div className="py-1 text-center">
+            <p className="mb-2 text-[11px] text-[var(--muted)]">History summary has not been generated yet.</p>
+            <button onClick={handleGenerate} disabled={generating} className="btn w-full justify-center !px-2.5 !py-1 text-[11px]">
+              {generating ? "Generating..." : "Generate Summary"}
+            </button>
+          </div>
+        )
+      )}
+    </Card>
+  );
+
   return (
     <div className="flex flex-col gap-3 animate-in fade-in duration-300">
       {tab === "labs" ? (
-        /* Suggested Orders Banner in place of Clinical Summary */
+        <>
+        {renderSummaryCard()}
+        {/* Suggested Orders */}
         <Card className="order-2 border border-dashed border-[var(--cyan)]/25 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
@@ -242,41 +286,9 @@ export default function CopilotSidepane({
             </div>
           )}
         </Card>
+        </>
       ) : (
-        /* Summary Banner */
-        <Card className="order-2 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
-          <div className="flex items-center justify-between gap-1.5 mb-2">
-            <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
-              <Activity size={13} /> Clinical Summary
-            </div>
-            {summaryText && (
-              <button 
-                onClick={handleGenerate} 
-                disabled={generating} 
-                className="text-[9px] text-[var(--cyan)] hover:text-sky-400 font-bold uppercase tracking-wider transition disabled:opacity-50"
-              >
-                {generating ? "Updating..." : "↻ Refresh"}
-              </button>
-            )}
-          </div>
-          
-          {summaryText ? (
-            <p className="text-[11.5px] leading-relaxed text-[var(--ink)] whitespace-pre-line">
-              {summaryText}
-            </p>
-          ) : (
-            <div className="text-center py-1">
-              <p className="text-[11px] text-[var(--muted)] mb-2">History summary has not been generated yet.</p>
-              <button 
-                onClick={handleGenerate} 
-                disabled={generating} 
-                className="btn text-[11px] !py-1 !px-2.5 w-full justify-center"
-              >
-                {generating ? "Generating..." : "Generate Summary"}
-              </button>
-            </div>
-          )}
-        </Card>
+        renderSummaryCard()
       )}
 
       <Card className="order-1 space-y-3 overflow-hidden animate-in fade-in duration-300">
