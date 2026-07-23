@@ -207,12 +207,13 @@ export default function Prescription({
             const searchVal = it.drug_name.toLowerCase().trim();
             const drugSuggestions = searchVal.length >= 2
               ? (stock || [])
-                  .filter((s: any) => s.drug_name.toLowerCase().startsWith(searchVal))
+                  .filter((s: any) => s.drug_name.toLowerCase().trimStart().startsWith(searchVal))
+                  .sort((a: any, b: any) => a.drug_name.localeCompare(b.drug_name))
                   .slice(0, 8)
               : [];
             const matched = stock?.find((s: any) => {
-              const nameLower = s.drug_name.toLowerCase();
-              return nameLower === searchVal || nameLower.includes(searchVal) || searchVal.includes(nameLower);
+              const nameLower = s.drug_name.toLowerCase().trim();
+              return nameLower === searchVal;
             });
             const available = matched ? matched.available : 0;
 
@@ -238,24 +239,24 @@ export default function Prescription({
                     {activeDrugInput === i && drugSuggestions.length > 0 && (
                       <div
                         role="listbox"
-                        className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-xl border border-white/10 bg-slate-950 shadow-2xl"
+                        className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-xl border border-[var(--line2)] bg-white shadow-xl"
                       >
                         {drugSuggestions.map((suggestion: any) => (
                           <button
                             type="button"
                             role="option"
                             key={suggestion.drug_name}
-                            className="flex w-full items-center justify-between gap-3 border-b border-white/5 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-white/10"
+                            className="flex w-full items-center justify-between gap-3 border-b border-[var(--line)] px-3 py-2 text-left text-xs last:border-b-0 hover:bg-[rgba(37,100,207,0.08)]"
                             onMouseDown={(event) => {
                               event.preventDefault();
                               selectDrug(i, suggestion.drug_name);
                             }}
                           >
                             <span className="min-w-0">
-                              <span className="block truncate font-semibold text-white">{suggestion.drug_name}</span>
-                              <span className="block truncate text-[10px] text-[var(--dim)]">{suggestion.salt || suggestion.drug_class || "Medicine"}</span>
+                              <span className="block truncate font-semibold text-[var(--ink)]">{suggestion.drug_name}</span>
+                              <span className="block truncate text-[10px] text-[var(--muted)]">{suggestion.salt || suggestion.drug_class || "Medicine"}</span>
                             </span>
-                            <span className={suggestion.available > 0 ? "shrink-0 text-[var(--mint)]" : "shrink-0 text-rose-400"}>
+                            <span className={suggestion.available > 0 ? "shrink-0 font-semibold text-emerald-700" : "shrink-0 font-semibold text-rose-700"}>
                               {suggestion.available > 0 ? `${suggestion.available} available` : "Out of stock"}
                             </span>
                           </button>

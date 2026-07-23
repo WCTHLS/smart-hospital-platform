@@ -30,7 +30,7 @@ export default function PrescriptionSlip({
 
   if (!prescription || !prescription.items || prescription.items.length === 0) {
     return (
-      <Card className="space-y-3 animate-in fade-in duration-300">
+      <Card className="space-y-3 animate-in fade-in duration-300" style={{ border: "1px solid var(--line2)" }}>
         <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#123a7a" }}>
           <Stethoscope size={16} className="text-[var(--cyan)]" /> {title || "E-Prescription Slip"}
         </h4>
@@ -117,6 +117,7 @@ export default function PrescriptionSlip({
 
       qc.invalidateQueries({ queryKey: ["portal-encounter"] });
       qc.invalidateQueries({ queryKey: ["portal-encounter-parent"] });
+      qc.invalidateQueries({ queryKey: ["portal-episode-invoice"] });
       qc.invalidateQueries({ queryKey: ["p360"] });
       if (refetchEnc) refetchEnc();
       if (refetchP360) refetchP360();
@@ -147,8 +148,8 @@ export default function PrescriptionSlip({
   const displayStatus = prescription.status === "DISPENSED" ? "DISPENSED / COLLECTED" : (pickupToken?.status === "READY" ? "READY FOR PICKUP" : prescription.status);
 
   return (
-    <Card className="space-y-4 animate-in fade-in duration-300">
-      <div className="flex justify-between items-center">
+    <Card className="space-y-4 animate-in fade-in duration-300" style={{ border: "1px solid var(--line2)" }}>
+      <div className="flex items-center justify-between border-b border-[var(--line)] pb-3">
         <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#123a7a" }}>
           <Stethoscope size={16} className="text-[var(--cyan)]" /> {title || "E-Prescription Slip"}
         </h4>
@@ -181,38 +182,38 @@ export default function PrescriptionSlip({
       )}
 
       <div 
-        className="border border-dashed p-4 rounded-2xl space-y-3 relative overflow-hidden"
-        style={{ borderColor: "var(--glass-border)", background: "rgba(255,255,255,0.01)" }}
+        className="relative space-y-3 overflow-hidden rounded-xl border p-4"
+        style={{ borderColor: "var(--line2)", background: "rgba(37,100,207,0.025)" }}
       >
         <div className="absolute -top-10 -right-10 w-24 h-24 bg-mint/5 rounded-full blur-2xl" />
 
-        <div className="flex justify-between items-center pb-2 border-b" style={{ borderColor: "var(--glass-border)" }}>
+        <div className="flex items-center justify-between border-b pb-3" style={{ borderColor: "var(--line)" }}>
           <div>
             <div className="text-[11px] text-[var(--dim)] uppercase font-semibold">PRESCRIPTION ID</div>
-            <div className="text-xs font-bold text-white">{prescription.rx_id}</div>
+            <div className="break-all text-xs font-bold text-[var(--ink)]">{prescription.rx_id}</div>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-lg border border-[var(--line)] bg-white/40">
           <table className="min-w-[560px] w-full text-xs text-left">
             <thead>
-              <tr style={{ color: "var(--dim)" }} className="border-b border-[var(--glass-border)]">
-                <th className="pb-1.5">Medicine Name</th>
-                <th className="pb-1.5">Dosage</th>
-                <th className="pb-1.5">Frequency</th>
-                <th className="pb-1.5">Duration</th>
-                <th className="pb-1.5 text-right">Qty</th>
+              <tr style={{ color: "var(--muted)" }} className="border-b border-[var(--line2)] bg-[rgba(37,100,207,0.06)]">
+                <th className="border-r border-[var(--line)] px-3 py-2">Medicine Name</th>
+                <th className="border-r border-[var(--line)] px-3 py-2">Dosage</th>
+                <th className="border-r border-[var(--line)] px-3 py-2">Frequency</th>
+                <th className="border-r border-[var(--line)] px-3 py-2">Duration</th>
+                <th className="px-3 py-2 text-right">Qty</th>
               </tr>
             </thead>
             <tbody>
               {items.map((item: any, i: number) => {
                 return (
-                  <tr key={i} className="border-b last:border-0 border-[var(--glass-border)] text-slate-300">
-                    <td className="py-2.5 font-bold text-white">{item.drug_name}</td>
-                    <td className="py-2.5" style={{ color: "var(--ink)" }}>{item.dose || "Not recorded"}</td>
-                    <td className="py-2.5" style={{ color: "var(--muted)" }}>{item.frequency || "Not recorded"}</td>
-                    <td className="py-2.5 font-medium" style={{ color: "var(--ink)" }}>{item.duration_days != null ? `${item.duration_days} days` : "Not recorded"}</td>
-                    <td className="py-2.5 text-right font-medium text-[var(--cyan)]">{item.quantity || 1}</td>
+                  <tr key={i} className="border-b border-[var(--line)] last:border-0">
+                    <td className="border-r border-[var(--line)] px-3 py-2.5 font-bold text-[var(--ink)]">{item.drug_name}</td>
+                    <td className="border-r border-[var(--line)] px-3 py-2.5" style={{ color: "var(--ink)" }}>{item.dose || "Not recorded"}</td>
+                    <td className="border-r border-[var(--line)] px-3 py-2.5" style={{ color: "var(--muted)" }}>{item.frequency || "Not recorded"}</td>
+                    <td className="border-r border-[var(--line)] px-3 py-2.5 font-medium" style={{ color: "var(--ink)" }}>{item.duration_days != null ? `${item.duration_days} days` : "Not recorded"}</td>
+                    <td className="px-3 py-2.5 text-right font-medium text-[var(--cyan)]">{item.quantity || 1}</td>
                   </tr>
                 );
               })}
@@ -241,26 +242,26 @@ export default function PrescriptionSlip({
         }}>
           {pickupToken.status === "WAITING" && (
             <div className="space-y-3">
-              <div className="flex items-start gap-2.5 text-xs text-sky-400">
+              <div className="flex items-start gap-2.5 text-xs text-blue-800">
                 <Clock size={16} className="shrink-0 mt-0.5 animate-pulse text-[var(--cyan)]" />
                 <div>
-                  <strong className="text-white block mb-0.5">⏳ Packaging in Progress</strong>
+                  <strong className="mb-0.5 block text-[var(--ink)]">⏳ Packaging in Progress</strong>
                   The pharmacy is currently packing your medicines. Please wait at the pickup point.
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-2 bg-slate-950/40 p-2.5 rounded-xl text-[11px] font-medium border border-sky-600/10">
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-[var(--line2)] bg-white/60 p-2.5 text-[11px] font-medium">
                 <div>
-                  <span className="text-[var(--dim)] block text-[9px] uppercase tracking-wider">Pickup Counter</span>
-                  <span className="text-slate-100 font-bold">{pickupToken.room || "Pharmacy Counter 3"}</span>
+                  <span className="block text-[9px] uppercase tracking-wider text-[var(--muted)]">Pickup Counter</span>
+                  <span className="font-bold text-[var(--ink)]">{pickupToken.room || "Pharmacy Counter 3"}</span>
                 </div>
                 <div>
-                  <span className="text-[var(--dim)] block text-[9px] uppercase tracking-wider">Floor Location</span>
-                  <span className="text-slate-100 font-bold">{pickupToken.floor || "Ground Floor"}</span>
+                  <span className="block text-[9px] uppercase tracking-wider text-[var(--muted)]">Floor Location</span>
+                  <span className="font-bold text-[var(--ink)]">{pickupToken.floor || "Ground Floor"}</span>
                 </div>
-                <div className="col-span-2 pt-1 border-t border-white/5 flex justify-between items-center">
-                  <span className="text-[var(--dim)] text-[9px] uppercase tracking-wider">Your Pickup Token</span>
-                  <span className="text-white font-black text-sm font-mono tracking-wider">{pickupToken.number}</span>
+                <div className="col-span-2 flex items-center justify-between border-t border-[var(--line)] pt-2">
+                  <span className="text-[9px] uppercase tracking-wider text-[var(--muted)]">Your Pickup Token</span>
+                  <span className="font-mono text-sm font-black tracking-wider text-[var(--cyan)]">{pickupToken.number}</span>
                 </div>
               </div>
             </div>
@@ -314,18 +315,18 @@ export default function PrescriptionSlip({
           <Card 
             className="w-full max-w-md space-y-4 relative overflow-hidden animate-in zoom-in-95 duration-200 text-xs"
             style={{ 
-              background: "#0a1e30", 
-              border: "1px solid rgba(37,100,207, 0.2)",
-              boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7)"
+              background: "rgba(255,255,255,0.98)",
+              border: "1px solid var(--line2)",
+              boxShadow: "0 24px 60px -18px rgba(20, 33, 61, 0.38)"
             }}
           >
-            <div className="flex items-center justify-between border-b border-white/5 pb-3">
-              <h3 className="text-sm font-extrabold text-white flex items-center gap-2">
+            <div className="flex items-center justify-between border-b border-[var(--line)] pb-3">
+              <h3 className="flex items-center gap-2 text-sm font-extrabold text-[var(--ink)]">
                 💳 Online Medication Payment
               </h3>
               <button 
                 onClick={() => setShowPayModal(false)}
-                className="text-[var(--dim)] hover:text-white transition text-sm font-semibold"
+                className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] text-sm font-semibold text-[var(--muted)] transition hover:bg-[rgba(37,100,207,0.07)] hover:text-[var(--ink)]"
                 disabled={paying}
               >
                 ✕
@@ -334,15 +335,15 @@ export default function PrescriptionSlip({
 
             {paymentDone ? (
               <div className="py-8 text-center space-y-2 animate-in zoom-in-95">
-                <CheckCircle2 size={40} className="mx-auto text-emerald-400" />
-                <h4 className="font-bold text-white text-sm">Payment Successful!</h4>
-                <p className="text-[var(--dim)]">Generating pickup token and counter routing info...</p>
+                <CheckCircle2 size={40} className="mx-auto text-emerald-600" />
+                <h4 className="text-sm font-bold text-[var(--ink)]">Payment Successful!</h4>
+                <p className="text-[var(--muted)]">Generating pickup token and counter routing info...</p>
               </div>
             ) : (
               <>
                 {/* Cost Breakdown */}
-                <div className="space-y-2 bg-white/[0.01] p-3 border border-white/5 rounded-xl">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)] pb-1 border-b border-white/5">
+                <div className="space-y-2 rounded-xl border border-[var(--line2)] bg-[rgba(37,100,207,0.025)] p-3">
+                  <div className="border-b border-[var(--line)] pb-2 text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">
                     Order Summary
                   </div>
                   <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-1">
@@ -350,9 +351,9 @@ export default function PrescriptionSlip({
                       const qty = item.quantity || 1;
                       const price = item.unit_price || 10.0;
                       return (
-                        <div key={idx} className="flex justify-between items-center text-slate-300">
+                        <div key={idx} className="flex items-center justify-between gap-3 border-b border-[var(--line)] py-1.5 text-[var(--muted)] last:border-0">
                           <div>
-                            <span className="font-bold text-white">{item.drug_name}</span>
+                            <span className="font-bold text-[var(--ink)]">{item.drug_name}</span>
                             <span className="text-[10px] text-[var(--dim)] ml-1.5">Qty: {qty}</span>
                           </div>
                           <span>₹{(qty * price).toFixed(2)}</span>
@@ -361,7 +362,7 @@ export default function PrescriptionSlip({
                     })}
                   </div>
 
-                  <div className="border-t border-white/5 pt-2 mt-2 space-y-1 text-slate-300">
+                  <div className="mt-2 space-y-1 border-t border-[var(--line2)] pt-2 text-[var(--muted)]">
                     <div className="flex justify-between">
                       <span>Subtotal</span>
                       <span>₹{subtotal.toFixed(2)}</span>
@@ -370,21 +371,21 @@ export default function PrescriptionSlip({
                       <span>GST (18%)</span>
                       <span>₹{gst.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between font-bold text-white border-t border-dashed border-white/5 pt-1.5 mt-1 text-xs">
+                    <div className="mt-1 flex justify-between border-t border-dashed border-[var(--line2)] pt-2 text-xs font-bold text-[var(--ink)]">
                       <span>Total Amount</span>
                       <span className="text-[var(--cyan)]">₹{total.toFixed(2)}</span>
                     </div>
                   </div>
                 </div>
 
-                <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-xl flex gap-2">
+                <div className="flex gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3 text-amber-800">
                   <AlertCircle size={16} className="shrink-0 mt-0.5" />
                   <div>
                     <strong>Skip the Queue:</strong> Paying online pre-orders your packaging so the pharmacy will have it packaged and waiting at the counter.
                   </div>
                 </div>
 
-                <div className="flex gap-2 justify-end pt-2 border-t border-white/5">
+                <div className="flex justify-end gap-2 border-t border-[var(--line)] pt-3">
                   <button
                     onClick={() => setShowPayModal(false)}
                     disabled={paying}

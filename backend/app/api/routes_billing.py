@@ -24,6 +24,82 @@ router = APIRouter(prefix="/api/v1", tags=["billing"])
 logger = logging.getLogger("aarogya.razorpay")
 
 
+def _episode_root_encounter(db: Session, encounter: models.Encounter) -> models.Encounter:
+    """Return the root visit used by the patient dashboard's episode invoice."""
+    if encounter.notes and "parent:" in encounter.notes:
+        for part in encounter.notes.split(";"):
+            if part.strip().startswith("parent:"):
+                parent_id = part.strip().split("parent:", 1)[1].strip()
+                parent = db.get(models.Encounter, parent_id)
+                if parent:
+                    return parent
+    return encounter
+
+
+def _episode_encounter_ids(db: Session, root: models.Encounter) -> list[str]:
+    child_ids = db.scalars(
+        select(models.Encounter.encounter_id)
+        .where(models.Encounter.patient_id == root.patient_id)
+        .where(models.Encounter.notes.like(f"%parent:{root.encounter_id}%"))
+    ).all()
+    return [root.encounter_id, *child_ids]
+
+
+def _reconcile_episode_prescription_payments(
+    db: Session,
+    root: models.Encounter,
+    invoice: models.Invoice,
+) -> None:
+    """Backfill paid prescription charges missing from an episode invoice."""
+    episode_ids = _episode_encounter_ids(db, root)
+    prescriptions = db.scalars(
+        select(models.Prescription)
+        .where(models.Prescription.encounter_id.in_(episode_ids))
+    ).all()
+    existing_descriptions = set(db.scalars(
+        select(models.InvoiceLine.description)
+        .where(models.InvoiceLine.invoice_id == invoice.invoice_id)
+        .where(models.InvoiceLine.category == "PHARMACY")
+    ).all())
+
+    for rx in prescriptions:
+        payment_order = db.scalar(
+            select(models.RazorpayOrder)
+            .where(models.RazorpayOrder.patient_id == root.patient_id)
+            .where(models.RazorpayOrder.appointment_type == "PHARMACY")
+            .where(models.RazorpayOrder.status == "PAID")
+            .where(models.RazorpayOrder.reason == f"Prescription payment: {rx.rx_id}")
+            .order_by(models.RazorpayOrder.created_ts.desc())
+        )
+        if not payment_order:
+            continue
+
+        items = db.scalars(
+            select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)
+        ).all()
+        expected_descriptions = {f"Rx: {item.drug_name}" for item in items}
+        payment_marker = f"Prescription payment {rx.rx_id[:8]}"
+        if (
+            expected_descriptions & existing_descriptions
+            or any(description.startswith(payment_marker) for description in existing_descriptions)
+        ):
+            continue
+
+        medicine_names = ", ".join(item.drug_name for item in items[:3]) or "Medication"
+        if len(items) > 3:
+            medicine_names += f" +{len(items) - 3} more"
+        description = f"{payment_marker}: {medicine_names}"
+        services.add_line(
+            db,
+            invoice,
+            category="PHARMACY",
+            description=description,
+            amount=round(payment_order.amount_paise / 100, 2),
+            quantity=1,
+        )
+        existing_descriptions.add(description)
+
+
 def _razorpay_client() -> razorpay.Client:
     if not settings.razorpay_configured:
         raise HTTPException(503, "Razorpay is not configured")
@@ -314,7 +390,43 @@ def verify_razorpay_prescription_payment(body: RazorpayPrescriptionVerifyRequest
         raise HTTPException(404, "Prescription not found")
         
     rx.status = "PREPAID"
-    
+
+    # Prescription approval normally creates medicine invoice lines. If an item
+    # was not matched to stock, or the prescription belongs to a child follow-up,
+    # those lines may not exist on the root care-episode invoice. Reconcile the
+    # successful payment into that invoice so Billing Details reflects it.
+    encounter = db.get(models.Encounter, rx.encounter_id)
+    if not encounter:
+        raise HTTPException(404, "Prescription encounter not found")
+    invoice_encounter = _episode_root_encounter(db, encounter)
+    invoice = services.get_or_create_invoice(db, invoice_encounter)
+    items = db.scalars(
+        select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)
+    ).all()
+    expected_descriptions = {f"Rx: {item.drug_name}" for item in items}
+    existing_pharmacy_descriptions = set(db.scalars(
+        select(models.InvoiceLine.description)
+        .where(models.InvoiceLine.invoice_id == invoice.invoice_id)
+        .where(models.InvoiceLine.category == "PHARMACY")
+    ).all())
+    payment_marker = f"Prescription payment {rx.rx_id[:8]}"
+    already_recorded = (
+        bool(expected_descriptions & existing_pharmacy_descriptions)
+        or any(description.startswith(payment_marker) for description in existing_pharmacy_descriptions)
+    )
+    if not already_recorded:
+        medicine_names = ", ".join(item.drug_name for item in items[:3]) or "Medication"
+        if len(items) > 3:
+            medicine_names += f" +{len(items) - 3} more"
+        services.add_line(
+            db,
+            invoice,
+            category="PHARMACY",
+            description=f"{payment_marker}: {medicine_names}",
+            amount=round(payment_order.amount_paise / 100, 2),
+            quantity=1,
+        )
+
     # Check if a Pharmacy pickup token already exists for this encounter.
     # Generate one pharmacy pickup token and use the same WAITING -> READY
     # lifecycle as the pharmacy workspace.
@@ -441,6 +553,7 @@ def _invoice_dict(inv: models.Invoice, db: Session) -> dict:
     encounter = db.get(models.Encounter, inv.encounter_id)
     paid_categories: set[str] = set()
     if encounter:
+        episode_ids = _episode_encounter_ids(db, encounter)
         if encounter.appointment_id and db.scalar(
             select(models.RazorpayOrder.order_id)
             .where(models.RazorpayOrder.appointment_id == encounter.appointment_id)
@@ -450,7 +563,7 @@ def _invoice_dict(inv: models.Invoice, db: Session) -> dict:
 
         lab_order_ids = db.scalars(
             select(models.LabOrder.lab_order_id)
-            .where(models.LabOrder.encounter_id == encounter.encounter_id)
+            .where(models.LabOrder.encounter_id.in_(episode_ids))
         ).all()
         paid_lab_reasons = db.scalars(
             select(models.RazorpayOrder.reason)
@@ -463,7 +576,7 @@ def _invoice_dict(inv: models.Invoice, db: Session) -> dict:
 
         prescription_ids = db.scalars(
             select(models.Prescription.rx_id)
-            .where(models.Prescription.encounter_id == encounter.encounter_id)
+            .where(models.Prescription.encounter_id.in_(episode_ids))
         ).all()
         paid_rx_reasons = db.scalars(
             select(models.RazorpayOrder.reason)
@@ -511,7 +624,9 @@ def get_invoice(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     encounter = db.get(models.Encounter, encounter_id)
     if not encounter:
         raise HTTPException(404, "Encounter not found")
-    inv = services.get_or_create_invoice(db, encounter)
+    root_encounter = _episode_root_encounter(db, encounter)
+    inv = services.get_or_create_invoice(db, root_encounter)
+    _reconcile_episode_prescription_payments(db, root_encounter, inv)
     db.commit()
     return _invoice_dict(inv, db)
 

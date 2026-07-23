@@ -292,6 +292,7 @@ export default function PatientDashboard() {
     queryKey: ["portal-episode-invoice", parentEncounterId],
     queryFn: () => api.invoice(parentEncounterId!),
     enabled: Boolean(parentEncounterId && currentEpisode),
+    refetchInterval: 5000,
   });
 
   useEffect(() => {
@@ -1415,6 +1416,30 @@ export default function PatientDashboard() {
               </Card>
             )}
 
+            <Card className="space-y-2 !p-3 text-xs">
+              <div className="mb-1 flex items-center gap-1.5 border-b border-[var(--line)] pb-2 font-semibold text-[var(--ink)]">
+                <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
+              </div>
+              <div className="grid gap-x-5 sm:grid-cols-2">
+                <div className="kv !py-1.5"><span>Doctor</span><b>{parentEncDetails?.triage?.recommended_doctor?.name || parentEncDetails?.appointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
+                <div className="kv !py-1.5"><span>Specialty</span><b>{parentEncDetails?.triage?.specialty || parentEncDetails?.appointment?.specialty || parentEncDetails?.department || encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
+                <div className="kv !py-1.5"><span>Room / Floor</span><b>{[
+                  parentEncDetails?.token?.room || parentEncDetails?.triage?.recommended_doctor?.room || parentEncDetails?.appointment?.doctor?.room || encDetails.token?.room || encDetails.triage?.recommended_doctor?.room || encDetails.appointment?.doctor?.room,
+                  parentEncDetails?.token?.floor || parentEncDetails?.triage?.recommended_doctor?.floor || parentEncDetails?.appointment?.doctor?.floor || encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
+                ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
+                <div className="kv !py-1.5"><span>Time Slot</span><b>{parentEncDetails?.appointment?.scheduled_start ? timeLabel(parentEncDetails.appointment.scheduled_start) : encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
+                <div className="kv !py-1.5 sm:col-span-2"><span>Chief Complaint / Reason for Visit</span><b>{parentEncDetails?.triage?.chief_complaint || parentEncDetails?.appointment?.reason || encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
+              </div>
+            </Card>
+
+            <LabOrdersAlert
+              orders={parentEncDetails?.labs || encDetails.labs || labDetails?.orders || []}
+              refetchLab={refetchLab}
+              refetchEnc={refetchEnc}
+              refetchP360={refetchP360}
+              patientId={portalPatientId}
+            />
+
             {/* Prescription Slip for patient health records */}
             {parentEncDetails?.prescription && (
               <PrescriptionSlip 
@@ -1468,20 +1493,6 @@ export default function PatientDashboard() {
                 </div>
               </Card>
             )}
-
-            <Card className="space-y-2 text-xs">
-              <div className="font-semibold text-[var(--ink)] flex items-center gap-1.5 border-b border-[var(--line)] pb-2 mb-1">
-                <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
-              </div>
-              <div className="kv"><span>Doctor</span><b>{parentEncDetails?.triage?.recommended_doctor?.name || parentEncDetails?.appointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
-              <div className="kv"><span>Specialty</span><b>{parentEncDetails?.triage?.specialty || parentEncDetails?.appointment?.specialty || parentEncDetails?.department || encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
-              <div className="kv"><span>Room / Floor</span><b>{[
-                parentEncDetails?.token?.room || parentEncDetails?.triage?.recommended_doctor?.room || parentEncDetails?.appointment?.doctor?.room || encDetails.token?.room || encDetails.triage?.recommended_doctor?.room || encDetails.appointment?.doctor?.room,
-                parentEncDetails?.token?.floor || parentEncDetails?.triage?.recommended_doctor?.floor || parentEncDetails?.appointment?.doctor?.floor || encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
-              ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
-              <div className="kv"><span>Time Slot</span><b>{parentEncDetails?.appointment?.scheduled_start ? timeLabel(parentEncDetails.appointment.scheduled_start) : encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
-              <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{parentEncDetails?.triage?.chief_complaint || parentEncDetails?.appointment?.reason || encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
-            </Card>
 
             {/* Follow-up Care Portal */}
             {parentEncDetails?.status === "DISCHARGED" && parentEncDetails?.visit_type !== "REVISIT" && parentEncDetails?.visit_type !== "E_CONSULT" && (
@@ -1653,15 +1664,6 @@ export default function PatientDashboard() {
                 })()}
               </Card>
             )}
-
-            <LabOrdersAlert 
-              orders={parentEncDetails?.labs || encDetails.labs || labDetails?.orders || []} 
-              refetchLab={refetchLab} 
-              refetchEnc={refetchEnc} 
-              refetchParentEnc={refetchParentEnc}
-              refetchP360={refetchP360} 
-              patientId={portalPatientId}
-            />
 
             <div className="grid gap-4 md:grid-cols-2">
               <ConsultationSummary 
