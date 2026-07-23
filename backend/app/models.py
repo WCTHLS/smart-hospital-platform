@@ -229,6 +229,20 @@ class ClinicalNote(Base):
     created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class EncounterAuditLog(Base):
+    __tablename__ = "encounter_audit_log"
+
+    audit_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    encounter_id: Mapped[str] = mapped_column(ForeignKey("encounter.encounter_id"))
+    field_name: Mapped[str] = mapped_column(String(60))  # chief_complaint / symptom_summary / vitals
+    old_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)
+    edited_by_role: Mapped[str] = mapped_column(String(40))  # PATIENT / NURSE / DOCTOR
+    edited_by_user: Mapped[str | None] = mapped_column(String(120))  # Staff Name/ID or Patient Name
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+
 # ------------------------------------------------------------------------ Orders, Results, Rx
 class LabOrder(Base):
     __tablename__ = "lab_order"

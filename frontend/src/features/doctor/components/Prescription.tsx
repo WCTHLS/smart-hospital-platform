@@ -155,7 +155,12 @@ export default function Prescription({
             <div className="flex items-center gap-2 text-[11.5px] bg-blue-950/30 p-2.5 rounded-lg border border-sky-600/20 text-sky-200 font-medium">
               <span>💡</span>
               <span>
-                Based on patient's current presentation <b>({guidanceData.chief_complaint?.replace(/parent:[^;]+;\s*/, "") || "Fever & cough"})</b>, active lab diagnostic reports ({guidanceData.ai_diagnostics_evaluated?.map((d: any) => d.test_name).join(", ") || "None"}), and medical history, here are the AI-suggested generic formulations:
+                Based on patient's current presentation <b>({guidanceData.chief_complaint?.replace(/parent:[^;]+;\s*/, "") || "Fever & cough"})</b>
+                {guidanceData.patient_original_reason && guidanceData.patient_original_reason !== guidanceData.chief_complaint && (
+                  <span className="text-[11px] text-amber-300 ml-1">
+                    (Patient originally reported: <i>"{guidanceData.patient_original_reason}"</i>)
+                  </span>
+                )}, active lab diagnostic reports ({guidanceData.ai_diagnostics_evaluated?.map((d: any) => d.test_name).join(", ") || "None"}), and medical history, here are the AI-suggested generic formulations:
               </span>
             </div>
 

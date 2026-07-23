@@ -671,12 +671,34 @@ def get_formulary_guidance(encounter_id: str, db: Session = Depends(get_db)) -> 
         ai_diagnostics=ai_findings,
     )
 
+    appt = db.scalar(select(models.Appointment).where(models.Appointment.encounter_id == encounter_id))
+    patient_original_reason = appt.reason if (appt and appt.reason) else (encounter.notes or None)
+
+    audit_logs = db.scalars(
+        select(models.EncounterAuditLog)
+        .where(models.EncounterAuditLog.encounter_id == encounter_id)
+        .order_by(models.EncounterAuditLog.created_ts.asc())
+    ).all()
+
     result_data = guidance.get("result", {})
     return {
         "encounter_id": encounter_id,
         "patient_name": patient.full_name,
         "active_issues": chronic_issues,
         "chief_complaint": chief_complaint,
+        "patient_original_reason": patient_original_reason,
+        "audit_logs": [
+            {
+                "audit_id": log.audit_id,
+                "field_name": log.field_name,
+                "old_value": log.old_value,
+                "new_value": log.new_value,
+                "edited_by_role": log.edited_by_role,
+                "edited_by_user": log.edited_by_user,
+                "created_ts": log.created_ts.isoformat() if log.created_ts else None,
+            }
+            for log in audit_logs
+        ],
         "ai_diagnostics_evaluated": ai_findings,
         "formula_recommendations": result_data.get("formula_recommendations", [])
     }

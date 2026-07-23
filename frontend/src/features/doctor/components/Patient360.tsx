@@ -511,7 +511,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
         <Card className="flex flex-col h-full">
           <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Previous visit records (Raw history)</h4>
           <div className="space-y-2 flex-1 overflow-y-auto">
-            {data.encounters?.map((e: any) => (
+            {data.encounters?.filter((e: any) => e.encounter_id !== encounterId && e.status === "DISCHARGED").map((e: any) => (
               <HistoricalVisitDropdown key={e.encounter_id} encounter={e} />
             ))}
           </div>

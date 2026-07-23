@@ -349,6 +349,36 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
                     .where(models.Staff.available.is_(True))
                     .order_by(models.Staff.name)
                 )
+                triage_room = triage_staff.room if triage_staff else "Triage Room 2"
+                triage_floor = triage_staff.floor if triage_staff else "Ground Floor"
+
+                triage_token = db.scalar(
+                    select(models.Token)
+                    .where(models.Token.encounter_id == existing_encounter.encounter_id)
+                    .where(models.Token.token_number.like("T-%"))
+                )
+                if not triage_token:
+                    hospital_tz = ZoneInfo("Asia/Kolkata")
+                    today = datetime.now(hospital_tz).date()
+                    day_start = datetime.combine(today, time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
+                    today_triage_count = db.scalar(
+                        select(func.count())
+                        .select_from(models.Token)
+                        .where(models.Token.token_number.like("T-%"))
+                        .where(models.Token.issued_ts >= day_start)
+                    ) or 0
+                    triage_token = models.Token(
+                        encounter_id=existing_encounter.encounter_id,
+                        token_number=f"T-{101 + today_triage_count}",
+                        department="Triage",
+                        room=triage_room,
+                        floor=triage_floor,
+                        eta_minutes=5,
+                        status="WAITING"
+                    )
+                    db.add(triage_token)
+                    db.commit()
+
                 return {
                     "patient": _patient_brief(patient),
                     "encounter_id": existing_encounter.encounter_id,
@@ -357,8 +387,8 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
                     "new_patient": False,
                     "reason": body.reason or appointment.reason,
                     "triage_location": {
-                        "room": triage_staff.room if triage_staff else "Triage Room",
-                        "floor": triage_staff.floor if triage_staff else "Ground Floor",
+                        "room": triage_room,
+                        "floor": triage_floor,
                     },
                 }
         if appointment.status != "BOOKED":
@@ -393,6 +423,29 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         .where(models.Staff.available.is_(True))
         .order_by(models.Staff.name)
     )
+    triage_room = triage_staff.room if triage_staff else "Triage Room 2"
+    triage_floor = triage_staff.floor if triage_staff else "Ground Floor"
+
+    hospital_tz = ZoneInfo("Asia/Kolkata")
+    today = datetime.now(hospital_tz).date()
+    day_start = datetime.combine(today, time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
+    today_triage_count = db.scalar(
+        select(func.count())
+        .select_from(models.Token)
+        .where(models.Token.token_number.like("T-%"))
+        .where(models.Token.issued_ts >= day_start)
+    ) or 0
+
+    triage_token = models.Token(
+        encounter_id=encounter.encounter_id,
+        token_number=f"T-{101 + today_triage_count}",
+        department="Triage",
+        room=triage_room,
+        floor=triage_floor,
+        eta_minutes=5,
+        status="WAITING"
+    )
+    db.add(triage_token)
 
     audit(db, actor_id=patient.patient_id, actor_role="PATIENT", action="CHECK_IN",
           entity_type="encounter", entity_id=encounter.encounter_id, metadata={"channel": body.channel})
@@ -407,8 +460,8 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         "new_patient": created,
         "reason": body.reason,
         "triage_location": {
-            "room": triage_staff.room if triage_staff else "Triage Room",
-            "floor": triage_staff.floor if triage_staff else "Ground Floor",
+            "room": triage_room,
+            "floor": triage_floor,
         },
     }
 
@@ -1186,6 +1239,41 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
         .where(models.Staff.specialty == tr["specialty"]).where(models.Staff.available.is_(True))
     ) or db.scalar(select(models.Staff).where(models.Staff.role == "DOCTOR"))
 
+    # Audit Logging: Track Patient Original Intake vs Nurse Triage Assessment
+    existing_triage = db.scalar(
+        select(models.Triage)
+        .where(models.Triage.encounter_id == encounter_id)
+        .order_by(models.Triage.created_ts.desc())
+    )
+    original_reason = appointment.reason if (appointment and appointment.reason) else encounter.notes
+
+    has_audit = db.scalar(
+        select(func.count())
+        .select_from(models.EncounterAuditLog)
+        .where(models.EncounterAuditLog.encounter_id == encounter_id)
+    ) or 0
+
+    if has_audit == 0 and original_reason:
+        db.add(models.EncounterAuditLog(
+            encounter_id=encounter_id,
+            field_name="chief_complaint",
+            old_value=None,
+            new_value=original_reason.strip(),
+            edited_by_role="PATIENT",
+            edited_by_user=f"{patient.first_name} {patient.last_name}",
+        ))
+
+    prev_val = existing_triage.chief_complaint if existing_triage else original_reason
+    if prev_val and chief and prev_val.strip() != chief.strip():
+        db.add(models.EncounterAuditLog(
+            encounter_id=encounter_id,
+            field_name="chief_complaint",
+            old_value=prev_val.strip(),
+            new_value=chief.strip(),
+            edited_by_role="NURSE",
+            edited_by_user="Triage Assessment Nurse",
+        ))
+
     triage_row = models.Triage(
         encounter_id=encounter_id, chief_complaint=chief, symptom_summary=summary,
         acuity_level=tr["acuity_level"], specialty=tr["specialty"],
@@ -1210,12 +1298,24 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
         room = room or s_room
         floor = floor or s_floor
 
-    token = models.Token(
-        encounter_id=encounter_id, token_number=f"A-{total_tokens + 42:03d}",
-        department=tr["specialty"], room=room, floor=floor,
-        eta_minutes=6 + waiting * 4, status="WAITING",
+    # Check if a doctor consultation token already exists for this encounter
+    existing_token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter_id)
+        .where(models.Token.token_number.like("A-%"))
     )
-    db.add(token)
+    if existing_token:
+        existing_token.department = tr["specialty"]
+        existing_token.room = room
+        existing_token.floor = floor
+        token = existing_token
+    else:
+        token = models.Token(
+            encounter_id=encounter_id, token_number=f"A-{total_tokens + 42:03d}",
+            department=tr["specialty"], room=room, floor=floor,
+            eta_minutes=6 + waiting * 4, status="WAITING",
+        )
+        db.add(token)
 
     audit(db, actor_id="triage-agent", actor_role="AI", action="TRIAGE_COMPLETED",
           entity_type="encounter", entity_id=encounter_id,
@@ -1330,6 +1430,12 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
                     ]
                 })
 
+    audit_logs = db.scalars(
+        select(models.EncounterAuditLog)
+        .where(models.EncounterAuditLog.encounter_id == encounter_id)
+        .order_by(models.EncounterAuditLog.created_ts.asc())
+    ).all()
+
     return {
         "encounter_id": e.encounter_id, "appointment_id": e.appointment_id,
         "parent_encounter_id": parent_id,
@@ -1338,6 +1444,19 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         "status": e.status, "department": e.department,
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
         "notes": clean_notes,
+        "patient_original_reason": appointment.reason if (appointment and appointment.reason) else clean_notes,
+        "audit_logs": [
+            {
+                "audit_id": log.audit_id,
+                "field_name": log.field_name,
+                "old_value": log.old_value,
+                "new_value": log.new_value,
+                "edited_by_role": log.edited_by_role,
+                "edited_by_user": log.edited_by_user,
+                "created_ts": log.created_ts.isoformat() if log.created_ts else None,
+            }
+            for log in audit_logs
+        ],
         "patient": _patient_brief(p),
         "appointment": _appointment_brief(appointment, appointment_doctor) if appointment else None,
         "triage": None if not triage else {
@@ -1393,6 +1512,29 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         },
         "labs": labs
     }
+
+
+@router.get("/encounters/{encounter_id}/audit-logs")
+def get_encounter_audit_logs(encounter_id: str, db: Session = Depends(get_db)) -> list[dict]:
+    logs = db.scalars(
+        select(models.EncounterAuditLog)
+        .where(models.EncounterAuditLog.encounter_id == encounter_id)
+        .order_by(models.EncounterAuditLog.created_ts.asc())
+    ).all()
+    return [
+        {
+            "audit_id": log.audit_id,
+            "encounter_id": log.encounter_id,
+            "field_name": log.field_name,
+            "old_value": log.old_value,
+            "new_value": log.new_value,
+            "edited_by_role": log.edited_by_role,
+            "edited_by_user": log.edited_by_user,
+            "created_ts": log.created_ts.isoformat() if log.created_ts else None,
+        }
+        for log in logs
+    ]
+
 
 
 @router.get("/doctors")
@@ -1456,6 +1598,91 @@ def list_pending_triage_encounters(db: Session = Depends(get_db)) -> list[dict]:
     return out
 
 
+@router.get("/triage/recent")
+def list_recently_triaged_encounters(db: Session = Depends(get_db)) -> list[dict]:
+    """Today's hospital-wide encounters that have already been triaged."""
+    hospital_tz = ZoneInfo("Asia/Kolkata")
+    today = datetime.now(hospital_tz).date()
+    day_start = datetime.combine(today, time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
+    day_end = (datetime.combine(today, time.min, tzinfo=hospital_tz) + timedelta(days=1)).astimezone(timezone.utc)
+
+    # Subquery to check if triage row exists
+    has_triage = select(models.Triage.triage_id).where(
+        models.Triage.encounter_id == models.Encounter.encounter_id
+    ).exists()
+
+    encounters = db.scalars(
+        select(models.Encounter)
+        .where(models.Encounter.arrival_ts >= day_start)
+        .where(models.Encounter.arrival_ts < day_end)
+        .where(models.Encounter.status != "CHECKED_IN")  # TRIAGED, IN_CONSULT, etc.
+        .where(has_triage)
+        .order_by(models.Encounter.arrival_ts.desc())
+    ).all()
+
+    out = []
+    for encounter in encounters:
+        patient = db.get(models.Patient, encounter.patient_id)
+        appt = db.get(models.Appointment, encounter.appointment_id) if encounter.appointment_id else None
+        triage = db.scalar(
+            select(models.Triage)
+            .where(models.Triage.encounter_id == encounter.encounter_id)
+            .order_by(models.Triage.created_ts.desc())
+        )
+        vitals = db.scalar(
+            select(models.Vitals)
+            .where(models.Vitals.encounter_id == encounter.encounter_id)
+            .order_by(models.Vitals.captured_ts.desc())
+        )
+
+        token = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == encounter.encounter_id)
+            .where(models.Token.token_number.like("A-%"))
+            .order_by(models.Token.issued_ts.desc())
+        )
+
+        out.append({
+            "encounter_id": encounter.encounter_id,
+            "appointment_id": encounter.appointment_id,
+            "status": encounter.status,
+            "visit_type": encounter.visit_type,
+            "department": encounter.department,
+            "channel": encounter.channel,
+            "arrival": encounter.arrival_ts.isoformat(),
+            "reason": appt.reason if appt else None,
+            "patient": {
+                "patient_id": patient.patient_id,
+                "name": patient.full_name,
+                "age": patient.age,
+                "gender": patient.gender,
+                "mobile": patient.mobile,
+                "mrn": patient.mrn,
+            } if patient else None,
+            "token": {
+                "number": token.token_number,
+                "room": token.room,
+                "floor": token.floor,
+                "status": token.status,
+                "eta_minutes": _calculate_live_eta(db, encounter.encounter_id)
+            } if token else None,
+            "triage": {
+                "chief_complaint": triage.chief_complaint if triage else None,
+                "symptom_summary": triage.symptom_summary if triage else None,
+                "acuity_level": triage.acuity_level if triage else None,
+                "specialty": triage.specialty if triage else None,
+            } if triage else None,
+            "vitals": {
+                "bp_systolic": vitals.bp_systolic if vitals else None,
+                "bp_diastolic": vitals.bp_diastolic if vitals else None,
+                "spo2": vitals.spo2 if vitals else None,
+                "heart_rate": vitals.heart_rate if vitals else None,
+                "temperature": vitals.temperature if vitals else None,
+            } if vitals else None
+        })
+    return out
+
+
 @router.get("/doctors/{doctor_id}/encounters")
 def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> list[dict]:
     """Retrieve all active encounters (queue) for a specific doctor, sorted by clinical priority and scheduled slot time."""
@@ -1465,30 +1692,37 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
 
     stmt = (
         select(models.Encounter)
-        .outerjoin(models.Appointment, models.Appointment.appointment_id == models.Encounter.appointment_id)
-        .outerjoin(models.Triage, models.Triage.encounter_id == models.Encounter.encounter_id)
         .where(
             (models.Encounter.doctor_id == doctor_id) |
             ((models.Encounter.doctor_id.is_(None)) & (models.Encounter.department == doctor.department))
         )
         .where(models.Encounter.status.in_(["CHECKED_IN", "TRIAGED", "IN_CONSULT", "EMERGENCY"]))
-        .order_by(
-            case((models.Triage.red_flag == True, 0), else_=1),
-            nulls_last(models.Triage.acuity_level.asc()),
-            case(
-                (models.Appointment.scheduled_start.isnot(None), models.Appointment.scheduled_start),
-                else_=models.Encounter.arrival_ts
-            ).asc()
-        )
     )
     encounters = db.scalars(stmt).all()
-    out = []
+    
+    seen_ids = set()
+    unique_encounters = []
     for e in encounters:
+        if e.encounter_id not in seen_ids:
+            seen_ids.add(e.encounter_id)
+            unique_encounters.append(e)
+
+    out = []
+    for e in unique_encounters:
         p = db.get(models.Patient, e.patient_id)
-        token = db.scalar(select(models.Token).where(models.Token.encounter_id == e.encounter_id)
-                          .order_by(models.Token.issued_ts.desc()))
-        triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == e.encounter_id)
-                           .order_by(models.Triage.created_ts.desc()))
+        appt = db.get(models.Appointment, e.appointment_id) if e.appointment_id else None
+        token = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == e.encounter_id)
+            .order_by(models.Token.issued_ts.desc())
+            .limit(1)
+        )
+        triage = db.scalar(
+            select(models.Triage)
+            .where(models.Triage.encounter_id == e.encounter_id)
+            .order_by(models.Triage.created_ts.desc())
+            .limit(1)
+        )
         has_results = db.scalar(
             select(models.LabOrder)
             .where(models.LabOrder.patient_id == e.patient_id)
@@ -1521,7 +1755,17 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
                 "acuity": triage.acuity_level if triage else None,
                 "red_flag": triage.red_flag if triage else False,
             } if triage else None,
+            "scheduled_start": appt.scheduled_start.isoformat() if (appt and appt.scheduled_start) else None,
         })
+
+    def sorting_key(item):
+        tr = item["triage"]
+        red_flag_val = 0 if (tr and tr["red_flag"]) else 1
+        acuity_val = tr["acuity"] if (tr and tr["acuity"]) else "999"
+        start_time_val = item["scheduled_start"] or item["arrival"]
+        return (red_flag_val, acuity_val, start_time_val)
+
+    out.sort(key=sorting_key)
     return out
 
 

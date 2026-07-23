@@ -465,3 +465,13 @@ class SurvivorshipPlanCreateRequest(BaseModel):
     next_followup_date: date | None = None
     lifestyle_recommendations: str | None = None
     created_by: str | None = None
+
+class AuditLogOut(BaseModel):
+    audit_id: str
+    encounter_id: str
+    field_name: str
+    old_value: str | None = None
+    new_value: str | None = None
+    edited_by_role: str
+    edited_by_user: str | None = None
+    created_ts: datetime

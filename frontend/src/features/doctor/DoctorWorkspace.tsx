@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { FileText, Mic, FlaskConical, Pill, ArrowLeft, Sparkles } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { FileText, Mic, FlaskConical, Pill, ArrowLeft, Sparkles, History } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useJourney } from "../../lib/store";
 import { Tag, LiveDot } from "../../components/ui";
@@ -35,6 +36,14 @@ export default function DoctorWorkspace() {
   const [rxOverride, setRxOverride] = useState(false);
   const [rxDone, setRxDone] = useState<any>(null);
   const [rxErr, setRxErr] = useState<string | null>(null);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [discharging, setDischarging] = useState(false);
+
+  const { data: encDetails } = useQuery({
+    queryKey: ["encounter-details", journey.encounterId],
+    queryFn: () => api.encounter(journey.encounterId!),
+    enabled: !!journey.encounterId,
+  });
 
   const toggleTest = (t: string) => setSel((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));
 
@@ -168,9 +177,21 @@ export default function DoctorWorkspace() {
                 {journey.department && <Tag tone="blue">{journey.department}</Tag>}
                 {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
               </div>
-              {journey.chiefComplaint && (
-                <div className="mt-1.5 text-[12.5px]" style={{ color: "var(--dim)" }}>
-                  Reason for visit — <b style={{ color: "var(--cyan)" }}>{journey.chiefComplaint}</b>
+              {(journey.chiefComplaint || encDetails?.triage?.chief_complaint) && (
+                <div className="mt-1.5 text-[12.5px] flex items-center flex-wrap gap-1.5" style={{ color: "var(--dim)" }}>
+                  Reason for visit — <b style={{ color: "var(--cyan)" }}>{encDetails?.triage?.chief_complaint || journey.chiefComplaint}</b>
+                  {encDetails?.patient_original_reason && encDetails.patient_original_reason !== (encDetails?.triage?.chief_complaint || journey.chiefComplaint) && (
+                    <span className="text-[11px] text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 font-medium">
+                      Patient reported: "{encDetails.patient_original_reason}"
+                    </span>
+                  )}
+                  <button 
+                    onClick={() => setShowHistoryModal(true)}
+                    className="btn ghost !py-0.5 !px-2 text-[11px] font-bold text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/10 inline-flex items-center gap-1"
+                    title="View complete intake version history and audit log"
+                  >
+                    <History size={12} /> Audit History
+                  </button>
                 </div>
               )}
             </div>
@@ -268,6 +289,111 @@ export default function DoctorWorkspace() {
           />
         </div>
       </div>
+
+      {/* Intake Audit History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="w-full max-w-xl rounded-2xl p-6 shadow-2xl space-y-4" style={{
+            background: "rgba(255, 255, 255, 0.95)",
+            backdropFilter: "blur(20px)",
+            border: "1px solid rgba(20, 33, 61, 0.15)",
+            color: "var(--ink)",
+            boxShadow: "0 20px 40px rgba(20, 33, 61, 0.25)"
+          }}>
+            <div className="flex items-center justify-between border-b border-black/10 pb-3">
+              <h3 className="text-lg font-extrabold flex items-center gap-2" style={{ color: "var(--ink)" }}>
+                <History className="text-[var(--cyan)]" size={20} /> Clinical Complaint Audit History
+              </h3>
+              <button 
+                onClick={() => setShowHistoryModal(false)}
+                className="btn ghost !py-1 !px-2.5 text-xs font-bold"
+                style={{ color: "var(--muted)", border: "1px solid var(--line)" }}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div className="text-xs space-y-3">
+              <div className="p-3.5 rounded-xl" style={{
+                background: "rgba(37, 100, 207, 0.08)",
+                border: "1px solid rgba(37, 100, 207, 0.18)"
+              }}>
+                <div className="font-bold text-xs" style={{ color: "var(--muted)" }}>Current Active Clinical Complaint (Triage Assessment):</div>
+                <div className="text-sm font-extrabold mt-1" style={{ color: "var(--cyan)" }}>
+                  {encDetails?.triage?.chief_complaint || journey.chiefComplaint || "No complaint recorded"}
+                </div>
+              </div>
+
+              <div className="space-y-2.5 max-h-[340px] overflow-y-auto pr-1">
+                <h4 className="font-bold text-[10px] uppercase tracking-wider" style={{ color: "var(--muted)" }}>Audit Timeline & Version Edits</h4>
+
+                {/* Patient Original Entry */}
+                <div className="p-3 rounded-xl space-y-1.5" style={{
+                  background: "rgba(255, 255, 255, 0.65)",
+                  border: "1px solid var(--line2)"
+                }}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-600 flex items-center gap-1.5 text-xs">
+                      👤 Patient Intake (Initial Booking)
+                    </span>
+                    <span className="text-[10px] font-bold" style={{ color: "var(--dim)" }}>Version 1</span>
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: "var(--ink)" }}>
+                    <b>Entered:</b> "{encDetails?.patient_original_reason || encDetails?.notes || "Initial Intake"}"
+                  </div>
+                </div>
+
+                {/* Triage & Audit Logs */}
+                {encDetails?.audit_logs?.map((log: any, idx: number) => (
+                  <div key={log.audit_id || idx} className="p-3 rounded-xl space-y-1.5" style={{
+                    background: "rgba(255, 255, 255, 0.65)",
+                    border: "1px solid var(--line2)"
+                  }}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-indigo-600 flex items-center gap-1.5 text-xs">
+                        {log.edited_by_role === "NURSE" ? "🩺 Nurse Triage Edit" : "👨‍⚕️ Clinician Edit"}
+                      </span>
+                      <span className="text-[10px] font-bold" style={{ color: "var(--dim)" }}>
+                        {log.created_ts ? new Date(log.created_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : `Version ${idx + 2}`}
+                      </span>
+                    </div>
+                    {log.old_value && (
+                      <div className="text-[11px] line-through" style={{ color: "var(--muted)" }}>
+                        <b>Previous:</b> "{log.old_value}"
+                      </div>
+                    )}
+                    <div className="text-xs font-semibold" style={{ color: "var(--cyan)" }}>
+                      <b>Updated To:</b> "{log.new_value}"
+                    </div>
+                    <div className="text-[10px]" style={{ color: "var(--muted)" }}>
+                      Edited by: <b>{log.edited_by_user || log.edited_by_role}</b>
+                    </div>
+                  </div>
+                ))}
+
+                {(!encDetails?.audit_logs || encDetails.audit_logs.length === 0) && (
+                  <div className="p-4 rounded-xl text-center text-xs" style={{
+                    background: "rgba(255, 255, 255, 0.4)",
+                    border: "1px solid var(--line)",
+                    color: "var(--muted)"
+                  }}>
+                    No triage modifications recorded for this visit. Intake complaint matches patient's initial self-reported reason.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-2 text-right">
+              <button 
+                onClick={() => setShowHistoryModal(false)} 
+                className="btn font-bold text-xs py-1.5 px-4"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

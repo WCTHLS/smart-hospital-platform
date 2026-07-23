@@ -237,8 +237,14 @@ export default function PatientDashboard() {
     return hasActiveLab || hasActiveFollowup;
   });
 
-  let activeEncId = activeEpisode?.encounter_id;
-  if (activeEpisode) {
+  const isTodayEpisode = activeEpisode?.date === today;
+  const hasBookedAppointment = appointments.length > 0;
+
+  let defaultAppId = null;
+  let defaultEncId = null;
+
+  if (activeEpisode && (isTodayEpisode || !hasBookedAppointment)) {
+    let activeEncId = activeEpisode.encounter_id;
     const activeFollowup = activeEpisode.followups?.find((f: any) => f.status !== "DISCHARGED");
     const activeLab = activeEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
     if (activeFollowup) {
@@ -246,14 +252,22 @@ export default function PatientDashboard() {
     } else if (activeLab) {
       activeEncId = activeLab.encounter_id;
     }
+    defaultEncId = activeEncId;
+  } else if (hasBookedAppointment) {
+    defaultAppId = appointments[0].appointment_id;
+  } else if (episodes.length > 0) {
+    const latestEp = episodes[0];
+    let latestEncId = latestEp.encounter_id;
+    if (latestEp.followups && latestEp.followups.length > 0) {
+      latestEncId = latestEp.followups[0].encounter_id;
+    } else if (latestEp.labs && latestEp.labs.length > 0) {
+      latestEncId = latestEp.labs[0].encounter_id;
+    }
+    defaultEncId = latestEncId;
   }
 
-  const defaultAppId = !selectedEncounterId && !activeEncId && appointments.length > 0
-    ? appointments[0].appointment_id
-    : null;
-
   const showAppointmentId = selectedAppointmentId || (selectedEncounterId ? null : defaultAppId);
-  const showEncounterId = selectedEncounterId || (showAppointmentId ? null : activeEncId);
+  const showEncounterId = selectedEncounterId || (showAppointmentId ? null : defaultEncId);
 
   const currentEpisode = episodes.find((ep: any) => 
     ep.encounter_id === showEncounterId || 
@@ -1044,6 +1058,12 @@ export default function PatientDashboard() {
                         Estimated wait time: <span className="font-semibold text-emerald-700">{estWaitMins} mins</span>
                       </div>
                     )}
+                    <div className="mt-3 text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl text-left leading-relaxed">
+                      👉 <b>Next Step:</b> Please proceed to <b>{tokenRoom} ({tokenFloor})</b> for your triage and vitals collection.
+                      <div className="mt-1 text-[10px] text-slate-300">
+                        ℹ️ Note: Your Doctor Consultation token will be generated automatically after your vitals are collected.
+                      </div>
+                    </div>
                   </div>
                 </div>
               );

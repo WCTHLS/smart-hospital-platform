@@ -31,7 +31,7 @@ def _any_keyword(keywords: list[str], text: str) -> bool:
 # ------------------------------------------------------------------------------------ Intake Agent
 def intake_agent(symptom_text: str, *, duration: str | None = None) -> dict[str, Any]:
     red_flags = kb.detect_red_flags(symptom_text)
-    chief = (symptom_text or "").strip().split(".")[0][:120]
+    chief = (symptom_text or "").strip()[:1000]
 
     summary = None
     prompt = (

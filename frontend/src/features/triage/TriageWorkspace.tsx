@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HeartPulse, Stethoscope, Users, User, Clock, ShieldAlert, LockKeyhole, ArrowRight, MapPin } from "lucide-react";
@@ -18,10 +18,12 @@ export default function Triage() {
   const [selectedStaffId, setSelectedStaffId] = useState(() => localStorage.getItem("selected_triage_staff_id") || "");
 
   const [symptom, setSymptom] = useState("Fever and cough for 3 days, mild breathlessness");
+
   const [duration, setDuration] = useState("3 days");
   const [v, setV] = useState({ bp_systolic: 128, bp_diastolic: 82, spo2: 97, heart_rate: 96, temperature: 101.2, weight_kg: 68, height_cm: 165 });
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<any>(null);
+  const [selectedEncounter, setSelectedEncounter] = useState<any>(null);
 
   // Suggested/pre-populated intake — best-effort autofill so the nurse has fewer blank
   // fields to type from scratch. Always editable, never trusted as-is: cleared the
@@ -34,6 +36,12 @@ export default function Triage() {
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideBusy, setOverrideBusy] = useState(false);
 
+  useEffect(() => {
+    journey.reset();
+    setSelectedEncounter(null);
+    setRes(null);
+  }, []);
+
   const { data: staff } = useQuery({ 
     queryKey: ["triage-staff"], 
     queryFn: api.triageStaff 
@@ -42,6 +50,13 @@ export default function Triage() {
   const { data: queue, refetch: refetchQueue } = useQuery({
     queryKey: ["triage-queue"],
     queryFn: api.pendingTriageEncounters,
+    enabled: !!selectedStaffId,
+    refetchInterval: 5000,
+  });
+
+  const { data: recentQueue, refetch: refetchRecentQueue } = useQuery({
+    queryKey: ["triage-recent-queue"],
+    queryFn: api.recentTriageEncounters,
     enabled: !!selectedStaffId,
     refetchInterval: 5000,
   });
@@ -60,6 +75,7 @@ export default function Triage() {
     setSelectedStaffId("");
     localStorage.removeItem("selected_triage_staff_id");
     setRes(null);
+    setSelectedEncounter(null);
   };
 
   // Extract a spoken duration phrase (e.g. "3 days", "2 weeks") out of free-text so the
@@ -70,59 +86,72 @@ export default function Triage() {
   };
 
   const selectPatient = async (encounter: any) => {
+    setSelectedEncounter(encounter);
     setRes(null);
     setOverriding(false);
     setOverrideReason("");
-    const reason = encounter.reason || "";
+    const reason = encounter.triage?.chief_complaint || encounter.reason || "";
     setSymptom(reason);
     setDuration(guessDuration(reason));
-    // Blank until the best-effort suggestion below resolves (or falls back to normal ranges).
-    setV({
-      bp_systolic: "" as any,
-      bp_diastolic: "" as any,
-      spo2: "" as any,
-      heart_rate: "" as any,
-      temperature: "" as any,
-      weight_kg: "" as any,
-      height_cm: "" as any,
-    });
-    setVitalsSuggested(false);
-    setSuggestSource(null);
+
     setJourney({
       patientId: encounter.patient.patient_id,
       patientName: encounter.patient.name,
       encounterId: encounter.encounter_id,
       department: encounter.department,
       token: null,
-      chiefComplaint: null,
+      chiefComplaint: encounter.triage?.chief_complaint || null,
     });
 
-    // Best-effort: pull this patient's last recorded vitals (if any) as a starting point;
-    // otherwise fall back to typical normal-range values. Never blocks triage if it fails
-    // (e.g. consent not yet on file) — the form just stays blank as before.
-    try {
-      const p360 = await api.patient360(encounter.patient.patient_id);
-      const lv = p360?.latest_vitals;
-      if (lv) {
-        const [sys, dia] = String(lv.bp || "").split("/").map((n: string) => Number(n));
-        setV({
-          bp_systolic: (Number.isFinite(sys) ? sys : "") as any,
-          bp_diastolic: (Number.isFinite(dia) ? dia : "") as any,
-          spo2: (lv.spo2 ?? "") as any,
-          heart_rate: (lv.heart_rate ?? "") as any,
-          temperature: (lv.temperature ?? "") as any,
-          weight_kg: (lv.weight_kg ?? "") as any,
-          height_cm: (lv.height_cm ?? "") as any,
-        });
-        setVitalsSuggested(true);
-        setSuggestSource("this patient's last recorded vitals");
-      } else {
-        setV({ bp_systolic: 120 as any, bp_diastolic: 80 as any, spo2: 98 as any, heart_rate: 78 as any, temperature: 98.6 as any, weight_kg: "" as any, height_cm: "" as any });
-        setVitalsSuggested(true);
-        setSuggestSource("typical normal range — no prior vitals on file");
+    if (encounter.vitals) {
+      setV({
+        bp_systolic: encounter.vitals.bp_systolic ?? "" as any,
+        bp_diastolic: encounter.vitals.bp_diastolic ?? "" as any,
+        spo2: encounter.vitals.spo2 ?? "" as any,
+        heart_rate: encounter.vitals.heart_rate ?? "" as any,
+        temperature: encounter.vitals.temperature ?? "" as any,
+        weight_kg: encounter.vitals.weight_kg ?? "" as any,
+        height_cm: encounter.vitals.height_cm ?? "" as any,
+      });
+      setVitalsSuggested(false);
+      setSuggestSource(null);
+    } else {
+      setV({
+        bp_systolic: "" as any,
+        bp_diastolic: "" as any,
+        spo2: "" as any,
+        heart_rate: "" as any,
+        temperature: "" as any,
+        weight_kg: "" as any,
+        height_cm: "" as any,
+      });
+      setVitalsSuggested(false);
+      setSuggestSource(null);
+
+      try {
+        const p360 = await api.patient360(encounter.patient.patient_id);
+        const lv = p360?.latest_vitals;
+        if (lv) {
+          const [sys, dia] = String(lv.bp || "").split("/").map((n: string) => Number(n));
+          setV({
+            bp_systolic: (Number.isFinite(sys) ? sys : "") as any,
+            bp_diastolic: (Number.isFinite(dia) ? dia : "") as any,
+            spo2: (lv.spo2 ?? "") as any,
+            heart_rate: (lv.heart_rate ?? "") as any,
+            temperature: (lv.temperature ?? "") as any,
+            weight_kg: (lv.weight_kg ?? "") as any,
+            height_cm: (lv.height_cm ?? "") as any,
+          });
+          setVitalsSuggested(true);
+          setSuggestSource("this patient's last recorded vitals");
+        } else {
+          setV({ bp_systolic: 120 as any, bp_diastolic: 80 as any, spo2: 98 as any, heart_rate: 78 as any, temperature: 98.6 as any, weight_kg: "" as any, height_cm: "" as any });
+          setVitalsSuggested(true);
+          setSuggestSource("typical normal range — no prior vitals on file");
+        }
+      } catch {
+        // Leave the form blank; suggestion is purely a convenience, not a requirement.
       }
-    } catch {
-      // Leave the form blank; suggestion is purely a convenience, not a requirement.
     }
   };
 
@@ -132,10 +161,13 @@ export default function Triage() {
         return;
       }
     }
+    setSelectedEncounter(null);
     journey.reset();
     setRes(null);
     refetchQueue();
+    refetchRecentQueue();
     qc.invalidateQueries({ queryKey: ["triage-queue"] });
+    qc.invalidateQueries({ queryKey: ["triage-recent-queue"] });
   };
 
   const upd = (k: string, val: string) => {
@@ -157,6 +189,7 @@ export default function Triage() {
       setOverrideAcuity(r.triage.result.acuity_level);
       setJourney({ token: r.token.number, department: r.token.department });
       qc.invalidateQueries({ queryKey: ["triage-queue"] });
+      qc.invalidateQueries({ queryKey: ["triage-recent-queue"] });
       qc.invalidateQueries({ queryKey: ["doctor-queue"] });
     } catch (err: any) {
       alert(err?.message || "Failed to submit triage.");
@@ -296,6 +329,62 @@ export default function Triage() {
             </div>
           )}
         </div>
+
+        <div className="space-y-4 mt-8 border-t border-[var(--glass-border)] pt-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-md font-bold flex items-center gap-2 text-slate-200">
+              <Stethoscope size={18} className="text-emerald-400" /> Recently Triaged Patients
+            </h3>
+            <span className="text-[11px] text-[var(--muted)]">TODAY'S VISITS</span>
+          </div>
+
+          {!recentQueue?.length ? (
+            <div className="p-4 rounded-xl border border-dashed border-white/10 text-center text-xs text-[var(--muted)]">
+              No patients triaged by your team yet today.
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+              {recentQueue.map((encounter: any) => (
+                <Card key={encounter.encounter_id} className="border-emerald-500/10 flex flex-col justify-between">
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <Tag tone="green">Triaged</Tag>
+                      {encounter.triage?.acuity_level && (
+                        <Tag tone={acuityTone(encounter.triage.acuity_level)}>
+                          Acuity {encounter.triage.acuity_level}
+                        </Tag>
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="text-base font-extrabold text-[#dce9ff]">{encounter.patient?.name}</h4>
+                      <p className="text-[12px] text-[var(--muted)]">
+                        {encounter.patient?.age} yrs · {encounter.patient?.gender} · {encounter.patient?.mobile}
+                      </p>
+                    </div>
+                    {encounter.triage?.chief_complaint && (
+                      <div className="p-2 rounded bg-white/5 text-[11px] text-slate-300">
+                        <b>Complaint:</b> {encounter.triage.chief_complaint}
+                      </div>
+                    )}
+                    {encounter.vitals && (
+                      <div className="grid grid-cols-3 gap-1.5 text-[10px] text-emerald-300 bg-emerald-500/5 p-1.5 rounded border border-emerald-500/10">
+                        <div>Temp: <b>{encounter.vitals.temperature}°F</b></div>
+                        <div>BP: <b>{encounter.vitals.bp_systolic}/{encounter.vitals.bp_diastolic}</b></div>
+                        <div>SpO2: <b>{encounter.vitals.spo2}%</b></div>
+                      </div>
+                    )}
+                  </div>
+                  <button 
+                    onClick={() => selectPatient(encounter)} 
+                    className="btn outline mt-4 w-full text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/10"
+                  >
+                    Edit / Correct Triage
+                  </button>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -415,7 +504,7 @@ export default function Triage() {
             </div>
             {!res && (
               <button className="btn w-full" disabled={busy} onClick={run}>
-                <HeartPulse size={16} /> {busy ? "Assessing Vitals…" : "Calculate Acuity & Triage"}
+                <HeartPulse size={16} /> {busy ? "Assessing Vitals via AI…" : (selectedEncounter?.triage ? "Update Vitals & Complaint" : "Calculate Acuity & Run AI Triage")}
               </button>
             )}
           </Card>
@@ -424,12 +513,45 @@ export default function Triage() {
         {/* Right Column: Triage results */}
         <div>
           {!res ? (
-            <Card className="flex h-full items-center justify-center text-center py-12 text-slate-400">
-              <div>
-                <Stethoscope className="mx-auto mb-2 opacity-30" size={32} />
-                <p className="text-xs">Run triage to see acuity, routing and patient token.</p>
+            selectedEncounter?.token?.number ? (
+              <div className="space-y-3 animate-in fade-in duration-200">
+                <Card className="text-center border-emerald-500/30">
+                  <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Active Doctor Consultation Token</div>
+                  <div className="grad-text text-4xl font-extrabold my-2">{selectedEncounter.token.number}</div>
+                  <div className="inline-block">
+                    <Tag tone="green">
+                      {selectedEncounter.token.room} · {selectedEncounter.token.floor} · ~{selectedEncounter.token.eta_minutes} min
+                    </Tag>
+                  </div>
+                  <div className="text-[11px] text-[var(--muted)] mt-2.5 px-2">
+                    This patient has already been triaged. Modify and submit to update vitals/complaint or change specialty routing.
+                  </div>
+                </Card>
+
+                <Card className="text-xs">
+                  <div className="font-bold text-slate-100 border-b border-white/5 pb-1 mb-2">Previous Triage Assessment</div>
+                  <div className="kv"><span>Routed Specialty</span><b>{selectedEncounter.triage?.specialty}</b></div>
+                  <div className="kv"><span>Acuity Level</span><b>Acuity {selectedEncounter.triage?.acuity_level}</b></div>
+                  {selectedEncounter.triage?.chief_complaint && (
+                    <div className="mt-2 p-2 bg-white/5 rounded text-slate-300">
+                      <b>Complaint:</b> "{selectedEncounter.triage.chief_complaint}"
+                    </div>
+                  )}
+                  {selectedEncounter.triage?.symptom_summary && (
+                    <div className="mt-1.5 p-2 bg-white/5 rounded text-slate-400">
+                      <b>Summary:</b> {selectedEncounter.triage.symptom_summary}
+                    </div>
+                  )}
+                </Card>
               </div>
-            </Card>
+            ) : (
+              <Card className="flex h-full items-center justify-center text-center py-12 text-slate-400">
+                <div>
+                  <Stethoscope className="mx-auto mb-2 opacity-30" size={32} />
+                  <p className="text-xs">Run triage to see acuity, routing and patient token.</p>
+                </div>
+              </Card>
+            )
           ) : (
             <div className="space-y-3 animate-in zoom-in-95 duration-200">
               {tr.red_flag && (

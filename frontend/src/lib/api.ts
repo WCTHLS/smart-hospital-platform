@@ -89,10 +89,12 @@ export const api = {
   verifyTriagePin: (staff_id: string, access_pin: string) =>
     post<any>("/api/v1/triage/verify-pin", { staff_id, access_pin }),
   pendingTriageEncounters: () => get<any[]>("/api/v1/triage/encounters"),
+  recentTriageEncounters: () => get<any[]>("/api/v1/triage/recent"),
   triage: (encounter_id: string, body: any) =>
     post<any>(`/api/v1/encounters/${encounter_id}/triage`, body),
   triageQueue: () => get<any>("/api/v1/triage/queue"),
   encounter: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}`),
+  encounterAuditLogs: (encounter_id: string) => get<any[]>(`/api/v1/encounters/${encounter_id}/audit-logs`),
   updateEncounterNotes: (encounter_id: string, notes: string) =>
     post<any>(`/api/v1/encounters/${encounter_id}/notes-advice`, { notes }),
 
