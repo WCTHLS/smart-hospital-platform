@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { FileText, Mic, FlaskConical, Pill, ArrowLeft, Sparkles, History } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useJourney } from "../../lib/store";
-import { Tag, LiveDot } from "../../components/ui";
+import { LiveDot } from "../../components/ui";
 
 import DoctorQueue from "./components/DoctorQueue";
 import Patient360 from "./components/Patient360";
@@ -162,7 +162,7 @@ export default function DoctorWorkspace() {
 
   return (
     <div className="space-y-4">
-      <div className="card relative overflow-hidden p-4 sm:p-5">
+      <div className="card relative overflow-hidden !p-3 sm:!p-3.5">
         <div
           className="pointer-events-none absolute inset-0"
           style={{ background: "radial-gradient(360px 140px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}
@@ -171,7 +171,26 @@ export default function DoctorWorkspace() {
           <div className="flex min-w-0 items-center gap-3.5">
             <div className="avatar-disc h-14 w-14 text-lg">{initials}</div>
             <div className="min-w-0">
-              <h1 className="grad-text-page truncate text-2xl font-extrabold leading-tight">{journey.patientName}</h1>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                <h1 className="grad-text-page min-w-0 truncate text-2xl font-extrabold leading-tight">{journey.patientName}</h1>
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
+                  {encDetails?.patient?.gender && (
+                    <span className="rounded-full border border-[var(--line2)] bg-[rgba(37,100,207,0.05)] px-2.5 py-1 text-[var(--muted)]">
+                      {encDetails.patient.gender}
+                    </span>
+                  )}
+                  {encDetails?.patient?.age != null && (
+                    <span className="rounded-full border border-[var(--line2)] bg-[rgba(37,100,207,0.05)] px-2.5 py-1 text-[var(--muted)]">
+                      {encDetails.patient.age} yrs
+                    </span>
+                  )}
+                  {encDetails?.patient?.blood_group && encDetails.patient.blood_group !== "UNK" && (
+                    <span className="rounded-full border border-rose-500/20 bg-rose-500/5 px-2.5 py-1 text-rose-700">
+                      Blood: {encDetails.patient.blood_group}
+                    </span>
+                  )}
+                </div>
+              </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
                 <Tag tone="green">ABHA verified</Tag>
                 {journey.department && <Tag tone="blue">{journey.department}</Tag>}
@@ -195,15 +214,13 @@ export default function DoctorWorkspace() {
                 </div>
               )}
             </div>
-          </div>
-          <div className="flex items-center gap-2.5">
             <button
-              className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold"
-              onClick={handleBackToQueue}
+              onClick={() => setShowHistoryModal(true)}
+              className="inline-flex shrink-0 items-center gap-1 text-[11px] font-bold text-[var(--cyan)] hover:underline"
+              title="View complete intake version history and audit log"
             >
-              <ArrowLeft size={14} /> Back to Queue
+              <History size={12} /> Audit history
             </button>
-            <LiveDot label="Session active" tone="mint" />
           </div>
         </div>
       </div>

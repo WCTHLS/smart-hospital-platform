@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, CheckCircle2, ShieldAlert, BadgeCheck, Plus } from "lucide-react";
+import { Activity, CheckCircle2, ShieldAlert, BadgeCheck, Plus, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Tag, AgentBadge, Empty } from "../../../components/ui";
 
@@ -32,6 +32,27 @@ interface CopilotSidepaneProps {
   runCds: (items: any[]) => void;
 }
 
+function isAbnormalVital(key: string, value: any): boolean {
+  if (value == null || value === "") return false;
+  if (key === "bp") {
+    const [systolic, diastolic] = String(value).split("/").map(Number);
+    return !!systolic && !!diastolic && (systolic >= 140 || systolic < 90 || diastolic >= 90 || diastolic < 60);
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return false;
+  if (key === "spo2") return numeric < 95;
+  if (key === "heart_rate") return numeric < 55 || numeric > 100;
+  if (key === "temperature") return numeric < 97 || numeric >= 100.4;
+  if (key === "bmi") return numeric < 18.5 || numeric >= 30;
+  return false;
+}
+
+function isTemperatureWarning(key: string, value: any): boolean {
+  if (key !== "temperature") return false;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 99 && numeric < 100.4;
+}
+
 export default function CopilotSidepane({
   patientId,
   tab,
@@ -60,6 +81,13 @@ export default function CopilotSidepane({
 }: CopilotSidepaneProps) {
   const qc = useQueryClient();
   const [generating, setGenerating] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newDrugName, setNewDrugName] = useState("");
+  const [newDosage, setNewDosage] = useState("");
+  const [savingMed, setSavingMed] = useState(false);
+  const [deletingMedId, setDeletingMedId] = useState<string | null>(null);
+  const [showAllIssues, setShowAllIssues] = useState(false);
+  const [showAllMedications, setShowAllMedications] = useState(false);
   
   const { data, isLoading } = useQuery({
     queryKey: ["p360", patientId],
@@ -70,12 +98,6 @@ export default function CopilotSidepane({
 
   if (isLoading) return <Card className="text-center py-6 text-xs text-[var(--dim)]">Loading clinical context...</Card>;
   if (!data) return null;
-
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newDrugName, setNewDrugName] = useState("");
-  const [newDosage, setNewDosage] = useState("");
-  const [savingMed, setSavingMed] = useState(false);
-  const [deletingMedId, setDeletingMedId] = useState<string | null>(null);
 
   const handleAddMed = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,6 +145,32 @@ export default function CopilotSidepane({
   }
 
   const summaryText = data.ai_summary?.result?.summary;
+  const previousIssues = data.issues?.filter(
+    (issue: any) => !chiefComplaint || issue.issue_name.toLowerCase().trim() !== chiefComplaint.toLowerCase().trim()
+  ) || [];
+  const warningItems = [
+    ...(data.allergies || []).map((allergy: any, index: number) => ({
+      key: `allergy-${allergy.substance}-${index}`,
+      label: `Allergy: ${allergy.substance}`,
+      tone: "red",
+    })),
+    ...previousIssues.map((issue: any) => ({
+      key: issue.issue_id,
+      label: `${issue.issue_name}${issue.onset_info ? ` (${issue.onset_info})` : ""}`,
+      tone: "amber",
+    })),
+  ];
+  const visibleWarnings = showAllIssues ? warningItems : warningItems.slice(0, 3);
+  const visibleMedications = showAllMedications ? (data.medications || []) : (data.medications || []).slice(0, 3);
+  const vitalsUpdatedLabel = (() => {
+    const capturedAt = data.latest_vitals?.captured_ts;
+    if (!capturedAt) return "Update time unavailable";
+    const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(capturedAt) ? capturedAt : `${capturedAt}Z`;
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - new Date(normalized).getTime()) / 60_000));
+    if (!Number.isFinite(elapsedMinutes)) return "Update time unavailable";
+    if (elapsedMinutes < 1) return "Updated just now";
+    return `Updated ${elapsedMinutes} ${elapsedMinutes === 1 ? "minute" : "minutes"} ago`;
+  })();
 
   const sevTone = (s: string) => (s === "BLOCK" ? "red" : s === "MAJOR" || s === "WARN" ? "amber" : "blue");
 
@@ -137,10 +185,10 @@ export default function CopilotSidepane({
   };
 
   return (
-    <div className="space-y-3 animate-in fade-in duration-300">
+    <div className="flex flex-col gap-3 animate-in fade-in duration-300">
       {tab === "labs" ? (
         /* Suggested Orders Banner in place of Clinical Summary */
-        <Card className="border border-dashed border-[var(--cyan)]/25 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
+        <Card className="order-2 border border-dashed border-[var(--cyan)]/25 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
               <Activity size={13} /> Suggested Orders
@@ -196,7 +244,7 @@ export default function CopilotSidepane({
         </Card>
       ) : (
         /* Summary Banner */
-        <Card className="relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
+        <Card className="order-2 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
           <div className="flex items-center justify-between gap-1.5 mb-2">
             <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
               <Activity size={13} /> Clinical Summary
@@ -231,9 +279,150 @@ export default function CopilotSidepane({
         </Card>
       )}
 
+      <Card className="order-1 space-y-3 overflow-hidden animate-in fade-in duration-300">
+        <section className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Latest Vitals</div>
+            <span className="text-[9px] font-semibold text-[var(--cyan)]">{vitalsUpdatedLabel}</span>
+          </div>
+          {data.latest_vitals ? (
+            <div className="grid grid-cols-2 gap-1.5 text-center text-[10px]">
+              {[
+                { key: "bp", label: "BP", raw: data.latest_vitals.bp, value: data.latest_vitals.bp || "—" },
+                { key: "spo2", label: "SpO₂", raw: data.latest_vitals.spo2, value: data.latest_vitals.spo2 != null ? `${data.latest_vitals.spo2}%` : "—" },
+                { key: "heart_rate", label: "Heart Rate", raw: data.latest_vitals.heart_rate, value: data.latest_vitals.heart_rate != null ? `${data.latest_vitals.heart_rate} bpm` : "—" },
+                { key: "temperature", label: "Temperature", raw: data.latest_vitals.temperature, value: data.latest_vitals.temperature != null ? `${data.latest_vitals.temperature}°F` : "—" },
+                { key: "weight", label: "Weight", raw: data.latest_vitals.weight_kg, value: data.latest_vitals.weight_kg != null ? `${data.latest_vitals.weight_kg} kg` : "—" },
+                { key: "height", label: "Height", raw: data.latest_vitals.height_cm, value: data.latest_vitals.height_cm != null ? `${data.latest_vitals.height_cm} cm` : "—" },
+                { key: "bmi", label: "BMI", raw: data.latest_vitals.bmi, value: data.latest_vitals.bmi != null ? String(data.latest_vitals.bmi) : "—" },
+              ].map((vital) => (
+                <div
+                  key={vital.key}
+                  className={`relative rounded-lg border px-2 py-1.5 ${
+                    isTemperatureWarning(vital.key, vital.raw)
+                      ? "border-amber-500/45 bg-amber-500/10 text-amber-800"
+                      : isAbnormalVital(vital.key, vital.raw)
+                      ? "border-red-500/45 bg-red-500/10 text-red-800"
+                      : "border-[var(--line)] bg-[rgba(37,100,207,0.04)]"
+                  } ${vital.label === "BMI" ? "col-span-2" : ""}`}
+                >
+                  {(isTemperatureWarning(vital.key, vital.raw) || isAbnormalVital(vital.key, vital.raw)) && (
+                    <AlertTriangle size={11} className="absolute right-1.5 top-1.5" />
+                  )}
+                  <span className="block text-[9px] text-[var(--dim)]">{vital.label}</span>
+                  <b className={`text-[11px] ${
+                    isTemperatureWarning(vital.key, vital.raw)
+                      ? "text-amber-800"
+                      : isAbnormalVital(vital.key, vital.raw)
+                        ? "text-red-800"
+                        : "text-[var(--ink)]"
+                  }`}>{vital.value}</b>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-[11px] text-[var(--muted)]">No vitals captured</div>
+          )}
+        </section>
+
+        <section className="space-y-2 border-t border-[var(--line)] pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Previous Issues &amp; Warnings</div>
+            {warningItems.length > 3 && (
+              <button type="button" onClick={() => setShowAllIssues((open) => !open)}
+                className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--cyan)] hover:underline">
+                {showAllIssues ? "Show less" : `View all (${warningItems.length})`}
+                {showAllIssues ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {visibleWarnings.map((warning: any) => (
+              <Tag key={warning.key} tone={warning.tone}>⚠ {warning.label}</Tag>
+            ))}
+            {!warningItems.length && (
+              <div className="text-[11px] text-[var(--muted)]">No previous issues or warnings recorded</div>
+            )}
+          </div>
+        </section>
+
+        <section className="space-y-2 border-t border-[var(--line)] pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Active Medications</div>
+            <div className="flex items-center gap-2">
+              {(data.medications?.length || 0) > 3 && (
+                <button type="button" onClick={() => setShowAllMedications((open) => !open)}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--cyan)] hover:underline">
+                  {showAllMedications ? "Show less" : `View all (${data.medications.length})`}
+                  {showAllMedications ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                </button>
+              )}
+              {!showAddForm && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(true)}
+                  className="btn ghost !px-1.5 !py-0.5 text-[10px] font-bold"
+                >
+                  <Plus size={11} /> Add
+                </button>
+              )}
+            </div>
+          </div>
+
+          {showAddForm && (
+            <form onSubmit={handleAddMed} className="space-y-2 rounded-lg border border-[var(--line)] bg-white/20 p-2 text-xs">
+              <input
+                type="text"
+                required
+                placeholder="Drug name"
+                className="input w-full !px-2 !py-1 text-xs"
+                value={newDrugName}
+                onChange={(e) => setNewDrugName(e.target.value)}
+              />
+              <input
+                type="text"
+                placeholder="Dosage (optional)"
+                className="input w-full !px-2 !py-1 text-xs"
+                value={newDosage}
+                onChange={(e) => setNewDosage(e.target.value)}
+              />
+              <div className="flex justify-end gap-1.5">
+                <button type="button" onClick={() => { setShowAddForm(false); setNewDrugName(""); setNewDosage(""); }} className="btn ghost !px-2 !py-1 text-[10px]">
+                  Cancel
+                </button>
+                <button type="submit" disabled={savingMed} className="btn !px-3 !py-1 text-[10px]">
+                  {savingMed ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {data.medications?.length ? (
+            <ul className="space-y-1.5 text-[11.5px] text-[var(--muted)]">
+              {visibleMedications.map((medication: any) => (
+                <li key={medication.medication_id} className="group flex items-center justify-between gap-2">
+                  <span>• <b>{medication.drug_name}</b>{medication.dosage ? ` (${medication.dosage})` : ""}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteMed(medication.medication_id)}
+                    disabled={deletingMedId === medication.medication_id}
+                    className="text-[10px] font-bold text-slate-400 opacity-0 transition hover:text-red-500 focus-visible:opacity-100 group-hover:opacity-100"
+                    aria-label={`Remove ${medication.drug_name}`}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="text-[11px] text-[var(--muted)]">None recorded</div>
+          )}
+        </section>
+      </Card>
+
       {/* Clinical Decision Support Output Card when on Rx tab */}
       {tab === "rx" && (
-        <Card className="border border-[var(--glass-border)] relative overflow-hidden mt-3" style={{ background: "rgba(255,255,255,0.01)" }}>
+        <Card className="order-3 border border-[var(--glass-border)] relative overflow-hidden mt-3" style={{ background: "rgba(255,255,255,0.01)" }}>
           {rxDone ? (
             <div className="space-y-3 py-1 animate-in fade-in">
               <div className="flex items-center gap-2 font-bold text-xs" style={{ color: "var(--mint)" }}>
@@ -314,112 +503,6 @@ export default function CopilotSidepane({
         </Card>
       )}
 
-      {summaryText && (
-        <>
-          {/* Previous Issues & Warnings */}
-          <Card className="space-y-2 animate-in fade-in duration-300">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Previous Issues &amp; Warnings</div>
-            {(() => {
-              const filteredIssues = data.issues?.filter((i: any) => {
-                if (!chiefComplaint) return true;
-                return i.issue_name.toLowerCase().trim() !== chiefComplaint.toLowerCase().trim();
-              }) || [];
-              
-              if (filteredIssues.length === 0) {
-                return <div className="text-[11px] text-[var(--muted)]">No warning alerts recorded</div>;
-              }
-              
-              return filteredIssues.map((i: any) => (
-                <div key={i.issue_id} className="inline-block mr-1.5">
-                  <Tag tone="red">⚠ {i.issue_name} {i.onset_info ? `(${i.onset_info})` : ""}</Tag>
-                </div>
-              ));
-            })()}
-          </Card>
-
-          {/* Used/Active Medications */}
-          <Card className="space-y-2 animate-in fade-in duration-300">
-            <div className="flex justify-between items-center pb-1 border-b border-white/5">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Active Medications</div>
-              {!showAddForm && (
-                <button
-                  onClick={() => setShowAddForm(true)}
-                  className="btn ghost !py-0.5 !px-1.5 text-[10px] font-bold text-[var(--cyan)] hover:underline"
-                >
-                  <Plus size={11} className="inline mr-0.5" /> Add
-                </button>
-              )}
-            </div>
-
-            {showAddForm && (
-              <form onSubmit={handleAddMed} className="space-y-2 p-2 rounded-lg bg-white/5 border border-white/5 text-xs animate-in slide-in-from-top-1 duration-150">
-                <div className="space-y-1">
-                  <label className="text-[10px] text-[var(--muted)] font-bold uppercase">Drug name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Metformin"
-                    className="input !py-1 !px-2 text-xs w-full"
-                    value={newDrugName}
-                    onChange={(e) => setNewDrugName(e.target.value)}
-                    style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] text-[var(--muted)] font-bold uppercase">Dosage (Optional)</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. 500mg daily"
-                    className="input !py-1 !px-2 text-xs w-full"
-                    value={newDosage}
-                    onChange={(e) => setNewDosage(e.target.value)}
-                    style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
-                  />
-                </div>
-                <div className="flex justify-end gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => { setShowAddForm(false); setNewDrugName(""); setNewDosage(""); }}
-                    className="btn ghost !py-1 !px-2 text-[10px] font-semibold text-[var(--dim)]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={savingMed}
-                    className="btn !py-1 !px-3.5 text-[10px] font-bold"
-                  >
-                    {savingMed ? "Saving..." : "Save"}
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {data.medications?.length ? (
-              <ul className="space-y-1.5 text-[11.5px] text-[var(--muted)]">
-                {data.medications.map((m: any) => (
-                  <li key={m.medication_id} className="flex justify-between items-center gap-2 group">
-                    <span>
-                      • <b>{m.drug_name}</b> {m.dosage ? `(${m.dosage})` : ""}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteMed(m.medication_id)}
-                      disabled={deletingMedId === m.medication_id}
-                      className="text-slate-400 hover:text-red-400 font-bold opacity-0 group-hover:opacity-100 transition focus:outline-none text-[10px]"
-                      title="Remove"
-                    >
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="text-[11px] text-[var(--muted)]">None recorded</div>
-            )}
-          </Card>
-        </>
-      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   LogOut, Clipboard, Camera, UserRound, ArrowLeft, CheckCircle2,
-  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, ShieldCheck, Mail, Phone, Calendar, Trash2, Syringe, Droplet, CreditCard
+  AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, Mail, Phone, Calendar, Trash2, Syringe, Droplet, CreditCard
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { useJourney } from "../../lib/store";
@@ -200,8 +200,12 @@ export default function PatientDashboard() {
 
   const today = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
   const episodes = p360?.episodes ?? [];
-  const todayEpisodes = episodes.filter((ep: any) => ep.date === today);
-  const pastEpisodes = episodes.filter((ep: any) => ep.date !== today);
+  const hasActiveVisit = (ep: any) =>
+    ep.status !== "DISCHARGED" ||
+    ep.labs?.some((lab: any) => lab.status !== "DISCHARGED") ||
+    ep.followups?.some((followup: any) => followup.status !== "DISCHARGED");
+  const activeEpisodes = episodes.filter(hasActiveVisit);
+  const pastEpisodes = episodes.filter((ep: any) => !hasActiveVisit(ep));
   const appointments = appointmentData?.appointments ?? [];
 
   // Every visit, most-recent first — feeds the "Token & Billing History" tab in the
@@ -497,15 +501,26 @@ export default function PatientDashboard() {
       <div className={`min-w-0 space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
         <Card className="!p-5">
           <div className="flex w-full items-center gap-4 text-left">
-            <div
-              className="grid h-[72px] w-[72px] shrink-0 place-items-center overflow-hidden rounded-full p-[3px]"
-              style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))" }}
-            >
-              <div className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-white">
-                {(p360?.patient?.profile_photo || portalSession.profile_photo)
-                  ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
-                  : <UserRound size={32} className="text-[var(--dim)]" />}
+            <div className="relative shrink-0">
+              <div
+                className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-full p-[3px]"
+                style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))" }}
+              >
+                <div className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-white">
+                  {(p360?.patient?.profile_photo || portalSession.profile_photo)
+                    ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
+                    : <UserRound size={32} className="text-[var(--dim)]" />}
+                </div>
               </div>
+              <label
+                htmlFor="patient-profile-photo"
+                className={`absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-full border-2 border-white bg-[var(--cyan)] text-white shadow-md transition ${photoUploading ? "cursor-wait opacity-60" : "cursor-pointer hover:scale-105"}`}
+                aria-label="Upload profile photo"
+                aria-disabled={photoUploading}
+                title={photoUploading ? "Uploading photo" : "Upload profile photo"}
+              >
+                <Camera size={13} />
+              </label>
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--dim)]">Patient profile</div>
@@ -514,8 +529,7 @@ export default function PatientDashboard() {
             </div>
           </div>
 
-          {/* Every patient field shown inline in the same card, flowing horizontally left to right - no click required. */}
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--line)] pt-4 text-[11px]">
+          <div className="mt-4 grid grid-cols-1 gap-2 border-t border-[var(--line)] pt-4 text-[11px] min-[420px]:grid-cols-2">
             {[
               { label: "Mobile", icon: Phone, value: p360?.patient?.mobile || portalSession?.mobile || "N/A" },
               { label: "Email", icon: Mail, value: p360?.patient?.email || portalSession?.email || "N/A" },
@@ -531,25 +545,23 @@ export default function PatientDashboard() {
               { label: "Gender", icon: UserRound, value: p360?.patient?.gender || "N/A" },
               { label: "Blood Group", icon: Droplet, value: p360?.patient?.blood_group || "N/A", tone: "text-[var(--cyan)]" },
               { label: "MRN", icon: CreditCard, value: p360?.patient?.mrn || portalSession?.mrn || "N/A", mono: true },
-              { label: "ABHA Number", icon: ShieldCheck, value: p360?.patient?.abha_number || "91-2345-6789-0123", mono: true },
-              { label: "ABHA Address", icon: ShieldCheck, value: p360?.patient?.abha_address || "swagath.reddy@abdm" },
               { label: "Address", icon: MapPin, value: p360?.patient?.address || "12 MG Road, Pune, Maharashtra" },
             ].map((field) => (
               <div
                 key={field.label}
-                className="flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--line)] bg-[rgba(20,33,61,0.025)] px-3 py-2 transition hover:border-[var(--line2)] hover:bg-[rgba(37,100,207,0.04)]"
+                className={`flex min-w-0 items-start gap-2 rounded-xl border border-[var(--line)] bg-[rgba(20,33,61,0.025)] px-3 py-2.5 transition hover:border-[var(--line2)] hover:bg-[rgba(37,100,207,0.04)] ${field.label === "Address" ? "min-[420px]:col-span-2" : ""}`}
               >
-                <field.icon size={14} className="shrink-0 text-[var(--cyan)]" />
-                <div>
+                <field.icon size={14} className="mt-0.5 shrink-0 text-[var(--cyan)]" />
+                <div className="min-w-0">
                   <div className="text-[9px] font-bold uppercase tracking-wide text-[var(--dim)]">{field.label}</div>
-                  <div className={`font-bold ${field.tone || "text-[var(--ink)]"} ${field.mono ? "font-mono" : ""}`}>
+                  <div className={`break-words font-bold leading-5 ${field.tone || "text-[var(--ink)]"} ${field.mono ? "font-mono" : ""}`}>
                     {field.value}
                   </div>
                 </div>
               </div>
             ))}
           </div>
-          <div className="hidden">
+          <div className="mt-4 border-t border-[var(--line)] pt-4">
             <input
               id="patient-profile-photo"
               className="hidden"
@@ -561,21 +573,31 @@ export default function PatientDashboard() {
                 event.target.value = "";
               }}
             />
-            <label htmlFor="patient-profile-photo" className="btn ghost w-full cursor-pointer text-xs !py-1.5">
-              <Camera size={14} /> {photoUploading ? "Uploading..." : "Upload profile photo"}
-            </label>
+            <div className="flex flex-wrap gap-2">
+              {(p360?.patient?.profile_photo || portalSession.profile_photo) && (
+                <button
+                  type="button"
+                  onClick={handlePhotoDelete}
+                  disabled={photoUploading}
+                  className="btn ghost flex min-w-[130px] flex-1 items-center justify-center text-xs !py-1.5 text-rose-700 disabled:opacity-50"
+                >
+                  <Trash2 size={14} /> Delete photo
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="btn ghost flex min-w-[110px] flex-1 items-center justify-center text-xs !py-1.5 text-rose-700"
+              >
+                <LogOut size={14} /> Log out
+              </button>
+            </div>
             {photoError && <div className="mt-2 text-xs text-rose-700">{photoError}</div>}
             <div className="mt-2 text-[10px] text-[var(--dim)]">JPEG, PNG or WebP · Maximum 2 MB</div>
           </div>
-          <button
-            onClick={handleSignOut}
-            className="hidden"
-          >
-            <LogOut size={13} /> Sign Out
-          </button>
         </Card>
 
-        {/* Appointments and today's active encounters */}
+        {/* Booked appointments and all non-discharged visits */}
         <Card className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Appointments</h4>
@@ -586,12 +608,14 @@ export default function PatientDashboard() {
               Book appointment
             </button>
           </div>
-          {!appointments.length && !todayEpisodes.length && (
+          {!appointments.length && !activeEpisodes.length && (
             <div className="holo text-xs text-[var(--muted)]">No current or upcoming appointments.</div>
           )}
           <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {appointments.map((appointment: any) => {
               const isActive = appointment.appointment_id === showAppointmentId;
+              const appointmentDate = appointment.scheduled_start?.slice(0, 10);
+              const isTodayAppointment = appointmentDate === today;
               return (
                 <button
                   key={appointment.appointment_id}
@@ -614,13 +638,15 @@ export default function PatientDashboard() {
                   </div>
                   <div className="truncate font-bold text-[var(--ink)]">{appointment.doctor?.name ?? "Assigned doctor"}</div>
                   <div className="mt-1 text-[var(--muted)]">
-                    {appointment.specialty} · {appointment.scheduled_start?.slice(0, 10) === today ? "Today" : new Date(appointment.scheduled_start).toLocaleDateString()} · {timeLabel(appointment.scheduled_start)}
+                    {appointment.specialty} · {new Date(appointment.scheduled_start).toLocaleDateString()}
+                    {isTodayAppointment && <span className="ml-1 font-bold text-[var(--cyan)]">Today</span>}
+                    {" · "}{timeLabel(appointment.scheduled_start)}
                   </div>
                   <div className="mt-1 text-[var(--muted)]">Reason: {appointment.reason || "Not provided"}</div>
                 </button>
               );
             })}
-            {todayEpisodes.map((ep: any) => {
+            {activeEpisodes.map((ep: any) => {
               const isActive = ep.encounter_id === showEncounterId || 
                                ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
                                ep.followups?.some((f: any) => f.encounter_id === showEncounterId);
@@ -638,7 +664,10 @@ export default function PatientDashboard() {
                   }}
                 >
                   <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-[var(--ink)]">{ep.date}</span>
+                    <span className="font-bold text-[var(--ink)]">
+                      {ep.date}
+                      {ep.date === today && <span className="ml-1.5 text-[var(--cyan)]">Today</span>}
+                    </span>
                     <Tag tone={displayStatus === "DISCHARGED" ? "green" : "blue"}>{displayStatus}</Tag>
                   </div>
                   <div className="text-[var(--muted)]">{ep.department} department</div>
@@ -783,7 +812,13 @@ export default function PatientDashboard() {
                 <div className="font-semibold text-[var(--ink)] flex items-center gap-1.5 border-b border-[var(--line)] pb-1 mb-2">
                   <Clock size={14} className="text-[var(--cyan)]" /> Schedule & Payment
                 </div>
-                <div className="kv"><span>Date</span><b>{selectedApp.scheduled_start?.slice(0, 10)}</b></div>
+                <div className="kv">
+                  <span>Date</span>
+                  <b>
+                    {selectedApp.scheduled_start?.slice(0, 10)}
+                    {selectedApp.scheduled_start?.slice(0, 10) === today && <span className="ml-1.5 text-[var(--cyan)]">Today</span>}
+                  </b>
+                </div>
                 <div className="kv"><span>Time Slot</span><b>{timeLabel(selectedApp.scheduled_start)}</b></div>
                 <div className="kv"><span>Consultation Fee</span><b>{selectedApp.opd_fee != null ? `₹${Number(selectedApp.opd_fee).toFixed(2)}` : "Not recorded"}</b></div>
               </div>
@@ -1923,14 +1958,6 @@ export default function PatientDashboard() {
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Blood Group</span>
                 <span className="font-bold text-sky-500">{p360?.patient?.blood_group || "N/A"}</span>
-              </div>
-              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
-                <span className="text-[var(--dim)]">ABHA Number</span>
-                <span className="font-mono font-bold text-slate-100">{p360?.patient?.abha_number || "91-2345-6789-0123"}</span>
-              </div>
-              <div className="flex justify-between items-center py-1.5 border-b border-white/5">
-                <span className="text-[var(--dim)]">ABHA Address</span>
-                <span className="font-bold text-slate-100">{p360?.patient?.abha_address || "swagath.reddy@abdm"}</span>
               </div>
               <div className="py-1.5">
                 <span className="text-[var(--dim)] block mb-1">Residential Address</span>

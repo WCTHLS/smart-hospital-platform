@@ -4,13 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart,
-  Smartphone, BellRing, User, ShieldAlert, FlaskConical, Pill, LogOut, Menu, PanelLeftClose,
+  Smartphone, BellRing, ShieldAlert, FlaskConical, Pill, Menu, PanelLeftClose,
   Syringe,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
-import { clearPortalPatient } from "../lib/patientAuth";
 
 const NAV = [
   { to: "/", label: "Home", icon: Activity, end: true },
@@ -93,17 +92,6 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (window.innerWidth < 1024) setSidebarOpen(false);
   };
 
-  const openPatientProfile = () => {
-    sessionStorage.setItem("open-patient-profile", "true");
-    nav("/patient", { state: { openPatientProfile: true } });
-  };
-
-  const logoutPatient = () => {
-    clearPortalPatient();
-    journey.reset();
-    nav("/patient/login", { replace: true });
-  };
-
   return (
     <div className="min-h-screen overflow-x-hidden">
       <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between gap-2 border-b px-3 sm:gap-3 sm:px-5 lg:px-6"
@@ -171,19 +159,6 @@ export default function Layout({ children }: { children: ReactNode }) {
             {n.label}
           </NavLink>
         ))}
-
-        {activeRole === "patient" && (
-          <>
-            <button type="button" onClick={() => { openPatientProfile(); closeSidebarOnMobile(); }}
-              className="flex items-center gap-2.5 rounded-xl border border-transparent px-3 py-2 text-left text-[13.5px] font-semibold text-[var(--muted)] transition hover:border-[var(--line2)] hover:bg-black/5 hover:text-[var(--ink)]">
-              <User size={17} /> Profile
-            </button>
-            <button type="button" onClick={logoutPatient}
-              className="flex items-center gap-2.5 rounded-xl border border-transparent px-3 py-2 text-left text-[13.5px] font-semibold text-rose-400 transition hover:border-rose-500/20 hover:bg-rose-500/10 hover:text-rose-300">
-              <LogOut size={17} /> Logout
-            </button>
-          </>
-        )}
 
         <div className="mt-auto space-y-2">
           {journey.patientName && (

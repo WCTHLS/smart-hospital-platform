@@ -83,7 +83,9 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
             <div
               key={i}
               className={`min-w-0 flex min-h-[76px] flex-col items-center justify-between rounded-xl border px-1.5 py-2.5 text-[10px] transition lg:px-2 xl:min-h-[82px] xl:px-3 xl:text-[11px] 2xl:text-xs ${
-                current ? "border-[var(--cyan)] bg-[var(--cyan)]/5" : "border-transparent"
+                current
+                  ? "border-[var(--cyan)] bg-[var(--cyan)]/5"
+                  : "border-[var(--line2)]"
               }`}
               style={{ background: current ? "rgba(37,100,207,0.05)" : "var(--panel)" }}
             >

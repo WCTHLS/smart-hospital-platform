@@ -79,8 +79,18 @@ export function useRealtimeConnection(): void {
     return () => {
       stopped = true;
       if (socket) {
-        socket.onclose = null;
-        socket.close();
+        const closingSocket = socket;
+        closingSocket.onclose = null;
+        closingSocket.onmessage = null;
+        closingSocket.onerror = null;
+        if (closingSocket.readyState === WebSocket.CONNECTING) {
+          // React Strict Mode immediately mounts/unmounts effects once in
+          // development. Wait for the handshake before closing so the browser
+          // does not report "closed before the connection is established".
+          closingSocket.onopen = () => closingSocket.close();
+        } else if (closingSocket.readyState === WebSocket.OPEN) {
+          closingSocket.close();
+        }
         socket = null;
       }
       useRealtime.getState().setConnected(false);

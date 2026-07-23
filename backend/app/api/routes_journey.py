@@ -1062,6 +1062,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
         "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
         "weight_kg": latest_vitals.weight_kg, "height_cm": latest_vitals.height_cm,
+        "captured_ts": latest_vitals.captured_ts.isoformat(),
     }
 
     summary_res = None

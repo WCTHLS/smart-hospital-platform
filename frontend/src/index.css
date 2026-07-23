@@ -141,6 +141,25 @@ body::before {
   mask-image: radial-gradient(1400px 900px at 50% 0%, #000 30%, transparent 85%);
 }
 
+/* Patient 360 shares the doctor workspace with a copilot pane. These grids
+   respond to the clinical panel's real width instead of the browser width. */
+.patient-360-layout {
+  container-name: patient360;
+  container-type: inline-size;
+}
+
+@container patient360 (min-width: 34rem) {
+  .patient-360-columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container patient360 (min-width: 46rem) {
+  .patient-360-columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 a {
   color: var(--cyan);
   text-decoration: none;

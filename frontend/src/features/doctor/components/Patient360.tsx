@@ -1,56 +1,8 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, CheckCircle2, ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import { FileText, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Tag, Empty } from "../../../components/ui";
-
-/* ------------------------------------------------------------------ Vitals threshold coloring */
-type VitalTone = "normal" | "warning" | "critical";
-
-const VITAL_TONE_CLASS: Record<VitalTone, string> = {
-  normal: "",
-  warning: "border border-amber-500/40 bg-amber-500/10",
-  critical: "border border-rose-500/50 bg-rose-500/10",
-};
-
-function bpTone(bp: string | null | undefined): VitalTone {
-  if (!bp) return "normal";
-  const [sysStr, diaStr] = bp.split("/");
-  const sys = Number(sysStr);
-  const dia = Number(diaStr);
-  if (!sys || !dia) return "normal";
-  if (sys >= 180 || sys < 90 || dia >= 120 || dia < 60) return "critical";
-  if (sys >= 140 || dia >= 90) return "warning";
-  return "normal";
-}
-
-function spo2Tone(spo2: number | null | undefined): VitalTone {
-  if (spo2 == null) return "normal";
-  if (spo2 < 90) return "critical";
-  if (spo2 < 95) return "warning";
-  return "normal";
-}
-
-function heartRateTone(hr: number | null | undefined): VitalTone {
-  if (hr == null) return "normal";
-  if (hr > 130 || hr < 40) return "critical";
-  if (hr > 100 || hr < 55) return "warning";
-  return "normal";
-}
-
-function temperatureTone(tempF: number | null | undefined): VitalTone {
-  if (tempF == null) return "normal";
-  if (tempF >= 103 || tempF < 95) return "critical";
-  if (tempF >= 100.4) return "warning";
-  return "normal";
-}
-
-function bmiTone(bmi: number | null | undefined): VitalTone {
-  if (bmi == null) return "normal";
-  if (bmi < 16 || bmi >= 40) return "critical";
-  if (bmi < 18.5 || bmi >= 30) return "warning";
-  return "normal";
-}
 
 /* ------------------------------------------------------------------ Historical Visit Dropdown */
 function HistoricalVisitDropdown({ encounter }: { encounter: any }) {
@@ -291,7 +243,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
   );
 
   return (
-    <div className="space-y-4">
+    <div className="patient-360-layout min-w-0 space-y-4">
       {/* Chronic Medical Issues (Problem List) */}
       <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(239,68,68,0.04), transparent)" }}>
         <div className="flex justify-between items-center pb-1.5 border-b border-white/5">
@@ -435,46 +387,10 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
         </Card>
       )}
 
-      {/* Latest Vitals Card at the Top */}
-      <Card>
-        <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Latest vitals</h4>
-        {data.latest_vitals ? (
-          <div className="grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4">
-            <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[bpTone(data.latest_vitals.bp)]}`}>
-              {bpTone(data.latest_vitals.bp) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${bpTone(data.latest_vitals.bp) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
-              <small style={{ color: "var(--dim)" }}>Blood Pressure</small><br /><b className="text-[15px]">{data.latest_vitals.bp}</b>
-            </div>
-            <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[spo2Tone(data.latest_vitals.spo2)]}`}>
-              {spo2Tone(data.latest_vitals.spo2) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${spo2Tone(data.latest_vitals.spo2) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
-              <small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b className="text-[15px]">{data.latest_vitals.spo2}%</b>
-            </div>
-            <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[heartRateTone(data.latest_vitals.heart_rate)]}`}>
-              {heartRateTone(data.latest_vitals.heart_rate) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${heartRateTone(data.latest_vitals.heart_rate) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
-              <small style={{ color: "var(--dim)" }}>Heart Rate</small><br /><b className="text-[15px]">{data.latest_vitals.heart_rate} bpm</b>
-            </div>
-            <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[temperatureTone(data.latest_vitals.temperature)]}`}>
-              {temperatureTone(data.latest_vitals.temperature) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${temperatureTone(data.latest_vitals.temperature) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
-              <small style={{ color: "var(--dim)" }}>Temperature</small><br /><b className="text-[15px]">{data.latest_vitals.temperature}°F</b>
-            </div>
-            {(data.latest_vitals.weight_kg != null || data.latest_vitals.height_cm != null || data.latest_vitals.bmi != null) && (
-              <>
-                <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Weight</small><br /><b className="text-[15px]">{data.latest_vitals.weight_kg != null ? `${data.latest_vitals.weight_kg} kg` : "—"}</b></div>
-                <div className="holo text-center py-3"><small style={{ color: "var(--dim)" }}>Height</small><br /><b className="text-[15px]">{data.latest_vitals.height_cm != null ? `${data.latest_vitals.height_cm} cm` : "—"}</b></div>
-                <div className={`holo text-center py-3 relative ${VITAL_TONE_CLASS[bmiTone(data.latest_vitals.bmi)]}`}>
-                  {bmiTone(data.latest_vitals.bmi) !== "normal" && <AlertTriangle size={12} className={`absolute right-2 top-2 ${bmiTone(data.latest_vitals.bmi) === "critical" ? "text-rose-400" : "text-amber-400"}`} />}
-                  <small style={{ color: "var(--dim)" }}>BMI</small><br /><b className="text-[15px]">{data.latest_vitals.bmi != null ? data.latest_vitals.bmi : "—"}</b>
-                </div>
-              </>
-            )}
-          </div>
-        ) : <Empty>No vitals captured yet for this patient.</Empty>}
-      </Card>
-
-
-      {/* Side-by-Side balanced layout for wider displays */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* Three columns when wide; only the third moves below at medium width. */}
+      <div className="patient-360-columns grid min-w-0 gap-4">
         {/* Column 1: Recent Results */}
-        <Card className="flex flex-col h-full">
+        <Card className="flex min-w-0 flex-col">
           <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Recent results</h4>
           <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">Lab Diagnostics</div>
           <div className="max-h-[360px] flex-1 space-y-2 overflow-y-auto pr-1">
@@ -493,9 +409,9 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                           {r.value || "Result completed"}
                         </div>
                       ) : (
-                        <div key={`${r.analyte}-${i}`} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 text-[12px]">
-                          <span className="text-slate-300">{r.analyte}</span>
-                          <span>{r.value} {r.unit}</span>
+                        <div key={`${r.analyte}-${i}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 text-[12px]">
+                          <span className="min-w-0 break-words text-slate-300">{r.analyte}</span>
+                          <span className="whitespace-nowrap">{r.value} {r.unit}</span>
                           <Tag tone={flag(r.flag)}>{r.flag}</Tag>
                         </div>
                       )
@@ -507,28 +423,26 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
           </div>
         </Card>
 
-        {/* Column 2: Previous visit records (Raw history) */}
-        <Card className="flex flex-col h-full">
-          <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Previous visit records (Raw history)</h4>
-          <div className="space-y-2 flex-1 overflow-y-auto">
+        {/* Column 2: Previous visit records */}
+        <Card className="flex min-w-0 flex-col">
+          <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Previous visit records</h4>
+          <div className="max-h-[360px] flex-1 space-y-2 overflow-y-auto pr-1">
             {data.encounters?.filter((e: any) => e.encounter_id !== encounterId && e.status === "DISCHARGED").map((e: any) => (
               <HistoricalVisitDropdown key={e.encounter_id} encounter={e} />
             ))}
           </div>
         </Card>
-      </div>
 
-      {/* Uploaded Documents & External Reports */}
-      {data.documents && data.documents.length > 0 && (
-        <Card className="animate-in fade-in duration-300">
-          <h4 className="mb-3 font-bold flex items-center gap-2" style={{ color: "#123a7a" }}>
-            <FileText size={18} className="text-[var(--cyan)]" /> External Reports & Uploaded Documents
+        {/* Column 3: Uploaded reports */}
+        <Card className="flex min-w-0 flex-col animate-in fade-in duration-300">
+          <h4 className="mb-3 flex items-center gap-2 font-bold" style={{ color: "#123a7a" }}>
+            <FileText size={16} className="text-[var(--cyan)]" /> Uploaded reports
           </h4>
-          <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
-            {data.documents.map((d: any) => (
+          <div className="max-h-[360px] flex-1 space-y-2 overflow-y-auto pr-1">
+            {data.documents?.length ? data.documents.map((d: any) => (
               <div 
                 key={d.document_id} 
-                className="p-3 border border-white/5 rounded-xl bg-white/[0.01] flex justify-between items-center text-xs"
+                className="flex items-center justify-between rounded-xl border border-white/5 bg-white/[0.01] p-3 text-xs"
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-slate-300 truncate">{d.title}</div>
@@ -551,10 +465,10 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                   <span className="text-[10px] text-[var(--dim)] shrink-0 ml-2">No file</span>
                 )}
               </div>
-            ))}
+            )) : <Empty>No uploaded reports</Empty>}
           </div>
         </Card>
-      )}
+      </div>
     </div>
   );
 }
