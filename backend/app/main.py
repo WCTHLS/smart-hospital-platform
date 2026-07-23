@@ -1,4 +1,5 @@
 """FastAPI application entrypoint."""
+# Force reload trigger comment
 from __future__ import annotations
 
 import asyncio

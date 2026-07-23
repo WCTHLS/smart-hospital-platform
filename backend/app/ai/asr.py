@@ -15,6 +15,7 @@ which speaker is the doctor vs. the patient (that's for the clinician to confirm
 from __future__ import annotations
 
 import tempfile
+import os
 
 from app.core.config import settings
 
@@ -135,9 +136,10 @@ def transcribe_audio(
     model = _get_model()
     if model is None:
         raise RuntimeError("Speech-to-text model is unavailable on this server.")
-    with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    try:
         tmp.write(data)
-        tmp.flush()
+        tmp.close()  # release python file lock on Windows
         segments, _info = model.transcribe(
             tmp.name,
             language=language,
@@ -147,3 +149,8 @@ def transcribe_audio(
         text = " ".join(seg.text.strip() for seg in segments if seg.text.strip()).strip()
         speaker = _label_speaker(encounter_id, tmp.name) if text and encounter_id else None
         return {"text": text, "speaker": speaker}
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass

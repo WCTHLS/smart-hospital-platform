@@ -9,6 +9,7 @@ import uuid
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select, case, nulls_last
 from sqlalchemy.orm import Session
@@ -857,13 +858,23 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         .limit(50)
     ).all()
 
-    active_meds: list[str] = []
-    for rx in db.scalars(
-        select(models.Prescription).where(models.Prescription.patient_id == patient_id)
-        .where(models.Prescription.status == "APPROVED")
-        .order_by(models.Prescription.created_ts.desc()).limit(3)
-    ):
-        active_meds.extend(f"{i.drug_name} {i.dose or ''}".strip() for i in rx.items)
+    active_meds_rows = db.scalars(
+        select(models.PatientMedication)
+        .where(models.PatientMedication.patient_id == patient_id)
+        .where(models.PatientMedication.status == "ACTIVE")
+        .order_by(models.PatientMedication.created_ts.desc())
+    ).all()
+    active_meds = [f"{m.drug_name} {m.dosage or ''}".strip() for m in active_meds_rows]
+    medications_list = [
+        {
+            "medication_id": m.medication_id,
+            "drug_name": m.drug_name,
+            "dosage": m.dosage,
+            "status": m.status,
+            "created_ts": m.created_ts.isoformat()
+        }
+        for m in active_meds_rows
+    ]
 
     recent_documents = db.scalars(
         select(models.Document)
@@ -876,6 +887,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             "title": d.title,
             "uri": d.uri,
             "doc_type": d.doc_type,
+            "encounter_id": d.encounter_id,
             "date": d.created_ts.date().isoformat()
         }
         for d in recent_documents
@@ -1065,6 +1077,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "allergies": allergies_list,
         "issues": issues_list,
         "active_medications": active_meds,
+        "medications": medications_list,
         "latest_vitals": vitals_payload,
         "recent_notes": formatted_notes,
         "recent_results": [
@@ -1176,6 +1189,45 @@ def add_patient_issue(patient_id: str, body: IssueCreateSchema, db: Session = De
     return {"status": "SUCCESS", "issue_id": issue.issue_id}
 
 
+class MedicationCreateSchema(BaseModel):
+    drug_name: str
+    dosage: str | None = None
+    status: str = "ACTIVE"
+
+
+@router.post("/patients/{patient_id}/medications")
+def add_patient_medication(patient_id: str, body: MedicationCreateSchema, db: Session = Depends(get_db)):
+    patient = _get_patient(db, patient_id)
+    med = models.PatientMedication(
+        patient_id=patient_id,
+        drug_name=body.drug_name.strip(),
+        dosage=body.dosage.strip() if body.dosage else None,
+        status=body.status,
+    )
+    db.add(med)
+    db.commit()
+    return {
+        "status": "SUCCESS",
+        "medication_id": med.medication_id,
+        "drug_name": med.drug_name,
+        "dosage": med.dosage
+    }
+
+
+@router.delete("/patients/{patient_id}/medications/{medication_id}")
+def delete_patient_medication(patient_id: str, medication_id: str, db: Session = Depends(get_db)):
+    med = db.scalar(
+        select(models.PatientMedication)
+        .where(models.PatientMedication.patient_id == patient_id)
+        .where(models.PatientMedication.medication_id == medication_id)
+    )
+    if not med:
+        raise HTTPException(status_code=404, detail="Medication record not found")
+    db.delete(med)
+    db.commit()
+    return {"status": "SUCCESS", "message": "Medication removed successfully"}
+
+
 # --------------------------------------------------------------------------------- Intake + Triage + Token
 @router.post("/encounters/{encounter_id}/triage")
 def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get_db)) -> dict:
@@ -1183,8 +1235,8 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
     patient = _get_patient(db, encounter.patient_id)
 
     # Guard against duplicate triage submissions (e.g. double-click / retry on
-    # a slow request): if this encounter has already been triaged, return the
-    # existing token instead of creating a second orphaned WAITING token.
+    # a slow request): if this encounter has already been triaged within the last 5 seconds,
+    # return the existing token instead of creating a second orphaned WAITING token.
     if encounter.status in ("TRIAGED", "EMERGENCY"):
         existing_triage = db.scalar(
             select(models.Triage)
@@ -1197,20 +1249,39 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
             .order_by(models.Token.token_id.desc())
         )
         if existing_triage and existing_token:
-            doctor = db.get(models.Staff, encounter.doctor_id) if encounter.doctor_id else None
-            appt = db.get(models.Appointment, encounter.appointment_id) if encounter.appointment_id else None
-            return {
-                "intake": None,
-                "triage": None,
-                "vitals": None,
-                "doctor": None if not doctor else {"id": doctor.staff_id, "name": doctor.name, "specialty": doctor.specialty},
-                "token": {"number": existing_token.token_number, "department": existing_token.department,
-                          "room": existing_token.room, "floor": existing_token.floor,
-                          "eta_minutes": _calculate_live_eta(db, encounter_id),
-                          "patients_ahead": _calculate_patients_ahead(db, encounter_id)},
-                "encounter_status": encounter.status,
-                "scheduled_start": appt.scheduled_start.isoformat() if (appt and appt.scheduled_start) else None,
-            }
+            created_utc = existing_triage.created_ts
+            if created_utc.tzinfo is None:
+                created_utc = created_utc.replace(tzinfo=timezone.utc)
+            
+            # If the request was made within 5 seconds, return duplicate response:
+            if (datetime.now(timezone.utc) - created_utc).total_seconds() < 5:
+                doctor = db.get(models.Staff, encounter.doctor_id) if encounter.doctor_id else None
+                appt = db.get(models.Appointment, encounter.appointment_id) if encounter.appointment_id else None
+                return {
+                    "intake": {
+                        "result": {
+                            "chief_complaint": existing_triage.chief_complaint,
+                            "symptom_summary": existing_triage.symptom_summary,
+                            "duration": body.duration,
+                        }
+                    },
+                    "triage": {
+                        "result": {
+                            "acuity_level": existing_triage.acuity_level,
+                            "specialty": existing_triage.specialty,
+                            "red_flag": existing_triage.red_flag,
+                            "red_flag_reason": existing_triage.red_flag_reason,
+                        }
+                    },
+                    "vitals": body.vitals.model_dump(exclude_none=True) if body.vitals else None,
+                    "doctor": None if not doctor else {"id": doctor.staff_id, "name": doctor.name, "specialty": doctor.specialty},
+                    "token": {"number": existing_token.token_number, "department": existing_token.department,
+                              "room": existing_token.room, "floor": existing_token.floor,
+                              "eta_minutes": _calculate_live_eta(db, encounter_id),
+                              "patients_ahead": _calculate_patients_ahead(db, encounter_id)},
+                    "encounter_status": encounter.status,
+                    "scheduled_start": appt.scheduled_start.isoformat() if (appt and appt.scheduled_start) else None,
+                }
 
     intake = agents.intake_agent(body.symptom_text, duration=body.duration)
     chief = intake["result"]["chief_complaint"]
@@ -1514,6 +1585,365 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     }
 
 
+@router.get("/encounters/{encounter_id}/discharge-report", response_class=HTMLResponse)
+def get_discharge_report(encounter_id: str, db: Session = Depends(get_db)):
+    encounter = db.get(models.Encounter, encounter_id)
+    if not encounter:
+        raise HTTPException(status_code=404, detail="Encounter not found")
+    
+    patient = db.get(models.Patient, encounter.patient_id)
+    doctor = db.get(models.Staff, encounter.doctor_id) if encounter.doctor_id else None
+    triage = db.scalar(
+        select(models.Triage)
+        .where(models.Triage.encounter_id == encounter_id)
+        .order_by(models.Triage.created_ts.desc())
+    )
+    vitals = db.scalar(
+        select(models.Vitals)
+        .where(models.Vitals.encounter_id == encounter_id)
+        .order_by(models.Vitals.captured_ts.desc())
+    )
+    note = db.scalar(
+        select(models.ClinicalNote)
+        .where(models.ClinicalNote.encounter_id == encounter_id)
+        .where(models.ClinicalNote.status == "APPROVED")
+    ) or db.scalar(
+        select(models.ClinicalNote)
+        .where(models.ClinicalNote.encounter_id == encounter_id)
+        .order_by(models.ClinicalNote.created_ts.desc())
+    )
+    rx = db.scalar(
+        select(models.Prescription)
+        .where(models.Prescription.encounter_id == encounter_id)
+        .order_by(models.Prescription.created_ts.desc())
+    )
+    rx_items = db.scalars(
+        select(models.PrescriptionItem)
+        .where(models.PrescriptionItem.rx_id == rx.rx_id)
+    ).all() if rx else []
+
+    lab_orders = db.scalars(
+        select(models.LabOrder)
+        .where(models.LabOrder.encounter_id == encounter_id)
+    ).all()
+    labs = []
+    for lo in lab_orders:
+        results = db.scalars(
+            select(models.LabResult)
+            .where(models.LabResult.lab_order_id == lo.lab_order_id)
+        ).all()
+        labs.append({
+            "test_name": lo.test_name,
+            "status": lo.status,
+            "results": [{"analyte": r.analyte, "value": r.value, "unit": r.unit, "flag": r.abnormal_flag} for r in results]
+        })
+
+    # Format dates
+    admission_date = encounter.arrival_ts.strftime("%d-%b-%Y %I:%M %p")
+    discharge_date = encounter.end_ts.strftime("%d-%b-%Y %I:%M %p") if encounter.end_ts else "N/A"
+    
+    # Construct details lists
+    vitals_html = ""
+    if vitals:
+        vitals_html = f"""
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 10px; background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <div><span style="color: #64748b; font-size: 11px; text-transform: uppercase;">Temperature</span><br/><strong>{vitals.temperature or '--'} °F</strong></div>
+            <div><span style="color: #64748b; font-size: 11px; text-transform: uppercase;">Blood Pressure</span><br/><strong>{vitals.bp_systolic or '--'}/{vitals.bp_diastolic or '--'} mmHg</strong></div>
+            <div><span style="color: #64748b; font-size: 11px; text-transform: uppercase;">Pulse Rate</span><br/><strong>{vitals.heart_rate or '--'} bpm</strong></div>
+            <div><span style="color: #64748b; font-size: 11px; text-transform: uppercase;">SpO2</span><br/><strong>{vitals.spo2 or '--'} %</strong></div>
+            <div><span style="color: #64748b; font-size: 11px; text-transform: uppercase;">Weight</span><br/><strong>{vitals.weight_kg or '--'} kg</strong></div>
+            <div><span style="color: #64748b; font-size: 11px; text-transform: uppercase;">Height</span><br/><strong>{vitals.height_cm or '--'} cm</strong></div>
+            <div><span style="color: #64748b; font-size: 11px; text-transform: uppercase;">BMI</span><br/><strong>{vitals.bmi or '--'}</strong></div>
+        </div>
+        """
+    else:
+        vitals_html = "<p style='color: #64748b;'>No vitals recorded for this encounter.</p>"
+
+    rx_rows = ""
+    if rx_items:
+        for idx, item in enumerate(rx_items, 1):
+            instructions = item.instructions or "Take as directed"
+            rx_rows += f"""
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 10px; text-align: left;">{idx}</td>
+                <td style="padding: 10px; text-align: left;"><strong>{item.drug_name}</strong></td>
+                <td style="padding: 10px; text-align: left;">{item.dose or '--'}</td>
+                <td style="padding: 10px; text-align: left;">{item.route or '--'}</td>
+                <td style="padding: 10px; text-align: left;">{item.frequency or '--'}</td>
+                <td style="padding: 10px; text-align: left;">{item.duration_days or '--'} days</td>
+                <td style="padding: 10px; text-align: left; color: #475569; font-size: 12px;">{instructions}</td>
+            </tr>
+            """
+    else:
+        rx_rows = """
+        <tr>
+            <td colspan="7" style="padding: 20px; text-align: center; color: #64748b;">No discharge medications prescribed.</td>
+        </tr>
+        """
+
+    labs_html = ""
+    if labs:
+        for lab in labs:
+            results_rows = ""
+            if lab["results"]:
+                for r in lab["results"]:
+                    flag_style = "color: #ef4444; font-weight: bold;" if r["flag"] else "color: #1e293b;"
+                    results_rows += f"""
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 6px 10px; text-align: left; width: 40%;">{r['analyte']}</td>
+                        <td style="padding: 6px 10px; text-align: left; {flag_style}">{r['value']}</td>
+                        <td style="padding: 6px 10px; text-align: left; color: #64748b;">{r['unit'] or '--'}</td>
+                        <td style="padding: 6px 10px; text-align: left;">{'<span style="color: #ef4444; background: #fee2e2; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold;">ABNORMAL</span>' if r['flag'] else 'Normal'}</td>
+                    </tr>
+                    """
+            else:
+                results_rows = f"""
+                <tr>
+                    <td colspan="4" style="padding: 10px; text-align: center; color: #64748b;">Status: {lab['status']} (No resulted analytes yet)</td>
+                </tr>
+                """
+            
+            labs_html += f"""
+            <div style="margin-bottom: 15px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                <div style="background: #f8fafc; padding: 8px 12px; border-bottom: 1px solid #e2e8f0; font-weight: bold; color: #1e293b; font-size: 13px;">
+                    🔬 {lab['test_name']}
+                </div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <thead>
+                        <tr style="background: #ffffff; border-bottom: 1px solid #e2e8f0; color: #64748b;">
+                            <th style="padding: 6px 10px; text-align: left;">Analyte</th>
+                            <th style="padding: 6px 10px; text-align: left;">Value</th>
+                            <th style="padding: 6px 10px; text-align: left;">Unit</th>
+                            <th style="padding: 6px 10px; text-align: left;">Reference Flag</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {results_rows}
+                    </tbody>
+                </table>
+            </div>
+            """
+    else:
+        labs_html = "<p style='color: #64748b;'>No diagnostic lab tests recorded for this visit.</p>"
+
+    # Diagnosis codes
+    diagnosis_html = ""
+    if note and note.icd10_codes:
+        for code_obj in note.icd10_codes:
+            code = code_obj.get("code", "")
+            label = code_obj.get("label", "")
+            diagnosis_html += f"""
+            <span style="display: inline-block; background: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 12px; margin-right: 8px; margin-bottom: 8px; border: 1px solid #bae6fd;">
+                🏷️ {code} - {label}
+            </span>
+            """
+    else:
+        diagnosis_html = "<span style='color: #64748b;'>No ICD-10 diagnosis codes recorded.</span>"
+
+    clinical_course = note.final_text if note else (encounter.notes or "Patient presented for clinical consultation. Managed conservatively.")
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Discharge Summary - {patient.full_name}</title>
+        <style>
+            body {{
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                color: #1e293b;
+                line-height: 1.5;
+                margin: 0;
+                padding: 40px;
+                background-color: #f1f5f9;
+            }}
+            .report-card {{
+                max-width: 850px;
+                margin: 0 auto;
+                background: #ffffff;
+                padding: 40px;
+                border-radius: 16px;
+                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+                border: 1px solid #e2e8f0;
+            }}
+            .header-table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 30px;
+            }}
+            .section-title {{
+                font-size: 14px;
+                text-transform: uppercase;
+                color: #0f172a;
+                border-bottom: 2px solid #e2e8f0;
+                padding-bottom: 6px;
+                margin-top: 25px;
+                margin-bottom: 12px;
+                font-weight: bold;
+                letter-spacing: 0.5px;
+            }}
+            .info-grid {{
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 15px 40px;
+                margin-bottom: 20px;
+                font-size: 13px;
+            }}
+            .info-grid div {{
+                border-bottom: 1px dashed #f1f5f9;
+                padding-bottom: 4px;
+            }}
+            .info-grid span {{
+                color: #64748b;
+                font-weight: 500;
+            }}
+            .info-grid strong {{
+                color: #0f172a;
+                float: right;
+            }}
+            .med-table {{
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 13px;
+                margin-top: 10px;
+            }}
+            .med-table th {{
+                background: #f8fafc;
+                padding: 10px;
+                font-weight: bold;
+                color: #475569;
+                border-bottom: 2px solid #e2e8f0;
+                text-align: left;
+            }}
+            @media print {{
+                body {{
+                    background: none;
+                    padding: 0;
+                }}
+                .report-card {{
+                    box-shadow: none;
+                    border: none;
+                    padding: 0;
+                    max-width: 100%;
+                }}
+                .no-print {{
+                    display: none;
+                }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="no-print" style="max-width: 850px; margin: 0 auto 20px auto; text-align: right;">
+            <button onclick="window.print()" style="background: #2564cf; color: white; border: none; padding: 8px 18px; border-radius: 8px; font-weight: bold; font-size: 13px; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(37,100,207,0.2);">
+                🖨️ Print Summary
+            </button>
+        </div>
+
+        <div class="report-card">
+            <!-- Hospital Header -->
+            <table class="header-table">
+                <tr>
+                    <td style="text-align: left; vertical-align: middle;">
+                        <div style="font-size: 24px; font-weight: 800; color: #2564cf; display: flex; align-items: center; gap: 8px;">
+                            🏥 QConnect Smart Hospital
+                        </div>
+                        <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
+                            ABDM Registered Digital Health Facility • Tel: +91 80 4910 2000
+                        </div>
+                    </td>
+                    <td style="text-align: right; vertical-align: middle;">
+                        <div style="background: #f1f5f9; padding: 10px 15px; border-radius: 8px; display: inline-block; border: 1px solid #e2e8f0;">
+                            <div style="font-size: 10px; color: #64748b; text-transform: uppercase; font-weight: 700;">DOCUMENT TYPE</div>
+                            <div style="font-size: 15px; font-weight: 800; color: #0f172a; margin-top: 2px;">DISCHARGE SUMMARY</div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Patient and Visit Info -->
+            <div class="info-grid">
+                <div><span>Patient Name</span><strong>{patient.full_name}</strong></div>
+                <div><span>Encounter ID</span><strong style="font-family: monospace; font-size: 11px;">{encounter.encounter_id}</strong></div>
+                <div><span>Age / Gender</span><strong>{patient.age} Y / {patient.gender}</strong></div>
+                <div><span>Primary Consultant</span><strong>{doctor.name if doctor else 'Hospitalist Team'}</strong></div>
+                <div><span>Patient ID / MRN</span><strong style="font-family: monospace; font-size: 11px;">{patient.mrn or patient.patient_id[:8]}</strong></div>
+                <div><span>Department / Specialty</span><strong>{encounter.department or 'General Medicine'}</strong></div>
+                <div><span>Date of Admission</span><strong>{admission_date}</strong></div>
+                <div><span>Date of Discharge</span><strong>{discharge_date}</strong></div>
+            </div>
+
+            <!-- Presenting Complaint & Triage Vitals -->
+            <div class="section-title">Intake Assessment & Vitals</div>
+            <div style="font-size: 13px; margin-bottom: 12px;">
+                <strong>Reason for Visit / Complaint:</strong> "{triage.chief_complaint if triage else (encounter.notes or 'Routine clinical review')}"
+            </div>
+            {vitals_html}
+
+            <!-- Diagnoses -->
+            <div class="section-title">Clinical Diagnosis (ICD-10)</div>
+            <div style="margin-bottom: 15px;">
+                {diagnosis_html}
+            </div>
+
+            <!-- Course in Hospital / Clinical Notes -->
+            <div class="section-title">Clinical Notes & Course in Hospital</div>
+            <div style="font-size: 13px; text-align: justify; color: #334155; background: #fafafa; padding: 15px; border-radius: 8px; border: 1px dashed #cbd5e1; margin-bottom: 20px; white-space: pre-line;">
+                {clinical_course}
+            </div>
+
+            <!-- Lab Orders and Results -->
+            <div class="section-title">Diagnostic Lab Investigations</div>
+            {labs_html}
+
+            <!-- Prescriptions -->
+            <div class="section-title">Discharge Prescription & Treatment Plan</div>
+            <table class="med-table">
+                <thead>
+                    <tr>
+                        <th style="width: 5%;">#</th>
+                        <th style="width: 30%;">Medication</th>
+                        <th style="width: 10%;">Dosage</th>
+                        <th style="width: 12%;">Route</th>
+                        <th style="width: 15%;">Frequency</th>
+                        <th style="width: 10%;">Duration</th>
+                        <th style="width: 18%;">Instructions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rx_rows}
+                </tbody>
+            </table>
+
+            <!-- Follow-up Advice -->
+            <div class="section-title">Advice on Discharge & Follow-up</div>
+            <div style="font-size: 13px; color: #475569; padding: 12px 15px; background: #fffbeb; border-radius: 8px; border: 1px solid #fef3c7; display: flex; align-items: flex-start; gap: 10px;">
+                <span style="font-size: 16px; line-height: 1;">⚠️</span>
+                <div>
+                    <strong>Follow-up Instructions:</strong> Review in 48 hours or earlier if symptoms worsen. Please seek immediate emergency medical care if you experience chest pain, sudden breathlessness, severe dizziness, or high fever.
+                </div>
+            </div>
+
+            <!-- Signature Footer -->
+            <div style="margin-top: 60px; display: flex; justify-content: space-between; align-items: flex-end; font-size: 12px; color: #64748b;">
+                <div>
+                    <span style="font-size: 10px; text-transform: uppercase;">Digital Health Wallet Copy</span><br/>
+                    ABDM Health ID: <strong>{patient.mrn or 'N/A'}</strong>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-family: 'Courier New', Courier, monospace; font-size: 11px; color: #334155; margin-bottom: 5px; font-weight: bold; border-bottom: 1px solid #94a3b8; padding-bottom: 2px;">
+                        Signed Electronically
+                    </div>
+                    <strong>{doctor.name if doctor else 'Consulting Physician'}</strong><br/>
+                    {doctor.specialty if doctor else 'Clinical Services Director'}
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content, status_code=200)
+
+
 @router.get("/encounters/{encounter_id}/audit-logs")
 def get_encounter_audit_logs(encounter_id: str, db: Session = Depends(get_db)) -> list[dict]:
     logs = db.scalars(
@@ -1678,6 +2108,9 @@ def list_recently_triaged_encounters(db: Session = Depends(get_db)) -> list[dict
                 "spo2": vitals.spo2 if vitals else None,
                 "heart_rate": vitals.heart_rate if vitals else None,
                 "temperature": vitals.temperature if vitals else None,
+                "weight_kg": vitals.weight_kg if vitals else None,
+                "height_cm": vitals.height_cm if vitals else None,
+                "bmi": vitals.bmi if vitals else None,
             } if vitals else None
         })
     return out

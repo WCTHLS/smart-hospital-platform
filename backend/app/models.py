@@ -49,6 +49,7 @@ class Patient(Base):
 
     allergies: Mapped[list["Allergy"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     issues: Mapped[list["PatientIssue"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
+    medications: Mapped[list["PatientMedication"]] = relationship(back_populates="patient", cascade="all, delete-orphan")
     encounters: Mapped[list["Encounter"]] = relationship(back_populates="patient")
 
     @property
@@ -87,6 +88,19 @@ class PatientIssue(Base):
     created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     patient: Mapped["Patient"] = relationship(back_populates="issues")
+
+
+class PatientMedication(Base):
+    __tablename__ = "patient_medication"
+
+    medication_id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    patient_id: Mapped[str] = mapped_column(ForeignKey("patient.patient_id", ondelete="CASCADE"), nullable=False)
+    drug_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    dosage: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(20), default="ACTIVE")
+    created_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    patient: Mapped["Patient"] = relationship(back_populates="medications")
 
 
 class ConsentArtifact(Base):

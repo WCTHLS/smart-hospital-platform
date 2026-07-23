@@ -536,7 +536,11 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                 </div>
                 {d.uri ? (
                   <a 
-                    href={d.uri.startsWith("http") ? d.uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${d.uri}`}
+                    href={
+                      d.doc_type === "DISCHARGE" && d.encounter_id
+                        ? `${import.meta.env.VITE_API_BASE_URL ?? ""}/api/v1/encounters/${d.encounter_id}/discharge-report`
+                        : (d.uri.startsWith("http") ? d.uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${d.uri}`)
+                    }
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="btn ghost sm !py-1 !px-2.5 font-bold text-[11px] text-[var(--cyan)] hover:underline shrink-0 ml-2"

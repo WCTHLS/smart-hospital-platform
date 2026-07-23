@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, CheckCircle2, ShieldAlert, BadgeCheck } from "lucide-react";
+import { Activity, CheckCircle2, ShieldAlert, BadgeCheck, Plus } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Tag, AgentBadge, Empty } from "../../../components/ui";
 
@@ -70,6 +70,47 @@ export default function CopilotSidepane({
 
   if (isLoading) return <Card className="text-center py-6 text-xs text-[var(--dim)]">Loading clinical context...</Card>;
   if (!data) return null;
+
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newDrugName, setNewDrugName] = useState("");
+  const [newDosage, setNewDosage] = useState("");
+  const [savingMed, setSavingMed] = useState(false);
+  const [deletingMedId, setDeletingMedId] = useState<string | null>(null);
+
+  const handleAddMed = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newDrugName.trim()) return;
+    setSavingMed(true);
+    try {
+      await api.addPatientMedication(patientId, {
+        drug_name: newDrugName.trim(),
+        dosage: newDosage.trim() || undefined,
+      });
+      setNewDrugName("");
+      setNewDosage("");
+      setShowAddForm(false);
+      qc.invalidateQueries({ queryKey: ["p360", patientId] });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to add medication.");
+    } finally {
+      setSavingMed(false);
+    }
+  };
+
+  const handleDeleteMed = async (medId: string) => {
+    if (!window.confirm("Are you sure you want to remove this medication?")) return;
+    setDeletingMedId(medId);
+    try {
+      await api.deletePatientMedication(patientId, medId);
+      qc.invalidateQueries({ queryKey: ["p360", patientId] });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to remove medication.");
+    } finally {
+      setDeletingMedId(null);
+    }
+  };
 
   async function handleGenerate() {
     setGenerating(true);
@@ -298,12 +339,84 @@ export default function CopilotSidepane({
 
           {/* Used/Active Medications */}
           <Card className="space-y-2 animate-in fade-in duration-300">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Active Medications</div>
-            {data.active_medications.length ? (
-              <ul className="space-y-1 text-[11.5px] text-[var(--muted)]">
-                {data.active_medications.map((m: string, i: number) => <li key={i}>• {m}</li>)}
+            <div className="flex justify-between items-center pb-1 border-b border-white/5">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Active Medications</div>
+              {!showAddForm && (
+                <button
+                  onClick={() => setShowAddForm(true)}
+                  className="btn ghost !py-0.5 !px-1.5 text-[10px] font-bold text-[var(--cyan)] hover:underline"
+                >
+                  <Plus size={11} className="inline mr-0.5" /> Add
+                </button>
+              )}
+            </div>
+
+            {showAddForm && (
+              <form onSubmit={handleAddMed} className="space-y-2 p-2 rounded-lg bg-white/5 border border-white/5 text-xs animate-in slide-in-from-top-1 duration-150">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-[var(--muted)] font-bold uppercase">Drug name</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Metformin"
+                    className="input !py-1 !px-2 text-xs w-full"
+                    value={newDrugName}
+                    onChange={(e) => setNewDrugName(e.target.value)}
+                    style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-[var(--muted)] font-bold uppercase">Dosage (Optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 500mg daily"
+                    className="input !py-1 !px-2 text-xs w-full"
+                    value={newDosage}
+                    onChange={(e) => setNewDosage(e.target.value)}
+                    style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
+                  />
+                </div>
+                <div className="flex justify-end gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => { setShowAddForm(false); setNewDrugName(""); setNewDosage(""); }}
+                    className="btn ghost !py-1 !px-2 text-[10px] font-semibold text-[var(--dim)]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingMed}
+                    className="btn !py-1 !px-3.5 text-[10px] font-bold"
+                  >
+                    {savingMed ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {data.medications?.length ? (
+              <ul className="space-y-1.5 text-[11.5px] text-[var(--muted)]">
+                {data.medications.map((m: any) => (
+                  <li key={m.medication_id} className="flex justify-between items-center gap-2 group">
+                    <span>
+                      • <b>{m.drug_name}</b> {m.dosage ? `(${m.dosage})` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteMed(m.medication_id)}
+                      disabled={deletingMedId === m.medication_id}
+                      className="text-slate-400 hover:text-red-400 font-bold opacity-0 group-hover:opacity-100 transition focus:outline-none text-[10px]"
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
               </ul>
-            ) : <div className="text-[11px] text-[var(--muted)]">None recorded</div>}
+            ) : (
+              <div className="text-[11px] text-[var(--muted)]">None recorded</div>
+            )}
           </Card>
         </>
       )}

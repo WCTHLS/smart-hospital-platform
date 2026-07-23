@@ -81,6 +81,10 @@ export const api = {
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
   addPatientIssue: (patient_id: string, body: { issue_name: string; onset_info?: string }) =>
     post<any>(`/api/v1/patients/${patient_id}/issues`, body),
+  addPatientMedication: (patient_id: string, body: { drug_name: string; dosage?: string }) =>
+    post<any>(`/api/v1/patients/${patient_id}/medications`, body),
+  deletePatientMedication: (patient_id: string, medication_id: string) =>
+    del<any>(`/api/v1/patients/${patient_id}/medications/${medication_id}`),
   doctors: () => get<any[]>("/api/v1/doctors"),
   doctorEncounters: (doctor_id: string) => get<any[]>(`/api/v1/doctors/${doctor_id}/encounters`),
   updateDoctorAvailability: (doctor_id: string, available: boolean) =>
