@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     ai_timeout_seconds: float = 20.0
 
     # Local speech-to-text (Ambient SOAP live dictation) — faster-whisper, fully offline
-    whisper_model_size: str = "small"
+    whisper_model_size: str = "base"
 
     # Security
     jwt_secret: str = "dev-secret-change-me"
