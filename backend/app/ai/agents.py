@@ -151,6 +151,47 @@ def ambient_docs_agent(transcript: str, patient_context: dict[str, Any]) -> dict
     )
 
 
+# ------------------------------------------------------------------------------- Ambient Docs Agent
+def ambient_docs_agent(transcript: str, patient_context: dict[str, Any]) -> dict[str, Any]:
+    icd10 = kb.suggest_icd10(transcript)
+
+    soap: dict[str, str] | None = None
+    system = (
+        "You are an ambient clinical scribe. Convert the consultation transcript into a concise SOAP "
+        "note. Return STRICT JSON with keys S, O, A, P (strings). Be factual; never invent findings."
+    )
+    prompt = (
+        f"Patient: {patient_context.get('age', '?')}{patient_context.get('gender', '')}. "
+        f"Active problems: {patient_context.get('problems', 'none recorded')}.\n\n"
+        f"Transcript:\n{redact_pii(transcript)}"
+    )
+    llm = gateway.generate_json(prompt, system=system)
+    if isinstance(llm, dict) and {"S", "O", "A", "P"} <= set(llm):
+        soap = {k: str(llm[k]) for k in ("S", "O", "A", "P")}
+
+    if not soap:
+        # Deterministic fallback SOAP
+        chief = patient_context.get("chief_complaint", "the presenting complaint")
+        vit = patient_context.get("vitals_line", "")
+        dx = icd10[0]["label"] if icd10 else "clinical impression pending"
+        code = f" (ICD-10 {icd10[0]['code']})" if icd10 else ""
+        soap = {
+            "S": f"{patient_context.get('age', '')}{patient_context.get('gender', '')} presenting with {chief}. {transcript[:200]}".strip(),
+            "O": vit or "Examination findings to be documented.",
+            "A": f"{dx}{code}.",
+            "P": "Investigations as ordered; symptomatic treatment; review in 48 hours or earlier if worsening.",
+        }
+
+    draft_text = f"S: {soap['S']}\nO: {soap['O']}\nA: {soap['A']}\nP: {soap['P']}"
+    return envelope(
+        {"soap": soap, "icd10": icd10, "draft_text": draft_text},
+        agent="Ambient Docs",
+        needs_approval=True,
+        source=_source(),
+        citations=["ICD-10", "SOAP documentation standard"],
+    )
+
+
 # -------------------------------------------------------------------------- Lab Intelligence Agent
 def _flag_for(value: float | None, low: float | None, high: float | None) -> str:
     if value is None:

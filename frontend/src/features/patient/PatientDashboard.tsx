@@ -102,6 +102,18 @@ export default function PatientDashboard() {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
+  function ageFromDob(value?: string | null) {
+    if (!value) return null;
+    const dob = new Date(`${value.slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(dob.getTime())) return null;
+    const now = new Date();
+    let age = now.getFullYear() - dob.getFullYear();
+    const birthdayPending = now.getMonth() < dob.getMonth()
+      || (now.getMonth() === dob.getMonth() && now.getDate() < dob.getDate());
+    if (birthdayPending) age -= 1;
+    return age >= 0 ? age : null;
+  }
+
   async function handlePhotoUpload(file?: File) {
     if (!file) return;
     setPhotoError("");
@@ -479,6 +491,30 @@ export default function PatientDashboard() {
               <Tag tone="cyan">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</Tag>
             </div>
           </button>
+          <div className="mt-3 space-y-1.5 border-t border-slate-200 pt-3 text-[11px]">
+            {[
+              ["Medical Record Number (MRN)", p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"],
+              ["Mobile Number", p360?.patient?.mobile || portalSession?.mobile || "N/A"],
+              ["Date of Birth / Age", (() => {
+                const dob = p360?.patient?.dob || portalSession?.dob;
+                const age = ageFromDob(dob);
+                return dob ? `${dob}${age !== null ? ` (${age} yrs)` : ""}` : "N/A";
+              })()],
+              ["Gender", p360?.patient?.gender || portalSession?.gender || "N/A"],
+              ["Blood Group", p360?.patient?.blood_group || portalSession?.blood_group || "N/A"],
+            ].map(([label, value]) => (
+              <div key={label} className="flex items-start justify-between gap-3">
+                <span className="shrink-0 text-slate-500">{label}</span>
+                <strong className="min-w-0 break-words text-right text-slate-800">{value}</strong>
+              </div>
+            ))}
+            <div className="pt-1">
+              <span className="block text-slate-500">Residential Address</span>
+              <strong className="mt-1 block break-words rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-800">
+                {p360?.patient?.address || portalSession?.address || "N/A"}
+              </strong>
+            </div>
+          </div>
           <div className="hidden">
             <input
               id="patient-profile-photo"
@@ -1779,12 +1815,8 @@ export default function PatientDashboard() {
                 <span className="profile-value font-bold">
                   {p360?.patient?.dob || portalSession?.dob || "N/A"}
                   {(() => {
-                    const dobStr = p360?.patient?.dob || portalSession?.dob;
-                    if (!dobStr) return "";
-                    const birthYear = new Date(dobStr).getFullYear();
-                    if (isNaN(birthYear)) return "";
-                    const age = new Date().getFullYear() - birthYear;
-                    return ` (${age} yrs)`;
+                    const age = ageFromDob(p360?.patient?.dob || portalSession?.dob);
+                    return age === null ? "" : ` (${age} yrs)`;
                   })()}
                 </span>
               </div>
@@ -1798,7 +1830,7 @@ export default function PatientDashboard() {
               </div>
               <div className="py-1.5">
                 <span className="text-[var(--dim)] block mb-1">Residential Address</span>
-                <span className="profile-value block rounded-xl border border-gray-200 bg-gray-50 p-2 font-medium">{p360?.patient?.address || "12 MG Road, Pune, Maharashtra"}</span>
+                <span className="profile-value block rounded-xl border border-gray-200 bg-gray-50 p-2 font-medium">{p360?.patient?.address || portalSession?.address || "N/A"}</span>
               </div>
             </div>
 

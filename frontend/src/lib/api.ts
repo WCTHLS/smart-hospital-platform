@@ -86,13 +86,30 @@ export const api = {
   // clinical
   ambient: (encounter_id: string, transcript: string) =>
     post<any>(`/api/v1/encounters/${encounter_id}/ambient`, { encounter_id, transcript }),
+  ambientTranscribeAudio: (encounter_id: string, blob: Blob, filename: string) => {
+    const formData = new FormData();
+    formData.append("audio", blob, filename);
+    return fetch(`${BASE}/api/v1/encounters/${encounter_id}/ambient/transcribe-audio`, {
+      method: "POST",
+      body: formData,
+    }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new ApiError(res.status, data?.detail ?? data);
+      return data as { text: string; speaker: string | null };
+    });
+  },
+  ambientResetSpeakers: (encounter_id: string) =>
+    post<any>(`/api/v1/encounters/${encounter_id}/ambient/reset-speakers`, {}),
   approveNote: (note_id: string, body: any) => post<any>(`/api/v1/notes/${note_id}/approve`, body),
-  createLabOrders: (encounter_id: string, tests: string[]) =>
-    post<any>("/api/v1/lab-orders", { encounter_id, tests }),
+  createLabOrders: (encounter_id: string, tests: string[], ordered_by?: string | null) =>
+    post<any>("/api/v1/lab-orders", { encounter_id, tests, ordered_by: ordered_by || undefined }),
   publishResult: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/publish-result`),
   confirmLabOrder: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/confirm`),
+  collectLabSample: (lab_order_id: string) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/collect-sample`),
   labCheckIn: (body: any) => post<any>("/api/v1/labs/check-in", body),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
@@ -110,7 +127,7 @@ export const api = {
   readyPrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/prescriptions/${rx_id}/ready`),
   pickupPrescription: (rx_id: string) => post<any>(`/api/v1/pharmacy/prescriptions/${rx_id}/pickup`),
   prepaidPrescriptions: () => get<any>("/api/v1/pharmacy/prepaid"),
-
+  
   // billing
   invoice: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/invoice`),
   pay: (invoice_id: string, method: string) => post<any>(`/api/v1/invoices/${invoice_id}/pay`, { method }),

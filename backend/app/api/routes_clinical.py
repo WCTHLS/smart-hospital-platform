@@ -74,6 +74,36 @@ def ambient_note(encounter_id: str, body: AmbientRequest, db: Session = Depends(
     return {"note_id": note.note_id, **result}
 
 
+
+# ---------------------------------------------------------------- Ambient live dictation (audio -> text)
+@router.post("/encounters/{encounter_id}/ambient/transcribe-audio")
+async def ambient_transcribe_audio(encounter_id: str, audio: UploadFile = File(...)) -> dict:
+    """Transcribe a short chunk of consultation audio locally (faster-whisper, "small" model
+    + tuned voice-activity detection) — no audio ever leaves this server. Also tags the chunk
+    with a best-effort "Speaker N" label (offline speaker-embedding clustering, scoped to this
+    encounter) so the live transcript can distinguish doctor/patient turns. The frontend calls
+    this every few seconds while "Start listening" is active and appends the result to the
+    live transcript."""
+    from app.ai import asr
+
+    data = await audio.read()
+    suffix = os.path.splitext(audio.filename or "")[1] or ".webm"
+    try:
+        result = asr.transcribe_audio(data, suffix=suffix, encounter_id=encounter_id)
+    except RuntimeError as err:
+        raise HTTPException(503, str(err))
+    return result
+
+@router.post("/encounters/{encounter_id}/ambient/reset-speakers")
+def ambient_reset_speakers(encounter_id: str) -> dict:
+    """Forget the remembered speaker voices for this encounter (call when starting a fresh
+    listening session so old voice clusters from a previous consultation don't leak in)."""
+    from app.ai import asr
+
+    asr.reset_speakers(encounter_id)
+    return {"ok": True}
+
+
 @router.post("/notes/{note_id}/approve")
 def approve_note(note_id: str, body: ApproveNoteRequest, db: Session = Depends(get_db)) -> dict:
     note = db.get(models.ClinicalNote, note_id)

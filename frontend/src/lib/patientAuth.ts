@@ -7,6 +7,9 @@ export type PortalPatient = {
   last_name?: string;
   dob?: string;
   email?: string;
+  gender?: string;
+  blood_group?: string;
+  address?: string;
   profile_photo?: string;
 };
 
