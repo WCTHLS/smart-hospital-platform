@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { FileText, Mic, FlaskConical, Pill } from "lucide-react";
+import { FileText, Mic, FlaskConical, Pill, ArrowLeft, Sparkles } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useJourney } from "../../lib/store";
-import { Tag } from "../../components/ui";
+import { Tag, LiveDot } from "../../components/ui";
 
 import DoctorQueue from "./components/DoctorQueue";
 import Patient360 from "./components/Patient360";
@@ -144,30 +144,46 @@ export default function DoctorWorkspace() {
     return <DoctorQueue onSelectPatient={handleSelectPatient} />;
   }
 
+  const initials = (journey.patientName || "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase())
+    .join("") || "?";
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="grad-text-page text-2xl font-extrabold">{journey.patientName}</h1>
-          <div className="flex items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
-            <Tag tone="green">ABHA verified</Tag>
-            {journey.department && <Tag tone="blue">{journey.department}</Tag>}
-            {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
-            {journey.chiefComplaint && (
-              <span className="text-slate-300 ml-2">
-                Reason for Visit: <b className="text-[var(--cyan)]">{journey.chiefComplaint}</b>
-              </span>
-            )}
+      <div className="card relative overflow-hidden p-4 sm:p-5">
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: "radial-gradient(360px 140px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}
+        />
+        <div className="relative flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <div className="avatar-disc h-14 w-14 text-lg">{initials}</div>
+            <div className="min-w-0">
+              <h1 className="grad-text-page truncate text-2xl font-extrabold leading-tight">{journey.patientName}</h1>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
+                <Tag tone="green">ABHA verified</Tag>
+                {journey.department && <Tag tone="blue">{journey.department}</Tag>}
+                {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
+              </div>
+              {journey.chiefComplaint && (
+                <div className="mt-1.5 text-[12.5px]" style={{ color: "var(--dim)" }}>
+                  Reason for visit — <b style={{ color: "var(--cyan)" }}>{journey.chiefComplaint}</b>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold"
-            onClick={handleBackToQueue}
-          >
-            ← Back to Queue
-          </button>
-          <span className="ai-badge"><Mic size={13} /> Session active</span>
+          <div className="flex items-center gap-2.5">
+            <button
+              className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold"
+              onClick={handleBackToQueue}
+            >
+              <ArrowLeft size={14} /> Back to Queue
+            </button>
+            <LiveDot label="Session active" tone="mint" />
+          </div>
         </div>
       </div>
 
@@ -175,17 +191,12 @@ export default function DoctorWorkspace() {
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_clamp(320px,26vw,440px)] 2xl:gap-6">
         <div className="space-y-4">
           {/* Tabs */}
-          <div className="flex flex-wrap gap-2">
+          <div className="tab-pills">
             {TABS.map((t) => (
-              <button 
-                key={t.id} 
+              <button
+                key={t.id}
                 onClick={() => setTab(t.id)}
-                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold transition"
-                style={{
-                  color: tab === t.id ? "#123a7a" : "var(--muted)",
-                  background: tab === t.id ? "linear-gradient(90deg, rgba(37,100,207,.18), rgba(26,79,180,.18))" : "var(--panel)",
-                  border: `1px solid ${tab === t.id ? "var(--line2)" : "var(--glass-border)"}`,
-                }}
+                className={`tab-pill ${tab === t.id ? "is-active" : ""}`}
               >
                 <t.icon size={15} /> {t.label}
               </button>
@@ -226,6 +237,9 @@ export default function DoctorWorkspace() {
         </div>
 
         <div className="space-y-3 lg:sticky lg:top-4 lg:self-start">
+          <div className="flex items-center gap-1.5 px-1 text-[11px] font-extrabold uppercase tracking-wider" style={{ color: "var(--dim)" }}>
+            <Sparkles size={12} style={{ color: "var(--cyan)" }} /> AI Copilot
+          </div>
           <CopilotSidepane 
             patientId={journey.patientId} 
             tab={tab}

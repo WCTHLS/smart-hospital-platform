@@ -50,8 +50,8 @@ export function Wave({ recording = true }: { recording?: boolean }) {
   );
 }
 
-export function LiveDot({ label = "LIVE" }: { label?: string }) {
-  return <span className="live">{label}</span>;
+export function LiveDot({ label = "LIVE", tone = "red" }: { label?: string; tone?: "red" | "mint" }) {
+  return <span className={`live ${tone === "mint" ? "mint" : ""}`}>{label}</span>;
 }
 
 export function DeviceBar({ url, right }: { url?: string; right?: ReactNode }) {

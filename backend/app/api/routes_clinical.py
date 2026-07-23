@@ -50,16 +50,36 @@ def ambient_note(encounter_id: str, body: AmbientRequest, db: Session = Depends(
     vitals = db.scalar(select(models.Vitals).where(models.Vitals.encounter_id == encounter_id)
                        .order_by(models.Vitals.captured_ts.desc()))
     vitals_line = ""
+    vitals_dict: dict = {}
     if vitals:
         vitals_line = (f"Temp {vitals.temperature}°F, SpO₂ {vitals.spo2}%, "
                        f"BP {vitals.bp_systolic}/{vitals.bp_diastolic}, HR {vitals.heart_rate}.")
+        vitals_dict = {
+            "temperature": vitals.temperature,
+            "spo2": vitals.spo2,
+            "bp_systolic": vitals.bp_systolic,
+            "bp_diastolic": vitals.bp_diastolic,
+            "heart_rate": vitals.heart_rate,
+            "respiratory_rate": vitals.respiratory_rate,
+        }
+
+    # NOTE: "problems" (chronic medical issues, e.g. "Back pain", "Diabetes") and "allergies"
+    # (drug/substance allergies) are two DIFFERENT clinical concepts — they must never be
+    # conflated. Previously this endpoint mistakenly fed allergy substances in as "problems".
+    active_issues = [i.issue_name for i in (patient.issues if patient else []) if i.status == "ACTIVE"]
+    allergy_list = [
+        {"substance": a.substance, "severity": a.severity, "reaction": a.reaction}
+        for a in (patient.allergies if patient else [])
+    ]
 
     context = {
         "age": patient.age if patient else "",
         "gender": (patient.gender or "")[:1] if patient else "",
         "chief_complaint": triage.chief_complaint if triage else "",
-        "problems": ", ".join(a.substance for a in patient.allergies) if patient and patient.allergies else "none recorded",
+        "problems": ", ".join(active_issues) if active_issues else "none recorded",
+        "allergies": allergy_list,
         "vitals_line": vitals_line,
+        "vitals": vitals_dict,
     }
 
     result = agents.ambient_docs_agent(body.transcript, context)
@@ -76,19 +96,26 @@ def ambient_note(encounter_id: str, body: AmbientRequest, db: Session = Depends(
 
 # ---------------------------------------------------------------- Ambient live dictation (audio -> text)
 @router.post("/encounters/{encounter_id}/ambient/transcribe-audio")
-async def ambient_transcribe_audio(encounter_id: str, audio: UploadFile = File(...)) -> dict:
+async def ambient_transcribe_audio(
+    encounter_id: str, audio: UploadFile = File(...), language: str | None = None
+) -> dict:
     """Transcribe a short chunk of consultation audio locally (faster-whisper, "small" model
     + tuned voice-activity detection) — no audio ever leaves this server. Also tags the chunk
     with a best-effort "Speaker N" label (offline speaker-embedding clustering, scoped to this
     encounter) so the live transcript can distinguish doctor/patient turns. The frontend calls
     this every few seconds while "Start listening" is active and appends the result to the
-    live transcript."""
+    live transcript.
+
+    `language` is an optional Whisper language code (e.g. "hi", "ta", "bn") selected by the
+    doctor for multi-lingual consultations — omit or pass "auto" to let Whisper auto-detect
+    the spoken language on every chunk instead of assuming English."""
     from app.ai import asr
 
     data = await audio.read()
     suffix = os.path.splitext(audio.filename or "")[1] or ".webm"
+    lang = language if language and language != "auto" else None
     try:
-        result = asr.transcribe_audio(data, suffix=suffix, encounter_id=encounter_id)
+        result = asr.transcribe_audio(data, suffix=suffix, encounter_id=encounter_id, language=lang)
     except RuntimeError as err:
         raise HTTPException(503, str(err))
     return result
@@ -742,8 +769,16 @@ def approve_prescription(rx_id: str, body: ApproveRxRequest, db: Session = Depen
 def pharmacy_stock(drug: str | None = None, db: Session = Depends(get_db)) -> list[dict]:
     stmt = select(models.PharmacyStock)
     if drug:
+        # Search mode (e.g. doctor typing in the prescription search box) — filter server-side
+        # across the FULL catalog (1000+ medicines) so results aren't limited to whatever
+        # happened to load in an unfiltered page.
         stmt = stmt.where(func.lower(models.PharmacyStock.drug_name).like(f"%{drug.lower()}%"))
-    rows = db.scalars(stmt.limit(50)).all()
+        limit = 25
+    else:
+        # Unfiltered "browse everything" mode (e.g. Pharmacy Live Stock Monitor) — cap at a
+        # sane page size rather than dumping the entire 1000+ row catalog in one response.
+        limit = 150
+    rows = db.scalars(stmt.limit(limit)).all()
     return [{"drug_name": s.drug_name, "salt": s.salt, "drug_class": s.drug_class,
              "available": s.quantity_available - s.quantity_reserved,
              "quantity_available": s.quantity_available,

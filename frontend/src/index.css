@@ -325,6 +325,34 @@ a {
     box-shadow: 0 0 12px rgba(120, 120, 255, 0.2);
   }
 
+  /* Premium segmented tab navigation — used by the doctor workspace so the active
+     section reads as a solid, elevated "pill" rather than a flat colored rectangle. */
+  .tab-pills {
+    @apply inline-flex flex-wrap gap-1 rounded-2xl p-1.5;
+    background: rgba(20, 33, 61, 0.04);
+    border: 1px solid var(--line);
+  }
+  .tab-pill {
+    @apply inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-bold transition-all duration-200;
+    color: var(--muted);
+    background: transparent;
+    cursor: pointer;
+  }
+  .tab-pill:hover { color: var(--ink); background: rgba(255, 255, 255, 0.5); }
+  .tab-pill.is-active {
+    color: #ffffff;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%), linear-gradient(135deg, var(--cyan), var(--blue));
+    box-shadow: 0 6px 16px rgba(37,100,207, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+  }
+
+  /* Patient identity avatar — gradient initials disc with a soft elevated ring. */
+  .avatar-disc {
+    @apply grid shrink-0 place-items-center rounded-2xl font-extrabold text-white;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%), linear-gradient(135deg, var(--cyan), var(--violet));
+    box-shadow: 0 10px 24px rgba(37,100,207, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+
   .holo {
     @apply relative rounded-xl px-3.5 py-3 text-[13px];
     background: linear-gradient(180deg, rgba(37,100,207, 0.06), rgba(26,79,180, 0.05));
@@ -483,6 +511,17 @@ a {
   0% { box-shadow: 0 0 0 0 rgba(251, 111, 111, 0.6); }
   70% { box-shadow: 0 0 0 8px rgba(251, 111, 111, 0); }
   100% { box-shadow: 0 0 0 0 rgba(251, 111, 111, 0); }
+}
+.live.mint { color: #15803d; }
+.live.mint::before {
+  background: var(--mint);
+  box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7);
+  animation: pulse-mint 1.8s infinite;
+}
+@keyframes pulse-mint {
+  0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6); }
+  70% { box-shadow: 0 0 0 8px rgba(74, 222, 128, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
 }
 
 .ring {

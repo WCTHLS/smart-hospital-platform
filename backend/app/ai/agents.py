@@ -7,6 +7,7 @@ Every clinical output is returned as a *draft that requires approval*.
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 
 from app.ai import knowledge as kb
@@ -19,6 +20,12 @@ def _source() -> str:
     if not gateway.available():
         return "deterministic-engine"
     return f"llm:{gateway.active_model_name()}"
+
+
+def _any_keyword(keywords: list[str], text: str) -> bool:
+    """Word-boundary keyword match — avoids false positives like short tokens
+    (e.g. "UTI") incidentally matching inside unrelated words (e.g. "ROUTINE")."""
+    return any(re.search(r"\b" + re.escape(kw) + r"\b", text) for kw in keywords)
 
 
 # ------------------------------------------------------------------------------------ Intake Agent
@@ -111,39 +118,114 @@ def triage_agent(
 
 
 # ------------------------------------------------------------------------------- Ambient Docs Agent
+def _abnormal_vitals(vitals: dict[str, Any]) -> list[str]:
+    """Deterministic vital-sign safety check — same thresholds used at triage — so the SOAP's
+    Objective section always calls out anything dangerous even if the LLM narrative misses it."""
+    flags: list[str] = []
+    spo2 = vitals.get("spo2")
+    hr = vitals.get("heart_rate")
+    sbp = vitals.get("bp_systolic")
+    temp = vitals.get("temperature")
+    rr = vitals.get("respiratory_rate")
+    if spo2 is not None and spo2 <= kb.VITAL_THRESHOLDS["spo2_critical"]:
+        flags.append(f"SpO2 critically low ({spo2}%)")
+    if hr is not None and hr >= kb.VITAL_THRESHOLDS["hr_high"]:
+        flags.append(f"Tachycardia (HR {hr} bpm)")
+    if hr is not None and hr <= kb.VITAL_THRESHOLDS["hr_low"]:
+        flags.append(f"Bradycardia (HR {hr} bpm)")
+    if sbp is not None and sbp >= kb.VITAL_THRESHOLDS["sbp_high"]:
+        flags.append(f"Hypertensive (SBP {sbp} mmHg)")
+    if sbp is not None and sbp <= kb.VITAL_THRESHOLDS["sbp_low"]:
+        flags.append(f"Hypotensive (SBP {sbp} mmHg)")
+    if temp is not None and temp >= kb.VITAL_THRESHOLDS["temp_high"]:
+        flags.append(f"High-grade fever ({temp}°F)")
+    if rr is not None and rr >= kb.VITAL_THRESHOLDS["rr_high"]:
+        flags.append(f"Tachypnea (RR {rr}/min)")
+    return flags
+
+
 def ambient_docs_agent(transcript: str, patient_context: dict[str, Any]) -> dict[str, Any]:
     icd10 = kb.suggest_icd10(transcript)
+    # dict.fromkeys dedupes while preserving order — multiple keyword hits (e.g. "chest pain"
+    # and "crushing chest") can map to the same escalation reason text.
+    red_flags = list(dict.fromkeys(kb.detect_red_flags(transcript)))
+    abnormal_vitals = _abnormal_vitals(patient_context.get("vitals") or {})
+    allergies = patient_context.get("allergies") or []
+    allergy_names = [a.get("substance") for a in allergies if a.get("substance")]
 
     soap: dict[str, str] | None = None
     system = (
-        "You are an ambient clinical scribe. Convert the consultation transcript into a concise SOAP "
-        "note. Return STRICT JSON with keys S, O, A, P (strings). Be factual; never invent findings."
+        "You are an expert ambient clinical scribe with training equivalent to an experienced "
+        "attending physician. Convert the consultation transcript into a rigorous, clinically "
+        "sound SOAP note.\n\n"
+        "Reasoning approach (internal — do not output your reasoning, only the final JSON):\n"
+        "1. Identify the patient's own reported symptoms, duration, and severity — this is the "
+        "Subjective (S) section, written in the patient's voice/perspective.\n"
+        "2. Identify only objectively observed/measured findings (vitals, exam findings the "
+        "doctor states aloud, diagnostic results mentioned) — this is Objective (O). If vitals "
+        "are abnormal, explicitly call that out.\n"
+        "3. Synthesize a clinical Assessment (A) — likely diagnosis/differential — that is "
+        "directly supported by S and O plus the patient's known chronic problems and allergy "
+        "history (never contradict a known drug allergy).\n"
+        "4. Write an actionable Plan (P) — investigations, treatment, follow-up timeframe, and "
+        "any red-flag/safety-netting advice appropriate to the presentation.\n\n"
+        "Rules: Return STRICT JSON with keys S, O, A, P (plain strings, no markdown). Be "
+        "factual — never invent vitals, exam findings, or history not present in the transcript "
+        "or provided context. The transcript may be in any language (patients and doctors may "
+        "speak Hindi, Tamil, or other languages, and turns may be labeled 'Speaker N:') — ALWAYS "
+        "write the SOAP note itself in English, regardless of the transcript's language, so the "
+        "clinical record stays standardized."
     )
-    prompt = (
-        f"Patient: {patient_context.get('age', '?')}{patient_context.get('gender', '')}. "
-        f"Active problems: {patient_context.get('problems', 'none recorded')}.\n\n"
-        f"Transcript:\n{redact_pii(transcript)}"
-    )
+    context_lines = [
+        f"Patient: {patient_context.get('age', '?')}{patient_context.get('gender', '')}.",
+        f"Active chronic problems: {patient_context.get('problems', 'none recorded')}.",
+        f"Known drug/substance allergies: {', '.join(allergy_names) if allergy_names else 'none recorded'}.",
+    ]
+    if patient_context.get("vitals_line"):
+        context_lines.append(f"Latest vitals: {patient_context['vitals_line']}")
+    if abnormal_vitals:
+        context_lines.append(f"⚠ Abnormal vitals flagged by monitoring system: {'; '.join(abnormal_vitals)}.")
+    if icd10:
+        hints = ", ".join(f"{c['code']} ({c['label']})" for c in icd10)
+        context_lines.append(f"Candidate ICD-10 codes suggested by symptom matching (use only if clinically consistent): {hints}.")
+    if red_flags:
+        context_lines.append(f"⚠ Red-flag keywords detected in transcript — {'; '.join(red_flags)}. Reflect appropriate urgency in the Assessment/Plan if genuinely applicable.")
+
+    prompt = "\n".join(context_lines) + f"\n\nTranscript:\n{redact_pii(transcript)}"
     llm = gateway.generate_json(prompt, system=system)
     if isinstance(llm, dict) and {"S", "O", "A", "P"} <= set(llm):
         soap = {k: str(llm[k]) for k in ("S", "O", "A", "P")}
 
     if not soap:
-        # Deterministic fallback SOAP
+        # Deterministic fallback SOAP — still grounded in the same problems/allergies/vitals/
+        # red-flag context so offline quality doesn't regress just because the LLM is unreachable.
         chief = patient_context.get("chief_complaint", "the presenting complaint")
         vit = patient_context.get("vitals_line", "")
         dx = icd10[0]["label"] if icd10 else "clinical impression pending"
         code = f" (ICD-10 {icd10[0]['code']})" if icd10 else ""
+        o_parts = [vit] if vit else []
+        if abnormal_vitals:
+            o_parts.append(f"Abnormal: {'; '.join(abnormal_vitals)}.")
+        plan_parts = ["Investigations as ordered", "symptomatic treatment", "review in 48 hours or earlier if worsening"]
+        if allergy_names:
+            plan_parts.insert(0, f"avoid {', '.join(allergy_names)} and cross-reacting agents (documented allergy)")
         soap = {
             "S": f"{patient_context.get('age', '')}{patient_context.get('gender', '')} presenting with {chief}. {transcript[:200]}".strip(),
-            "O": vit or "Examination findings to be documented.",
-            "A": f"{dx}{code}.",
-            "P": "Investigations as ordered; symptomatic treatment; review in 48 hours or earlier if worsening.",
+            "O": " ".join(o_parts) if o_parts else "Examination findings to be documented.",
+            "A": f"{dx}{code}." + (f" Active chronic problem(s): {patient_context.get('problems')}." if patient_context.get("problems") and patient_context.get("problems") != "none recorded" else ""),
+            "P": "; ".join(plan_parts) + ".",
         }
 
     draft_text = f"S: {soap['S']}\nO: {soap['O']}\nA: {soap['A']}\nP: {soap['P']}"
     return envelope(
-        {"soap": soap, "icd10": icd10, "draft_text": draft_text},
+        {
+            "soap": soap,
+            "icd10": icd10,
+            "draft_text": draft_text,
+            "red_flags": red_flags,
+            "abnormal_vitals": abnormal_vitals,
+            "allergies_considered": allergy_names,
+        },
         agent="Ambient Docs",
         needs_approval=True,
         source=_source(),
@@ -594,7 +676,7 @@ Return ONLY a valid JSON object matching this schema:
     if not formulas:
         all_text = f"{chief_complaint} {' '.join(patient_issues)} {' '.join([f.get('finding', '') for f in ai_diagnostics])}".upper()
 
-        if any(kw in all_text for kw in ["ISCHEMIA", "MYOCARDIAL", "REPOLARIZATION", "ECG", "EKG", "ST-T", "ANGINA"]):
+        if _any_keyword(["ISCHEMIA", "MYOCARDIAL", "REPOLARIZATION", "ECG", "EKG", "ST-T", "ANGINA"], all_text):
             formulas.append({
                 "category": "Cardiology / Ischemic Heart Disease",
                 "formula_name": "Dual Antiplatelet Formulation",
@@ -614,7 +696,7 @@ Return ONLY a valid JSON object matching this schema:
                 "safety_note": "Check baseline hepatic enzyme levels (ALT/AST)."
             })
 
-        if any(kw in all_text for kw in ["PNEUMONIA", "LUNG", "CONSOLIDATION", "EFFUSION", "CHEST X-RAY", "HRCT"]):
+        if _any_keyword(["PNEUMONIA", "LUNG", "CONSOLIDATION", "EFFUSION", "CHEST X-RAY", "HRCT"], all_text):
             formulas.append({
                 "category": "Respiratory / Antibacterial",
                 "formula_name": "Aminopenicillin + Beta-Lactamase Inhibitor Formulation",
@@ -634,7 +716,7 @@ Return ONLY a valid JSON object matching this schema:
                 "safety_note": "Dissolve completely in water before ingestion."
             })
 
-        if any(kw in all_text for kw in ["GLUCOSE", "DIABETES", "HYPERGLYCEMIA", "HBA1C", "SUGAR"]):
+        if _any_keyword(["GLUCOSE", "DIABETES", "HYPERGLYCEMIA", "HBA1C", "SUGAR"], all_text):
             formulas.append({
                 "category": "Endocrine / Antidiabetic",
                 "formula_name": "Biguanide Glycemic Control Formulation",
@@ -643,6 +725,182 @@ Return ONLY a valid JSON object matching this schema:
                 "dosage_guidance": "1 tablet PO BID with meals x 30 days",
                 "clinical_rationale": "First-line agent to reduce hepatic glucose production and improve insulin sensitivity.",
                 "safety_note": "Monitor renal function (eGFR > 45 mL/min)."
+            })
+
+        if _any_keyword(["HYPERTENSION", "BLOOD PRESSURE", "BP HIGH", "ELEVATED BP"], all_text):
+            formulas.append({
+                "category": "Cardiology / Hypertension",
+                "formula_name": "ARB Antihypertensive Formulation",
+                "active_ingredients": "Telmisartan (40mg)",
+                "class": "Angiotensin Receptor Blocker",
+                "dosage_guidance": "1 tablet PO QD, same time daily x 30 days",
+                "clinical_rationale": "First-line agent for stage 1-2 essential hypertension and cardio-renal protection.",
+                "safety_note": "Monitor serum potassium and renal function periodically."
+            })
+
+        if _any_keyword(["ASTHMA", "COPD", "WHEEZE", "WHEEZING", "BREATHLESSNESS", "DYSPNEA", "BRONCHITIS"], all_text):
+            formulas.append({
+                "category": "Respiratory / Bronchodilator",
+                "formula_name": "Short-Acting Beta-2 Agonist Formulation",
+                "active_ingredients": "Salbutamol (100mcg) Metered Dose Inhaler",
+                "class": "Beta-2 Adrenergic Agonist",
+                "dosage_guidance": "2 puffs Q6H PRN for breathlessness/wheeze",
+                "clinical_rationale": "Rapid relief of acute bronchospasm in asthma/COPD exacerbation.",
+                "safety_note": "Watch for tremor/tachycardia with overuse; use spacer if available."
+            })
+
+        if _any_keyword(["GASTRITIS", "GERD", "ACIDITY", "PEPTIC", "ULCER", "HEARTBURN", "REFLUX"], all_text):
+            formulas.append({
+                "category": "Gastroenterology / Acid Suppression",
+                "formula_name": "Proton Pump Inhibitor Formulation",
+                "active_ingredients": "Pantoprazole (40mg)",
+                "class": "Proton Pump Inhibitor",
+                "dosage_guidance": "1 tablet PO OD before breakfast x 14 days",
+                "clinical_rationale": "Reduces gastric acid secretion for GERD, gastritis, and peptic ulcer symptom relief.",
+                "safety_note": "Take on empty stomach 30 minutes before food."
+            })
+
+        if _any_keyword(["UTI", "URINARY TRACT", "DYSURIA", "BURNING MICTURITION", "URINE INFECTION"], all_text):
+            formulas.append({
+                "category": "Urology / Antibacterial",
+                "formula_name": "Fluoroquinolone Urinary Antibacterial Formulation",
+                "active_ingredients": "Nitrofurantoin (100mg)",
+                "class": "Urinary Antiseptic",
+                "dosage_guidance": "1 capsule PO BID with food x 5 days",
+                "clinical_rationale": "First-line empirical therapy for uncomplicated lower urinary tract infection.",
+                "safety_note": "Complete full course; avoid in renal impairment (eGFR < 30)."
+            })
+
+        if _any_keyword(["MIGRAINE", "HEADACHE", "CEPHALGIA"], all_text):
+            formulas.append({
+                "category": "Neurology / Analgesic",
+                "formula_name": "Migraine Abortive Formulation",
+                "active_ingredients": "Sumatriptan (50mg)",
+                "class": "5-HT1 Receptor Agonist (Triptan)",
+                "dosage_guidance": "1 tablet PO at onset, may repeat once after 2 hours (max 2/day)",
+                "clinical_rationale": "First-line abortive therapy for moderate-to-severe migraine attacks.",
+                "safety_note": "Contraindicated with ischemic heart disease or uncontrolled hypertension."
+            })
+
+        if _any_keyword(["ALLERGY", "ALLERGIC", "RHINITIS", "URTICARIA", "ITCHING", "SNEEZING"], all_text):
+            formulas.append({
+                "category": "Allergy / Antihistamine",
+                "formula_name": "Second-Generation Antihistamine Formulation",
+                "active_ingredients": "Cetirizine (10mg)",
+                "class": "H1 Antihistamine",
+                "dosage_guidance": "1 tablet PO OD at bedtime x 5-7 days",
+                "clinical_rationale": "Relieves allergic rhinitis, urticaria, and pruritus with minimal sedation.",
+                "safety_note": "May cause mild drowsiness; avoid alcohol."
+            })
+
+        if _any_keyword(["CELLULITIS", "SKIN INFECTION", "ABSCESS", "WOUND INFECTION", "PYODERMA"], all_text):
+            formulas.append({
+                "category": "Dermatology / Antibacterial",
+                "formula_name": "Cephalosporin Skin & Soft Tissue Formulation",
+                "active_ingredients": "Cephalexin (500mg)",
+                "class": "First-Generation Cephalosporin",
+                "dosage_guidance": "1 capsule PO QID x 7 days",
+                "clinical_rationale": "First-line empirical coverage for uncomplicated skin and soft tissue infection.",
+                "safety_note": "Screen for penicillin/cephalosporin allergy before starting."
+            })
+
+        if _any_keyword(["HYPOTHYROID", "THYROID", "TSH"], all_text):
+            formulas.append({
+                "category": "Endocrine / Thyroid Replacement",
+                "formula_name": "Thyroid Hormone Replacement Formulation",
+                "active_ingredients": "Levothyroxine Sodium (50mcg)",
+                "class": "Synthetic Thyroid Hormone",
+                "dosage_guidance": "1 tablet PO OD on empty stomach, 30 min before breakfast x 30 days",
+                "clinical_rationale": "Replacement therapy for primary hypothyroidism to normalize TSH levels.",
+                "safety_note": "Recheck TSH after 6-8 weeks before dose adjustment."
+            })
+
+        if _any_keyword(["ANEMIA", "LOW HEMOGLOBIN", "HB LOW", "IRON DEFICIENCY"], all_text):
+            formulas.append({
+                "category": "Hematology / Hematinic",
+                "formula_name": "Iron Replacement Formulation",
+                "active_ingredients": "Ferrous Ascorbate (100mg) + Folic Acid (1.5mg)",
+                "class": "Oral Iron Supplement",
+                "dosage_guidance": "1 tablet PO OD after food x 30 days",
+                "clinical_rationale": "Corrects iron-deficiency anemia and replenishes depleted iron stores.",
+                "safety_note": "May cause constipation/dark stools; take with vitamin C source for absorption."
+            })
+
+        if _any_keyword(["ARTHRITIS", "JOINT PAIN", "KNEE PAIN", "BACK PAIN", "MUSCLE PAIN", "MYALGIA", "SPRAIN"], all_text):
+            formulas.append({
+                "category": "Musculoskeletal / Anti-inflammatory",
+                "formula_name": "NSAID Analgesic Formulation",
+                "active_ingredients": "Aceclofenac (100mg) + Paracetamol (325mg)",
+                "class": "Non-Steroidal Anti-Inflammatory Drug",
+                "dosage_guidance": "1 tablet PO BID after food x 5 days",
+                "clinical_rationale": "Relieves musculoskeletal pain and inflammation from arthritis, sprain, or myalgia.",
+                "safety_note": "Avoid in active peptic ulcer disease or renal impairment; take with food."
+            })
+
+        if _any_keyword(["ANXIETY", "DEPRESSION", "INSOMNIA", "SLEEP", "PANIC"], all_text):
+            formulas.append({
+                "category": "Psychiatry / Anxiolytic",
+                "formula_name": "SSRI Antidepressant Formulation",
+                "active_ingredients": "Escitalopram (10mg)",
+                "class": "Selective Serotonin Reuptake Inhibitor",
+                "dosage_guidance": "1 tablet PO OD in the morning x 30 days",
+                "clinical_rationale": "First-line agent for generalized anxiety disorder and mild-to-moderate depression.",
+                "safety_note": "Effect may take 2-4 weeks; do not discontinue abruptly. Refer to psychiatry if severe."
+            })
+
+        if _any_keyword(["SINUSITIS", "OTITIS", "EAR PAIN", "SORE THROAT", "PHARYNGITIS", "TONSILLITIS"], all_text):
+            formulas.append({
+                "category": "ENT / Antibacterial",
+                "formula_name": "Macrolide ENT Infection Formulation",
+                "active_ingredients": "Azithromycin (500mg)",
+                "class": "Macrolide Antibiotic",
+                "dosage_guidance": "1 tablet PO OD x 3 days",
+                "clinical_rationale": "Empirical coverage for bacterial sinusitis, otitis media, or tonsillopharyngitis.",
+                "safety_note": "Take on empty stomach; avoid with known macrolide/QT-prolongation history."
+            })
+
+        if _any_keyword(["DIARRHEA", "GASTROENTERITIS", "LOOSE MOTION", "VOMITING", "DEHYDRATION"], all_text):
+            formulas.append({
+                "category": "Gastroenterology / Rehydration & Antiemetic",
+                "formula_name": "Oral Rehydration & Antiemetic Formulation",
+                "active_ingredients": "ORS Solution + Ondansetron (4mg)",
+                "class": "Rehydration Salt + 5-HT3 Antagonist",
+                "dosage_guidance": "ORS ad lib after every loose stool; Ondansetron 1 tablet PO Q8H PRN for vomiting",
+                "clinical_rationale": "Prevents dehydration and controls vomiting in acute gastroenteritis.",
+                "safety_note": "Seek urgent care if signs of severe dehydration or blood in stool."
+            })
+
+        if _any_keyword(["FEVER", "VIRAL", "FLU", "INFLUENZA", "COLD", "COUGH", "URI", "COMMON COLD"], all_text):
+            formulas.append({
+                "category": "General / Antipyretic & Cough-Cold",
+                "formula_name": "Antipyretic + Antitussive Formulation",
+                "active_ingredients": "Paracetamol (650mg) + Cetirizine (5mg) + Dextromethorphan (10mg)",
+                "class": "Antipyretic / Antihistamine / Antitussive Combination",
+                "dosage_guidance": "1 tablet PO Q8H PRN for fever/cough/cold symptoms x 3-5 days",
+                "clinical_rationale": "Symptomatic relief for viral upper respiratory tract infection / common cold / flu.",
+                "safety_note": "Do not exceed 3,000mg paracetamol/day; hydrate adequately and rest."
+            })
+
+        if _any_keyword(["CONSTIPATION", "BOWEL"], all_text):
+            formulas.append({
+                "category": "Gastroenterology / Laxative",
+                "formula_name": "Osmotic Laxative Formulation",
+                "active_ingredients": "Lactulose Solution (10g/15mL)",
+                "class": "Osmotic Laxative",
+                "dosage_guidance": "15mL PO OD-BID as needed",
+                "clinical_rationale": "Softens stool and promotes bowel movement for simple constipation.",
+                "safety_note": "Ensure adequate fluid intake; may cause bloating initially."
+            })
+
+        if _any_keyword(["TUBERCULOSIS", "TB", "AFB", "MANTOUX"], all_text):
+            formulas.append({
+                "category": "Infectious Disease / Anti-Tubercular",
+                "formula_name": "First-Line Anti-Tubercular Combination Formulation",
+                "active_ingredients": "Rifampicin + Isoniazid + Pyrazinamide + Ethambutol (Fixed-Dose Combination)",
+                "class": "Anti-Tubercular Therapy (ATT)",
+                "dosage_guidance": "As per weight-band FDC dosing PO OD on empty stomach x per DOTS protocol",
+                "clinical_rationale": "Standard first-line intensive-phase regimen for confirmed pulmonary/extrapulmonary TB.",
+                "safety_note": "Baseline and periodic LFTs required; refer to TB/DOTS program for monitoring."
             })
 
         if not formulas:
@@ -670,5 +928,34 @@ Return ONLY a valid JSON object matching this schema:
         source=_source(),
         citations=["Evidence-Based Clinical Pharmacology & Formulary Guidelines"],
     )
+
+
+# ---------------------------------------------------------------------------- Translation Agent
+def translate_agent(text: str, target_language: str) -> dict[str, Any]:
+    """Translate clinical text (e.g. a SOAP note or transcript) for a doctor to read in a
+    language other than the one it was written/spoken in — e.g. so a doctor can explain an
+    English SOAP note back to a patient in Hindi/Tamil/etc., or read a non-English transcript.
+    This is a REFERENCE-ONLY view: it never changes the underlying approved clinical record,
+    which always stays in the language it was actually authored/approved in.
+
+    Returns {"translated_text": str, "translated": bool} — translated=False (with the original
+    text echoed back) if no LLM is reachable, since offline machine translation isn't part of
+    this project's deterministic fallback engine."""
+    text = (text or "").strip()
+    if not text:
+        return {"translated_text": "", "translated": False}
+
+    system = (
+        "You are a medical translator. Translate the given clinical text accurately and "
+        "naturally into the requested target language. Preserve clinical meaning exactly — "
+        "do not add, remove, or infer any information. Return ONLY the translated text, with "
+        "no preamble, quotes, or explanation."
+    )
+    prompt = f"Target language: {target_language}\n\nText to translate:\n{text}"
+    translated = gateway.generate(prompt, system=system, temperature=0.1)
+    if translated:
+        return {"translated_text": translated.strip(), "translated": True}
+    return {"translated_text": text, "translated": False}
+
 
 

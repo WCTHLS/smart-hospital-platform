@@ -49,9 +49,15 @@ export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: 
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
 
+  // Lab side (LabWorkspace.tsx) polls every 5s and can publish a result at any time —
+  // this view is only ever invalidated by the doctor's OWN order actions below, so
+  // without its own poll a "RESULTED" status would never appear until the doctor
+  // navigates away and back. Same gap/fix as the patient "My Status" board.
   const { data } = useQuery({ 
     queryKey: ["lab", encounterId], 
-    queryFn: () => api.encounterLab(encounterId) 
+    queryFn: () => api.encounterLab(encounterId),
+    refetchInterval: 5000,
+    staleTime: 0,
   });
 
   const toggleTest = (t: string) => setSel((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));

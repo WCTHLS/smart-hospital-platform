@@ -23,6 +23,17 @@ export default function Triage() {
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<any>(null);
 
+  // Suggested/pre-populated intake — best-effort autofill so the nurse has fewer blank
+  // fields to type from scratch. Always editable, never trusted as-is: cleared the
+  // moment any vital is hand-edited, and the source is always disclosed in the UI.
+  const [vitalsSuggested, setVitalsSuggested] = useState(false);
+  const [suggestSource, setSuggestSource] = useState<string | null>(null);
+
+  const [overriding, setOverriding] = useState(false);
+  const [overrideAcuity, setOverrideAcuity] = useState("3");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideBusy, setOverrideBusy] = useState(false);
+
   const { data: staff } = useQuery({ 
     queryKey: ["triage-staff"], 
     queryFn: api.triageStaff 
@@ -51,10 +62,21 @@ export default function Triage() {
     setRes(null);
   };
 
-  const selectPatient = (encounter: any) => {
+  // Extract a spoken duration phrase (e.g. "3 days", "2 weeks") out of free-text so the
+  // Duration field isn't left blank when the complaint already states it.
+  const guessDuration = (text: string): string => {
+    const m = (text || "").match(/\b(\d+)\s*(hour|hours|day|days|week|weeks|month|months)\b/i);
+    return m ? `${m[1]} ${m[2].toLowerCase()}` : "";
+  };
+
+  const selectPatient = async (encounter: any) => {
     setRes(null);
-    setSymptom(encounter.reason || "");
-    setDuration("");
+    setOverriding(false);
+    setOverrideReason("");
+    const reason = encounter.reason || "";
+    setSymptom(reason);
+    setDuration(guessDuration(reason));
+    // Blank until the best-effort suggestion below resolves (or falls back to normal ranges).
     setV({
       bp_systolic: "" as any,
       bp_diastolic: "" as any,
@@ -64,6 +86,8 @@ export default function Triage() {
       weight_kg: "" as any,
       height_cm: "" as any,
     });
+    setVitalsSuggested(false);
+    setSuggestSource(null);
     setJourney({
       patientId: encounter.patient.patient_id,
       patientName: encounter.patient.name,
@@ -72,6 +96,34 @@ export default function Triage() {
       token: null,
       chiefComplaint: null,
     });
+
+    // Best-effort: pull this patient's last recorded vitals (if any) as a starting point;
+    // otherwise fall back to typical normal-range values. Never blocks triage if it fails
+    // (e.g. consent not yet on file) — the form just stays blank as before.
+    try {
+      const p360 = await api.patient360(encounter.patient.patient_id);
+      const lv = p360?.latest_vitals;
+      if (lv) {
+        const [sys, dia] = String(lv.bp || "").split("/").map((n: string) => Number(n));
+        setV({
+          bp_systolic: (Number.isFinite(sys) ? sys : "") as any,
+          bp_diastolic: (Number.isFinite(dia) ? dia : "") as any,
+          spo2: (lv.spo2 ?? "") as any,
+          heart_rate: (lv.heart_rate ?? "") as any,
+          temperature: (lv.temperature ?? "") as any,
+          weight_kg: (lv.weight_kg ?? "") as any,
+          height_cm: (lv.height_cm ?? "") as any,
+        });
+        setVitalsSuggested(true);
+        setSuggestSource("this patient's last recorded vitals");
+      } else {
+        setV({ bp_systolic: 120 as any, bp_diastolic: 80 as any, spo2: 98 as any, heart_rate: 78 as any, temperature: 98.6 as any, weight_kg: "" as any, height_cm: "" as any });
+        setVitalsSuggested(true);
+        setSuggestSource("typical normal range — no prior vitals on file");
+      }
+    } catch {
+      // Leave the form blank; suggestion is purely a convenience, not a requirement.
+    }
   };
 
   const backToQueue = () => {
@@ -86,7 +138,10 @@ export default function Triage() {
     qc.invalidateQueries({ queryKey: ["triage-queue"] });
   };
 
-  const upd = (k: string, val: string) => setV((s) => ({ ...s, [k]: val === "" ? "" : Number(val) }));
+  const upd = (k: string, val: string) => {
+    setV((s) => ({ ...s, [k]: val === "" ? "" : Number(val) }));
+    setVitalsSuggested(false); // once hand-edited, this is a real reading — drop the disclaimer
+  };
 
   async function run() {
     if (!journey.encounterId) return;
@@ -99,6 +154,7 @@ export default function Triage() {
         vitals: v,
       });
       setRes(r);
+      setOverrideAcuity(r.triage.result.acuity_level);
       setJourney({ token: r.token.number, department: r.token.department });
       qc.invalidateQueries({ queryKey: ["triage-queue"] });
       qc.invalidateQueries({ queryKey: ["doctor-queue"] });
@@ -106,6 +162,31 @@ export default function Triage() {
       alert(err?.message || "Failed to submit triage.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function submitOverride() {
+    if (!journey.encounterId || !overrideReason.trim()) return;
+    setOverrideBusy(true);
+    try {
+      const r = await api.overrideTriage(journey.encounterId, {
+        acuity_level: overrideAcuity,
+        reason: overrideReason.trim(),
+        overridden_by: selectedStaffId || undefined,
+      });
+      setRes((prev: any) => (prev ? {
+        ...prev,
+        triage: { ...prev.triage, result: { ...prev.triage.result, acuity_level: r.triage.acuity_level } },
+        override: r.triage,
+        encounter_status: r.encounter_status,
+      } : prev));
+      setOverriding(false);
+      setOverrideReason("");
+      qc.invalidateQueries({ queryKey: ["doctor-queue"] });
+    } catch (err: any) {
+      alert(err?.message || "Failed to override acuity.");
+    } finally {
+      setOverrideBusy(false);
     }
   }
 
@@ -257,6 +338,14 @@ export default function Triage() {
               />
             </Field>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              {vitalsSuggested && (
+                <div
+                  className="col-span-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] font-semibold md:col-span-3"
+                  style={{ background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", color: "#92400e" }}
+                >
+                  ⚡ Suggested from {suggestSource} — please re-measure and confirm before submitting.
+                </div>
+              )}
               <Field label="BP systolic">
                 <input 
                   className="input text-center" 
@@ -348,11 +437,13 @@ export default function Triage() {
               )}
               <Card>
                 <div className="flex items-center gap-4">
+                  <Ring percent={ACUITY_PCT[tr.acuity_level] ?? 50} label={`ESI ${tr.acuity_level}`} sub="acuity" />
                   <div className="flex-1 text-xs">
                     <div className="kv"><span>Chief complaint</span><b>{res.intake.result.chief_complaint}</b></div>
                     <div className="kv"><span>Routed to</span><b>{tr.specialty}</b></div>
                     <div className="kv"><span>Doctor</span><b>{res.doctor?.name || "—"}</b></div>
                     <div className="mt-2 flex gap-1.5 items-center">
+                      <Tag tone={acuityTone(tr.acuity_level)}>ESI {tr.acuity_level}</Tag>
                       {tr.red_flag && <Tag tone="red">RED FLAG</Tag>}
                       <AgentBadge label="Triage" />
                     </div>
@@ -361,6 +452,55 @@ export default function Triage() {
                 <div className="mt-3 holo text-[12.5px] text-slate-300">
                   <b>Rationale:</b> {tr.rationale}
                 </div>
+
+                {res.override && (
+                  <div className="mt-3 text-[12px] text-amber-300">
+                    <ShieldAlert size={13} className="inline -mt-0.5 mr-1" />
+                    Overridden to ESI {res.override.acuity_level} (AI suggested {res.override.ai_acuity_level}) — {res.override.override_reason}
+                  </div>
+                )}
+
+                {!overriding ? (
+                  <button
+                    type="button"
+                    className="btn ghost mt-3 w-full text-xs"
+                    onClick={() => { setOverrideAcuity(tr.acuity_level); setOverriding(true); }}
+                  >
+                    <LockKeyhole size={13} /> Override acuity
+                  </button>
+                ) : (
+                  <div className="mt-3 space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+                    <Field label="Corrected ESI level">
+                      <select className="input" value={overrideAcuity} onChange={(e) => setOverrideAcuity(e.target.value)}>
+                        {["1", "2", "3", "4", "5"].map((level) => (
+                          <option key={level} value={level}>ESI {level}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Reason for override (required)">
+                      <textarea
+                        className="input"
+                        rows={2}
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        placeholder="e.g. Patient appears more distressed than vitals suggest…"
+                      />
+                    </Field>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="btn flex-1 text-xs"
+                        disabled={overrideBusy || !overrideReason.trim()}
+                        onClick={submitOverride}
+                      >
+                        {overrideBusy ? "Saving…" : "Save override"}
+                      </button>
+                      <button type="button" className="btn ghost flex-1 text-xs" onClick={() => setOverriding(false)}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </Card>
 
               <Card className="text-center space-y-2">
