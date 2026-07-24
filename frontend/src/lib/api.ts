@@ -96,6 +96,8 @@ export const api = {
   recentTriageEncounters: () => get<any[]>("/api/v1/triage/recent"),
   triage: (encounter_id: string, body: any) =>
     post<any>(`/api/v1/encounters/${encounter_id}/triage`, body),
+  overrideTriage: (encounter_id: string, body: any) =>
+    post<any>(`/api/v1/encounters/${encounter_id}/triage/override`, body),
   triageQueue: () => get<any>("/api/v1/triage/queue"),
   encounter: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}`),
   encounterAuditLogs: (encounter_id: string) => get<any[]>(`/api/v1/encounters/${encounter_id}/audit-logs`),

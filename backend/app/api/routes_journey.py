@@ -35,6 +35,7 @@ from app.schemas import (
     PatientProfileUpdateRequest,
     PatientRegistrationRequest,
     TriageRequest,
+    TriageOverrideRequest,
 )
 from app.twilio_verify import check_otp, send_otp
 
@@ -1413,6 +1414,110 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
     }
 
 
+@router.post("/encounters/{encounter_id}/triage/override")
+def override_triage(
+    encounter_id: str,
+    body: TriageOverrideRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    encounter = _get_encounter(db, encounter_id)
+    triage = db.scalar(
+        select(models.Triage)
+        .where(models.Triage.encounter_id == encounter_id)
+        .order_by(models.Triage.created_ts.desc())
+    )
+    if not triage:
+        raise HTTPException(404, "Complete triage before changing its routing")
+    if body.acuity_level not in {"1", "2", "3", "4", "5"}:
+        raise HTTPException(400, "Acuity level must be between 1 and 5")
+    if not body.reason.strip():
+        raise HTTPException(400, "An override reason is required")
+
+    doctor = db.get(models.Staff, body.doctor_id)
+    if not doctor or doctor.role != "DOCTOR":
+        raise HTTPException(404, "Selected doctor was not found")
+    if doctor.specialty != body.specialty:
+        raise HTTPException(400, "Selected doctor does not belong to the selected specialty")
+    if not doctor.available:
+        raise HTTPException(400, "Selected doctor is not currently available")
+
+    previous_acuity = triage.acuity_level
+    previous_specialty = triage.specialty
+    previous_doctor_id = triage.recommended_doctor_id
+
+    triage.acuity_level = body.acuity_level
+    triage.specialty = body.specialty
+    triage.recommended_doctor_id = doctor.staff_id
+    encounter.department = body.specialty
+    encounter.doctor_id = doctor.staff_id
+    encounter.status = (
+        "EMERGENCY"
+        if body.acuity_level == "1" and triage.red_flag
+        else "TRIAGED"
+    )
+
+    token = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter_id)
+        .order_by(models.Token.issued_ts.desc())
+    )
+    if token:
+        token.department = body.specialty
+        token.room = doctor.room or _ROOMS.get(body.specialty, ("Room 1", "Floor 1"))[0]
+        token.floor = doctor.floor or _ROOMS.get(body.specialty, ("Room 1", "Floor 1"))[1]
+
+    audit(
+        db,
+        actor_id=body.overridden_by,
+        actor_role="NURSE",
+        action="TRIAGE_OVERRIDDEN",
+        entity_type="encounter",
+        entity_id=encounter_id,
+        metadata={
+            "reason": body.reason.strip(),
+            "previous_acuity": previous_acuity,
+            "acuity": body.acuity_level,
+            "previous_specialty": previous_specialty,
+            "specialty": body.specialty,
+            "previous_doctor_id": previous_doctor_id,
+            "doctor_id": doctor.staff_id,
+        },
+    )
+    db.commit()
+
+    bus.publish(
+        Topics.TRIAGE_COMPLETED,
+        {
+            "encounter_id": encounter_id,
+            "acuity": body.acuity_level,
+            "specialty": body.specialty,
+            "red_flag": triage.red_flag,
+            "overridden": True,
+        },
+    )
+
+    return {
+        "triage": {
+            "acuity_level": triage.acuity_level,
+            "ai_acuity_level": previous_acuity,
+            "specialty": triage.specialty,
+            "doctor": {
+                "id": doctor.staff_id,
+                "name": doctor.name,
+                "specialty": doctor.specialty,
+            },
+            "override_reason": body.reason.strip(),
+        },
+        "token": None if not token else {
+            "number": token.token_number,
+            "department": token.department,
+            "room": token.room,
+            "floor": token.floor,
+        },
+        "encounter_status": encounter.status,
+    }
+
+
 @router.get("/encounters/{encounter_id}")
 def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
     e = _get_encounter(db, encounter_id)
@@ -1508,6 +1613,34 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         .where(models.EncounterAuditLog.encounter_id == encounter_id)
         .order_by(models.EncounterAuditLog.created_ts.asc())
     ).all()
+    routing_override_log = db.scalar(
+        select(models.AuditLog)
+        .where(models.AuditLog.entity_id == encounter_id)
+        .where(models.AuditLog.action == "TRIAGE_OVERRIDDEN")
+        .order_by(models.AuditLog.event_ts.desc())
+    )
+    routing_override = None
+    if routing_override_log:
+        override_metadata = routing_override_log.audit_metadata or {}
+        previous_doctor_id = override_metadata.get("previous_doctor_id")
+        updated_doctor_id = override_metadata.get("doctor_id")
+        if previous_doctor_id != updated_doctor_id:
+            override_nurse = (
+                db.get(models.Staff, routing_override_log.actor_id)
+                if routing_override_log.actor_id else None
+            )
+            updated_doctor = db.get(models.Staff, updated_doctor_id) if updated_doctor_id else None
+            routing_override = {
+                "doctor_changed": True,
+                "doctor_name": updated_doctor.name if updated_doctor else "the assigned doctor",
+                "specialty": override_metadata.get("specialty"),
+                "changed_by": override_nurse.name if override_nurse else "the triage nurse",
+                "reason": override_metadata.get("reason"),
+                "changed_at": (
+                    routing_override_log.event_ts.isoformat()
+                    if routing_override_log.event_ts else None
+                ),
+            }
 
     return {
         "encounter_id": e.encounter_id, "appointment_id": e.appointment_id,
@@ -1518,6 +1651,7 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
         "channel": e.channel, "arrival": e.arrival_ts.isoformat(),
         "notes": clean_notes,
         "patient_original_reason": appointment.reason if (appointment and appointment.reason) else clean_notes,
+        "routing_override": routing_override,
         "audit_logs": [
             {
                 "audit_id": log.audit_id,
@@ -1548,7 +1682,8 @@ def get_encounter(encounter_id: str, db: Session = Depends(get_db)) -> dict:
                                          "patients_ahead": _calculate_patients_ahead(db, e.encounter_id)},
         "vitals": None if not vitals else {
             "bp": f"{vitals.bp_systolic}/{vitals.bp_diastolic}", "spo2": vitals.spo2,
-            "heart_rate": vitals.heart_rate, "temperature": vitals.temperature, "bmi": vitals.bmi
+            "heart_rate": vitals.heart_rate, "temperature": vitals.temperature,
+            "weight_kg": vitals.weight_kg, "height_cm": vitals.height_cm, "bmi": vitals.bmi
         },
         "note": None if not note else {
             "note_id": note.note_id, "note_type": note.note_type, "final_text": note.final_text,

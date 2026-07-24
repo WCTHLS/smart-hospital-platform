@@ -83,8 +83,13 @@ export default function AppointmentBooking() {
   async function findAvailability() {
     setBusy(true);
     setError("");
+    setSelectedSlot(null);
     try {
-      const result = await api.appointmentSlots({ patient_id: session.patient_id, appointment_date: date, reason });
+      const result = await api.appointmentSlots({
+        patient_id: session.patient_id,
+        appointment_date: date,
+        reason,
+      });
       setSpecialty(result.specialty);
       setSlots(result.slots ?? []);
       setStep("slots");
@@ -212,13 +217,17 @@ export default function AppointmentBooking() {
         <Field label="Date"><input className="input" type="date" min={todayIso()} value={date} onChange={(event) => setDate(event.target.value)} /></Field>
         <div className="actions-row between">
           <button className="btn-link" onClick={() => setStep("reason")}><ArrowLeft size={14} /> Back</button>
-          <button className="btn g" disabled={busy || !date} onClick={findAvailability}>Show availability</button>
+          <button className="btn g" disabled={busy || !date} onClick={() => void findAvailability()}>Show availability</button>
         </div>
       </>}
 
       {step === "slots" && <>
-        <div><h3 className="text-lg font-extrabold">Available doctors and slots</h3><p className="text-sm" style={{ color: "var(--muted)" }}>Speciality: {specialty}</p></div>
-        {!doctors.length && <div className="holo">No doctors or slots are available on this date.</div>}
+        <div>
+          <h3 className="text-lg font-extrabold">Available doctors and slots</h3>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>Mapped speciality: <b>{specialty}</b></p>
+        </div>
+        {busy && <div className="holo">Loading {specialty} doctors and slots...</div>}
+        {!busy && !doctors.length && <div className="holo">No {specialty} doctors or slots are available on this date.</div>}
         {doctors.map(({ doctor, slots: doctorSlots }) => <div className="holo" key={doctor.doctor_id}>
           <div className="flex items-start justify-between gap-3"><div><b>{doctor.doctor_name}</b><div className="text-xs" style={{ color: "var(--muted)" }}>{doctor.specialty}</div></div><UserRound size={18} /></div>
           <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-thin">{doctorSlots.map((slot) => {

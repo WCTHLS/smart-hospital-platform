@@ -126,6 +126,18 @@ export default function PatientDashboard() {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
+  function appointmentDate(value: string) {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (isNaN(parsed.getTime())) return value.slice(0, 10);
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(parsed);
+  }
+
   async function handlePhotoUpload(file?: File) {
     if (!file) return;
     setPhotoError("");
@@ -689,6 +701,7 @@ export default function PatientDashboard() {
           <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {appointments.map((appointment: any) => {
               const isActive = appointment.appointment_id === showAppointmentId;
+              const appointmentDay = appointmentDate(appointment.scheduled_start);
               return (
                 <button
                   key={appointment.appointment_id}
@@ -705,14 +718,13 @@ export default function PatientDashboard() {
                 >
                   <div className="flex justify-between items-center mb-1">
                     <span className="font-bold text-[var(--ink)]">
-                      {appointment.scheduled_start?.slice(0, 10) === today ? "Today" : "Upcoming Visit"}
+                      {appointmentDay}
+                      {appointmentDay === today && <span className="ml-1.5 text-[var(--cyan)]">Today</span>}
                     </span>
-                    <Tag tone="amber">Booked</Tag>
+                    <Tag tone="amber">{appointment.status || "BOOKED"}</Tag>
                   </div>
-                  <div className="truncate font-bold text-[var(--ink)]">{appointment.doctor?.name ?? "Assigned doctor"}</div>
-                  <div className="mt-1 text-[var(--muted)]">
-                    {appointment.specialty} · {new Date(appointment.scheduled_start).toLocaleDateString()}
-                    {" · "}{timeLabel(appointment.scheduled_start)}
+                  <div className="truncate text-[var(--muted)]">
+                    {appointment.doctor?.name ?? "Assigned doctor"} · {appointment.specialty} · {timeLabel(appointment.scheduled_start)}
                   </div>
                   <div className="mt-1 text-[var(--muted)]">Reason: {appointment.reason || "Not provided"}</div>
                 </button>
@@ -820,6 +832,20 @@ export default function PatientDashboard() {
         {showEncounterId && encDetails && encDetails.status !== "DISCHARGED" && encDetails.visit_type !== "E_CONSULT" && (
           <StageTracker stage={stage} token={token} />
         )}
+
+        {showEncounterId && (encDetails?.routing_override || parentEncDetails?.routing_override) && (() => {
+          const routingChange = encDetails?.routing_override || parentEncDetails?.routing_override;
+          return (
+            <div className="flex items-start gap-2 rounded-xl border border-sky-600/20 bg-sky-600/5 px-3 py-2 text-xs text-sky-800">
+              <Info size={14} className="mt-0.5 shrink-0" />
+              <span>
+                Your doctor was updated by the Triage Department to{" "}
+                <b>{routingChange.doctor_name}</b>
+                {routingChange.specialty ? ` (${routingChange.specialty})` : ""}.
+              </span>
+            </div>
+          );
+        })()}
 
         {/* State 1: Booked appointment selected but check-in is not done */}
         {showAppointmentId && selectedApp && (
@@ -1291,10 +1317,9 @@ export default function PatientDashboard() {
               </div>
             </Card>
 
-            {/* Vitals and Lab Results */}
-            <VitalsAndLabs 
-              latestVitals={encDetails.vitals} 
-              orders={encDetails.labs || []} 
+            <VitalsAndLabs
+              latestVitals={encDetails.vitals}
+              orders={encDetails.labs || []}
             />
           </div>
         )}
@@ -1736,18 +1761,18 @@ export default function PatientDashboard() {
               </Card>
             )}
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4">
+              <VitalsAndLabs 
+                latestVitals={parentEncDetails?.vitals || encDetails.vitals} 
+                orders={parentEncDetails?.labs || encDetails.labs || labDetails?.orders || []} 
+              />
+
               <ConsultationSummary 
                 encounterId={parentEncounterId!}
                 triage={parentEncDetails?.triage || encDetails.triage} 
                 appointment={parentEncDetails?.appointment || encDetails.appointment}
                 notes={parentEncDetails?.notes || encDetails.notes}
                 note={parentEncDetails?.note || encDetails.note}
-              />
-
-              <VitalsAndLabs 
-                latestVitals={parentEncDetails?.vitals || encDetails.vitals} 
-                orders={parentEncDetails?.labs || encDetails.labs || labDetails?.orders || []} 
               />
             </div>
           </>

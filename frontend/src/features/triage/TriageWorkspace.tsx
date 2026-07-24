@@ -33,6 +33,8 @@ export default function Triage() {
 
   const [overriding, setOverriding] = useState(false);
   const [overrideAcuity, setOverrideAcuity] = useState("3");
+  const [overrideSpecialty, setOverrideSpecialty] = useState("");
+  const [overrideDoctorId, setOverrideDoctorId] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
   const [overrideBusy, setOverrideBusy] = useState(false);
 
@@ -45,6 +47,12 @@ export default function Triage() {
   const { data: staff } = useQuery({ 
     queryKey: ["triage-staff"], 
     queryFn: api.triageStaff 
+  });
+
+  const { data: doctors } = useQuery({
+    queryKey: ["doctors"],
+    queryFn: api.doctors,
+    enabled: !!selectedStaffId,
   });
 
   const { data: queue, refetch: refetchQueue } = useQuery({
@@ -187,6 +195,8 @@ export default function Triage() {
       });
       setRes(r);
       setOverrideAcuity(r.triage.result.acuity_level);
+      setOverrideSpecialty(r.triage.result.specialty);
+      setOverrideDoctorId(r.doctor?.id || "");
       setJourney({ token: r.token.number, department: r.token.department });
       qc.invalidateQueries({ queryKey: ["triage-queue"] });
       qc.invalidateQueries({ queryKey: ["triage-recent-queue"] });
@@ -204,12 +214,23 @@ export default function Triage() {
     try {
       const r = await api.overrideTriage(journey.encounterId, {
         acuity_level: overrideAcuity,
+        specialty: overrideSpecialty,
+        doctor_id: overrideDoctorId,
         reason: overrideReason.trim(),
         overridden_by: selectedStaffId || undefined,
       });
       setRes((prev: any) => (prev ? {
         ...prev,
-        triage: { ...prev.triage, result: { ...prev.triage.result, acuity_level: r.triage.acuity_level } },
+        triage: {
+          ...prev.triage,
+          result: {
+            ...prev.triage.result,
+            acuity_level: r.triage.acuity_level,
+            specialty: r.triage.specialty,
+          },
+        },
+        doctor: r.triage.doctor,
+        token: r.token ? { ...prev.token, ...r.token } : prev.token,
         override: r.triage,
         encounter_status: r.encounter_status,
       } : prev));
@@ -224,6 +245,17 @@ export default function Triage() {
   }
 
   const tr = res?.triage?.result;
+  const doctorList = doctors || [];
+  const specialtyOptions = Array.from(
+    new Set(doctorList.map((doctor: any) => doctor.specialty).filter(Boolean))
+  ).sort((a: any, b: any) => {
+    if (a === "General Medicine") return -1;
+    if (b === "General Medicine") return 1;
+    return String(a).localeCompare(String(b));
+  }) as string[];
+  const overrideDoctors = doctorList.filter(
+    (doctor: any) => doctor.specialty === overrideSpecialty && doctor.available
+  );
 
   // Render Login state
   if (!selectedStaffId) {
@@ -586,9 +618,14 @@ export default function Triage() {
                   <button
                     type="button"
                     className="btn ghost mt-3 w-full text-xs"
-                    onClick={() => { setOverrideAcuity(tr.acuity_level); setOverriding(true); }}
+                    onClick={() => {
+                      setOverrideAcuity(tr.acuity_level);
+                      setOverrideSpecialty(tr.specialty);
+                      setOverrideDoctorId(res.doctor?.id || "");
+                      setOverriding(true);
+                    }}
                   >
-                    <LockKeyhole size={13} /> Override acuity
+                    <LockKeyhole size={13} /> Review / change routing
                   </button>
                 ) : (
                   <div className="mt-3 space-y-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
@@ -596,6 +633,38 @@ export default function Triage() {
                       <select className="input" value={overrideAcuity} onChange={(e) => setOverrideAcuity(e.target.value)}>
                         {["1", "2", "3", "4", "5"].map((level) => (
                           <option key={level} value={level}>ESI {level}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Speciality">
+                      <select
+                        className="input"
+                        value={overrideSpecialty}
+                        onChange={(e) => {
+                          const nextSpecialty = e.target.value;
+                          setOverrideSpecialty(nextSpecialty);
+                          const firstDoctor = doctorList.find(
+                            (doctor: any) => doctor.specialty === nextSpecialty && doctor.available
+                          );
+                          setOverrideDoctorId(firstDoctor?.doctor_id || "");
+                        }}
+                      >
+                        {specialtyOptions.map((specialty) => (
+                          <option key={specialty} value={specialty}>{specialty}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Assigned doctor">
+                      <select
+                        className="input"
+                        value={overrideDoctorId}
+                        onChange={(e) => setOverrideDoctorId(e.target.value)}
+                      >
+                        <option value="">Select an available doctor</option>
+                        {overrideDoctors.map((doctor: any) => (
+                          <option key={doctor.doctor_id} value={doctor.doctor_id}>
+                            {doctor.name} · {doctor.room || "Room not assigned"}
+                          </option>
                         ))}
                       </select>
                     </Field>
@@ -612,7 +681,7 @@ export default function Triage() {
                       <button
                         type="button"
                         className="btn flex-1 text-xs"
-                        disabled={overrideBusy || !overrideReason.trim()}
+                        disabled={overrideBusy || !overrideReason.trim() || !overrideSpecialty || !overrideDoctorId}
                         onClick={submitOverride}
                       >
                         {overrideBusy ? "Saving…" : "Save override"}

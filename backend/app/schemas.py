@@ -166,6 +166,14 @@ class TriageRequest(BaseModel):
     vitals: VitalsIn | None = None
 
 
+class TriageOverrideRequest(BaseModel):
+    acuity_level: str
+    specialty: str
+    doctor_id: str
+    reason: str
+    overridden_by: str | None = None
+
+
 class AppointmentSlotsRequest(BaseModel):
     encounter_id: str | None = None
     patient_id: str | None = None
