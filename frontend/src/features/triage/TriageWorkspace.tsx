@@ -364,20 +364,20 @@ export default function Triage() {
 
         <div className="space-y-4 mt-8 border-t border-[var(--glass-border)] pt-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-md font-bold flex items-center gap-2 text-slate-200">
-              <Stethoscope size={18} className="text-emerald-400" /> Recently Triaged Patients
+            <h3 className="text-md font-bold flex items-center gap-2 text-[var(--ink)]">
+              <Stethoscope size={18} className="text-emerald-700" /> Recently Triaged Patients
             </h3>
             <span className="text-[11px] text-[var(--muted)]">TODAY'S VISITS</span>
           </div>
 
           {!recentQueue?.length ? (
-            <div className="p-4 rounded-xl border border-dashed border-white/10 text-center text-xs text-[var(--muted)]">
+            <div className="p-4 rounded-xl border border-dashed border-[var(--line2)] bg-white/40 text-center text-xs text-[var(--muted)]">
               No patients triaged by your team yet today.
             </div>
           ) : (
             <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
               {recentQueue.map((encounter: any) => (
-                <Card key={encounter.encounter_id} className="border-emerald-500/10 flex flex-col justify-between">
+                <Card key={encounter.encounter_id} className="border-emerald-600/20 flex flex-col justify-between">
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <Tag tone="green">Triaged</Tag>
@@ -388,18 +388,18 @@ export default function Triage() {
                       )}
                     </div>
                     <div>
-                      <h4 className="text-base font-extrabold text-[#dce9ff]">{encounter.patient?.name}</h4>
+                      <h4 className="text-base font-extrabold text-[var(--ink)]">{encounter.patient?.name}</h4>
                       <p className="text-[12px] text-[var(--muted)]">
                         {encounter.patient?.age} yrs · {encounter.patient?.gender} · {encounter.patient?.mobile}
                       </p>
                     </div>
                     {encounter.triage?.chief_complaint && (
-                      <div className="p-2 rounded bg-white/5 text-[11px] text-slate-300">
+                      <div className="p-2 rounded border border-[var(--line)] bg-[rgba(37,100,207,0.05)] text-[11px] text-[var(--muted)]">
                         <b>Complaint:</b> {encounter.triage.chief_complaint}
                       </div>
                     )}
                     {encounter.vitals && (
-                      <div className="grid grid-cols-3 gap-1.5 text-[10px] text-emerald-300 bg-emerald-500/5 p-1.5 rounded border border-emerald-500/10">
+                      <div className="grid grid-cols-3 gap-1.5 text-[10px] text-emerald-800 bg-emerald-500/5 p-1.5 rounded border border-emerald-600/20">
                         <div>Temp: <b>{encounter.vitals.temperature}°F</b></div>
                         <div>BP: <b>{encounter.vitals.bp_systolic}/{encounter.vitals.bp_diastolic}</b></div>
                         <div>SpO2: <b>{encounter.vitals.spo2}%</b></div>
@@ -408,7 +408,7 @@ export default function Triage() {
                   </div>
                   <button 
                     onClick={() => selectPatient(encounter)} 
-                    className="btn outline mt-4 w-full text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/10"
+                    className="btn ghost mt-4 w-full"
                   >
                     Edit / Correct Triage
                   </button>
