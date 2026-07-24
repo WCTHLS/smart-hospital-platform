@@ -224,7 +224,7 @@ export default function LabOrdersAlert({
 
   return (
     <Card 
-      className="border border-dashed relative overflow-hidden animate-in fade-in duration-200" 
+      className="lab-orders-alert border border-dashed relative overflow-hidden animate-in fade-in duration-200"
       style={{ 
         borderColor: currentStep === "success" ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)",
         background: currentStep === "success" 
@@ -235,7 +235,7 @@ export default function LabOrdersAlert({
       {currentStep === "alert" && (
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="space-y-1">
-            <h4 className="font-extrabold text-sm text-amber-400 flex items-center gap-1.5">
+            <h4 className="lab-orders-alert__warning font-extrabold text-sm flex items-center gap-1.5">
               ⚠️ Action Required: Lab Tests Ordered
             </h4>
             <p className="text-xs text-slate-300 leading-relaxed font-semibold">
@@ -255,8 +255,7 @@ export default function LabOrdersAlert({
             </div>
             <button 
               onClick={() => setStep("date")}
-              className="btn text-xs !py-1.5 px-3.5 font-extrabold flex items-center gap-1 w-full md:w-auto"
-              style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
+              className="lab-orders-alert__primary btn text-xs !py-1.5 px-3.5 font-extrabold flex items-center gap-1 w-full md:w-auto"
             >
               Book Slot &amp; Pay <ChevronRight size={14} />
             </button>
@@ -266,7 +265,7 @@ export default function LabOrdersAlert({
 
       {currentStep === "date" && (
         <div className="space-y-3">
-          <h4 className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
+          <h4 className="lab-orders-alert__title font-bold text-sm flex items-center gap-1.5">
             <Calendar size={16} className="text-[var(--cyan)]" /> Select Lab Visit Date
           </h4>
           <p className="text-xs text-[var(--dim)]">Choose a date for your laboratory test collection.</p>
@@ -280,9 +279,9 @@ export default function LabOrdersAlert({
             />
           </div>
           <div className="flex gap-2 justify-end pt-2">
-            <button className="btn ghost sm text-xs" onClick={() => setStep("alert")}>Cancel</button>
+            <button className="btn ghost sm text-xs lab-orders-alert__secondary" onClick={() => setStep("alert")}>Cancel</button>
             <button 
-              className="btn g sm text-xs" 
+              className="lab-orders-alert__primary btn sm text-xs"
               disabled={!selectedDate} 
               onClick={() => setStep("slots")}
             >
@@ -295,7 +294,7 @@ export default function LabOrdersAlert({
       {currentStep === "slots" && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="font-bold text-sm text-slate-100 flex items-center gap-1.5">
+            <h4 className="lab-orders-alert__title font-bold text-sm flex items-center gap-1.5">
               <Clock size={16} className="text-[var(--cyan)]" /> Select Time Slot
             </h4>
             <span className="text-xs text-[var(--dim)] font-semibold">{selectedDate}</span>
@@ -315,12 +314,12 @@ export default function LabOrdersAlert({
                     key={timeStr}
                     disabled={booked}
                     onClick={() => setSelectedSlot(timeStr)}
-                    className={`btn text-xs shrink-0 py-1 px-3 border transition-all ${
+                    className={`lab-orders-alert__slot btn text-xs shrink-0 py-1 px-3 border transition-all ${
                       active 
-                        ? "border-[var(--cyan)] text-white bg-[rgba(37,100,207,0.15)]"
+                        ? "lab-orders-alert__slot--active border-[var(--cyan)] bg-[rgba(37,100,207,0.15)]"
                         : booked
-                          ? "border-white/5 text-slate-600 line-through cursor-not-allowed"
-                          : "border-white/10 text-slate-300 hover:border-white/30"
+                          ? "lab-orders-alert__slot--booked line-through cursor-not-allowed"
+                          : "lab-orders-alert__slot--available"
                     }`}
                   >
                     {timeStr} {booked && <span className="text-[8px] opacity-70 ml-1">(Full)</span>}
@@ -331,11 +330,11 @@ export default function LabOrdersAlert({
           </div>
 
           <div className="flex justify-between items-center pt-2">
-            <button className="btn-link text-xs flex items-center gap-1" onClick={() => setStep("date")}>
+            <button className="btn-link text-xs flex items-center gap-1 lab-orders-alert__back" onClick={() => setStep("date")}>
               <ArrowLeft size={14} /> Back
             </button>
             <button 
-              className="btn g sm text-xs" 
+              className="lab-orders-alert__primary btn sm text-xs"
               disabled={!selectedSlot} 
               onClick={() => setStep("payment")}
             >
@@ -347,7 +346,7 @@ export default function LabOrdersAlert({
 
       {currentStep === "payment" && (
         <div className="space-y-4">
-          <h4 className="font-bold text-sm text-slate-100">Booking &amp; Payment Summary</h4>
+          <h4 className="lab-orders-alert__title font-bold text-sm">Booking &amp; Payment Summary</h4>
           <div className="holo text-xs space-y-2 p-3">
             <div className="kv"><span>Department</span><b>Clinical Laboratory</b></div>
             <div className="kv"><span>Tests ordered</span><b className="text-[var(--cyan)]">{pendingOrders.map((o) => o.test).join(", ")}</b></div>
@@ -360,11 +359,11 @@ export default function LabOrdersAlert({
           </div>
           
           <div className="flex justify-between items-center">
-            <button className="btn-link text-xs flex items-center gap-1" onClick={() => setStep("slots")} disabled={bookingBusy}>
+            <button className="btn-link text-xs flex items-center gap-1 lab-orders-alert__back" onClick={() => setStep("slots")} disabled={bookingBusy}>
               <ArrowLeft size={14} /> Back
             </button>
             <button 
-              className="btn g sm text-xs px-4" 
+              className="lab-orders-alert__primary btn sm text-xs px-4"
               onClick={handleConfirmBooking}
               disabled={bookingBusy}
             >

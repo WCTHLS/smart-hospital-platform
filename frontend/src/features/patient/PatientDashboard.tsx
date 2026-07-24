@@ -40,14 +40,47 @@ const TOPIC_STAGE: Record<string, number> = {
   "visit.discharged": 6,
 };
 
+type StoredStatusSelection =
+  | { type: "appointment"; id: string }
+  | { type: "encounter"; id: string };
+
+function statusSelectionKey(patientId: string) {
+  return `patient-status-selection:${patientId}`;
+}
+
+function readStatusSelection(patientId: string): StoredStatusSelection | null {
+  try {
+    const raw = sessionStorage.getItem(statusSelectionKey(patientId));
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    if (
+      (value?.type === "appointment" || value?.type === "encounter") &&
+      typeof value.id === "string"
+    ) {
+      return value;
+    }
+  } catch {
+    // Ignore invalid or unavailable browser storage and use the normal default.
+  }
+  return null;
+}
+
 export default function PatientDashboard() {
   const nav = useNavigate();
   const location = useLocation();
   const journey = useJourney();
   const events = useRealtime((s) => s.events);
+  const portalSession = getPortalPatient()!;
+  const portalPatientId = portalSession.patient_id;
+  const portalPatientName = portalSession.name;
+  const [initialStatusSelection] = useState(() => readStatusSelection(portalPatientId));
 
-  const [selectedEncounterId, setSelectedEncounterId] = useState<string | null>(null);
-  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
+  const [selectedEncounterId, setSelectedEncounterId] = useState<string | null>(
+    initialStatusSelection?.type === "encounter" ? initialStatusSelection.id : null
+  );
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(
+    initialStatusSelection?.type === "appointment" ? initialStatusSelection.id : null
+  );
   const [showMobileVisitList, setShowMobileVisitList] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkInError, setCheckInError] = useState("");
@@ -85,10 +118,6 @@ export default function PatientDashboard() {
       nav(location.pathname, { replace: true, state: null });
     }
   }, [location.pathname, location.state, nav]);
-
-  const portalSession = getPortalPatient()!;
-  const portalPatientId = portalSession.patient_id;
-  const portalPatientName = portalSession.name;
 
   function timeLabel(value: string) {
     if (!value) return "";
@@ -150,7 +179,7 @@ export default function PatientDashboard() {
   // same as the doctor-side Patient360 view of the identical endpoint —
   // otherwise a staff-driven change can sit stale on the patient's board
   // indefinitely instead of just for a few seconds.
-  const { data: p360, refetch: refetchP360 } = useQuery({
+  const { data: p360, refetch: refetchP360, isFetched: isP360Fetched } = useQuery({
     queryKey: ["portal-p360", portalPatientId],
     queryFn: () => api.patient360(portalPatientId!),
     enabled: !!portalPatientId,
@@ -159,7 +188,7 @@ export default function PatientDashboard() {
     refetchOnWindowFocus: true,
   });
 
-  const { data: appointmentData, refetch: refetchAppointments } = useQuery({
+  const { data: appointmentData, refetch: refetchAppointments, isFetched: areAppointmentsFetched } = useQuery({
     queryKey: ["portal-upcoming-appointments", portalPatientId],
     queryFn: () => api.upcomingAppointments(portalPatientId),
     enabled: !!portalPatientId,
@@ -207,6 +236,51 @@ export default function PatientDashboard() {
   const activeEpisodes = episodes.filter(hasActiveVisit);
   const pastEpisodes = episodes.filter((ep: any) => !hasActiveVisit(ep));
   const appointments = appointmentData?.appointments ?? [];
+
+  useEffect(() => {
+    const selection: StoredStatusSelection | null = selectedAppointmentId
+      ? { type: "appointment", id: selectedAppointmentId }
+      : selectedEncounterId
+        ? { type: "encounter", id: selectedEncounterId }
+        : null;
+
+    if (selection) {
+      sessionStorage.setItem(statusSelectionKey(portalPatientId), JSON.stringify(selection));
+    }
+  }, [portalPatientId, selectedAppointmentId, selectedEncounterId]);
+
+  useEffect(() => {
+    if (!isP360Fetched || !areAppointmentsFetched) return;
+
+    if (
+      selectedAppointmentId &&
+      !appointments.some((appointment: any) => appointment.appointment_id === selectedAppointmentId)
+    ) {
+      setSelectedAppointmentId(null);
+      sessionStorage.removeItem(statusSelectionKey(portalPatientId));
+      return;
+    }
+
+    if (selectedEncounterId) {
+      const encounterStillExists = episodes.some((episode: any) =>
+        episode.encounter_id === selectedEncounterId ||
+        episode.labs?.some((lab: any) => lab.encounter_id === selectedEncounterId) ||
+        episode.followups?.some((followup: any) => followup.encounter_id === selectedEncounterId)
+      );
+      if (!encounterStillExists) {
+        setSelectedEncounterId(null);
+        sessionStorage.removeItem(statusSelectionKey(portalPatientId));
+      }
+    }
+  }, [
+    appointments,
+    areAppointmentsFetched,
+    episodes,
+    isP360Fetched,
+    portalPatientId,
+    selectedAppointmentId,
+    selectedEncounterId,
+  ]);
 
   // Every visit, most-recent first — feeds the "Token & Billing History" tab in the
   // patient profile modal so a patient can see every queue token + invoice in one place,
@@ -615,8 +689,6 @@ export default function PatientDashboard() {
           <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             {appointments.map((appointment: any) => {
               const isActive = appointment.appointment_id === showAppointmentId;
-              const appointmentDate = appointment.scheduled_start?.slice(0, 10);
-              const isTodayAppointment = appointmentDate === today;
               return (
                 <button
                   key={appointment.appointment_id}
@@ -640,7 +712,6 @@ export default function PatientDashboard() {
                   <div className="truncate font-bold text-[var(--ink)]">{appointment.doctor?.name ?? "Assigned doctor"}</div>
                   <div className="mt-1 text-[var(--muted)]">
                     {appointment.specialty} · {new Date(appointment.scheduled_start).toLocaleDateString()}
-                    {isTodayAppointment && <span className="ml-1 font-bold text-[var(--cyan)]">Today</span>}
                     {" · "}{timeLabel(appointment.scheduled_start)}
                   </div>
                   <div className="mt-1 text-[var(--muted)]">Reason: {appointment.reason || "Not provided"}</div>
@@ -1701,14 +1772,15 @@ export default function PatientDashboard() {
         {/* Re-visit Slot Booking Modal */}
         {showRevisitModal && encDetails && (
           <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <Card className="w-full max-w-md space-y-4 relative overflow-hidden animate-in zoom-in-95 duration-200 text-xs">
+            <Card className="revisit-booking-modal w-full max-w-md space-y-4 relative overflow-hidden animate-in zoom-in-95 duration-200 text-xs">
               <div className="flex items-center justify-between border-b border-[var(--line)] pb-3">
                 <h3 className="text-base font-extrabold text-[var(--ink)] flex items-center gap-2">
                   🏥 Book Free Re-visit
                 </h3>
                 <button 
                   onClick={() => setShowRevisitModal(false)}
-                  className="text-[var(--muted)] hover:text-[var(--ink)] font-extrabold text-base"
+                  className="revisit-booking-modal__close font-extrabold text-xl"
+                  aria-label="Close re-visit booking"
                 >
                   ×
                 </button>
@@ -1737,7 +1809,7 @@ export default function PatientDashboard() {
                   )}
 
                   {/* Doctor Info */}
-                  <div className="p-2 bg-[rgba(20,33,61,0.04)] border border-[var(--line)] rounded-xl text-[11px] text-[var(--muted)]">
+                  <div className="revisit-booking-modal__doctor p-2 border rounded-xl text-[11px]">
                     Re-visit Doctor: <strong className="text-[var(--ink)]">{currentEpisode?.doctor_name || parentEncDetails?.appointment?.doctor?.name || encDetails?.appointment?.doctor?.name || "Consulting Doctor"}</strong> (General Medicine)
                   </div>
 
@@ -1786,7 +1858,7 @@ export default function PatientDashboard() {
 
                   {/* Date Picker */}
                   <div className="space-y-1">
-                    <label className="block font-bold text-[var(--muted)]">Select Date</label>
+                    <label className="revisit-booking-modal__label block font-bold">Select Date</label>
                     <input 
                       type="date"
                       min={new Date().toISOString().split("T")[0]}
@@ -1795,15 +1867,14 @@ export default function PatientDashboard() {
                         setRevisitDate(e.target.value);
                         setRevisitSlot("");
                       }}
-                      className="input w-full"
-                      style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
+                      className="revisit-booking-modal__date input w-full"
                     />
                   </div>
 
                   {/* Time Slot Picker */}
                   {revisitDate && (
                     <div className="space-y-1.5">
-                      <label className="block font-bold text-[var(--muted)]">Select Time Slot</label>
+                      <label className="revisit-booking-modal__label block font-bold">Select Time Slot</label>
                       <div className="grid grid-cols-3 gap-1.5 max-h-[140px] overflow-y-auto pr-1">
                         {[
                           "09:00 AM", "09:30 AM", "10:00 AM", "10:30 AM", 
@@ -1815,11 +1886,9 @@ export default function PatientDashboard() {
                             <button
                               key={s}
                               onClick={() => setRevisitSlot(s)}
-                              className="p-1.5 border rounded-lg text-center font-semibold transition"
+                              className={`revisit-booking-modal__slot p-1.5 border rounded-lg text-center font-semibold transition ${isSelected ? "revisit-booking-modal__slot--selected" : ""}`}
                               style={{
-                                borderColor: isSelected ? "var(--cyan)" : "var(--glass-border)",
-                                background: isSelected ? "rgba(37,100,207,0.1)" : "rgba(255,255,255,0.02)",
-                                color: isSelected ? "white" : "var(--dim)",
+                                borderColor: isSelected ? "var(--cyan)" : "var(--line2)",
                               }}
                             >
                                {s}
@@ -1837,8 +1906,7 @@ export default function PatientDashboard() {
                       handleBookRevisit(docId!);
                     }}
                     disabled={bookingRevisit || uploadingReport || !revisitDate || !revisitSlot || (uploadedDocUri === null && !(encDetails?.labs?.length > 0 && encDetails.labs.every((o: any) => o.status === "RESULTED")))}
-                    className="btn w-full font-bold py-2 mt-2"
-                    style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
+                    className="revisit-booking-modal__confirm btn w-full font-bold py-2 mt-2"
                   >
                     {bookingRevisit ? "Booking..." : "Confirm Free Re-visit"}
                   </button>

@@ -47,6 +47,7 @@ _ROOMS = {
     "Paediatrics": ("Room 2", "Floor 1"),
     "Orthopaedics": ("Room 9", "Floor 2"),
     "Dermatology": ("Room 4", "Floor 1"),
+    "Oncology": ("Room 12", "Floor 4"),
 }
 
 # Cache to prevent hitting Gemini API 429 Rate Limits
