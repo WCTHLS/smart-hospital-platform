@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Stethoscope, User, ShieldAlert, Users, MapPin, ArrowRight } from "lucide-react";
-import { api } from "../../../lib/api";
+import { Stethoscope, User, ShieldAlert, Users, MapPin, ArrowRight, Search } from "lucide-react";
+import { api, ApiError } from "../../../lib/api";
 import { Card, Tag, Empty } from "../../../components/ui";
 
 interface DoctorQueueProps {
@@ -15,6 +15,8 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
     return localStorage.getItem("selected_doctor_id") || "";
   });
   const [queueTab, setQueueTab] = useState<"first" | "reconsult">("first");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [doctorSearchQuery, setDoctorSearchQuery] = useState("");
   const [docAvailable, setDocAvailable] = useState<boolean>(true);
 
   const { data: doctors } = useQuery({
@@ -204,34 +206,79 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
           </button>
         </Card>
       ) : !isUnlocked ? (
-        <Card className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h2 className="grad-text text-xl font-extrabold flex items-center gap-2">
-              <Stethoscope size={22} className="text-[var(--cyan)]" /> Doctor Portal Login
-            </h2>
-            <p className="text-[13px] mt-1" style={{ color: "var(--muted)" }}>
-              Select your clinical profile to view your active patient queue and consultation schedules.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <User size={15} color="var(--dim)" />
-              <select
-                value={selectedDoctorId}
-                onChange={(e) => handleSelectDoctor(e.target.value)}
-                className="input !py-1.5 !px-3 !w-auto text-[13.5px] font-bold"
-                style={{ background: "var(--panel)", borderColor: "var(--glass-border)", color: "var(--ink)" }}
-              >
-                <option value="">-- Choose Doctor Profile --</option>
-                {doctors?.map((doc: any) => (
-                  <option key={doc.doctor_id} value={doc.doctor_id}>
-                    {doc.name} ({doc.specialty})
-                  </option>
-                ))}
-              </select>
+        <div className="space-y-4">
+          <Card className="flex flex-col gap-4">
+            <div>
+              <h2 className="grad-text text-xl font-extrabold flex items-center gap-2">
+                <Stethoscope size={22} className="text-[var(--cyan)]" /> Doctor Portal Login
+              </h2>
+              <p className="text-[13px] mt-1" style={{ color: "var(--muted)" }}>
+                Search and select your clinical profile to view your active patient queue and consultation schedules.
+              </p>
             </div>
-          </div>
-        </Card>
+            
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-3 text-[var(--muted)]" />
+              <input
+                type="text"
+                placeholder="Search by name, specialty, room, or floor…"
+                value={doctorSearchQuery}
+                onChange={(e) => setDoctorSearchQuery(e.target.value)}
+                className="input !pl-9 w-full"
+                style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}
+              />
+            </div>
+
+            {(() => {
+              const searchLower = doctorSearchQuery.toLowerCase();
+              const filteredDocs = doctors?.filter((doc: any) => {
+                const matchName = doc.name?.toLowerCase().includes(searchLower);
+                const matchSpecialty = doc.specialty?.toLowerCase().includes(searchLower);
+                const matchRoom = doc.room?.toLowerCase().includes(searchLower);
+                const matchFloor = doc.floor?.toLowerCase().includes(searchLower);
+                return matchName || matchSpecialty || matchRoom || matchFloor;
+              }) || [];
+
+              if (doctors && doctors.length > 0 && filteredDocs.length === 0) {
+                return (
+                  <div className="text-center py-8">
+                    <p style={{ color: "var(--muted)" }} className="text-sm">
+                      No doctors match "{doctorSearchQuery}"
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 max-h-96 overflow-y-auto">
+                  {filteredDocs.map((doc: any) => (
+                    <button
+                      key={doc.doctor_id}
+                      onClick={() => handleSelectDoctor(doc.doctor_id)}
+                      className="card hover-border cursor-pointer transition h-full flex flex-col justify-between text-left p-4 rounded-lg"
+                      style={{ background: "var(--panel)", border: "1px solid var(--glass-border)" }}
+                    >
+                      <div className="space-y-2">
+                        <h4 className="text-base font-extrabold text-slate-100">{doc.name}</h4>
+                        <p className="text-[12px]" style={{ color: "var(--muted)" }}>
+                          {doc.specialty} · {doc.room} ({doc.floor})
+                        </p>
+                        {doc.experience_years && (
+                          <p className="text-[11px]" style={{ color: "var(--dim)" }}>
+                            {doc.experience_years} yrs experience
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-[var(--cyan)] text-sm font-bold mt-2">
+                        Select →
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
+          </Card>
+        </div>
       ) : (
         renderSessionToolbar()
       )}
@@ -246,121 +293,136 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
             <span className="live">LIVE REFRESH</span>
           </div>
 
-          {false && <>
-          <div className="flex gap-2 p-1 bg-white/[0.02] border border-white/5 rounded-xl w-fit">
-            <button
-              onClick={() => setQueueTab("first")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                queueTab === "first" ? "bg-white/10 text-white" : "text-[var(--muted)] hover:text-white"
-              }`}
-            >
-              First Consultation ({queue?.filter((e: any) => !e.is_reconsult).length || 0})
-            </button>
-            <button
-              onClick={() => setQueueTab("reconsult")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                queueTab === "reconsult" ? "bg-white/10 text-white" : "text-[var(--muted)] hover:text-white"
-              }`}
-            >
-              Report Review ({queue?.filter((e: any) => e.is_reconsult).length || 0})
-              {queue?.some((e: any) => e.is_reconsult) && (
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--cyan)] animate-pulse" />
-              )}
-            </button>
-          </div>
+          {/* Search & Filter Bar */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+              <div className="relative flex-1">
+                <Search size={16} className="absolute left-3 top-2.5 text-[var(--muted)]" />
+                <input
+                  type="text"
+                  placeholder="Search by patient name, token, or chief complaint…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="input !pl-9 w-full"
+                  style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setQueueTab("first")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                    queueTab === "first" ? "bg-white/10 text-white" : "text-[var(--muted)] hover:text-white border border-transparent hover:border-white/10"
+                  }`}
+                >
+                  First Consult ({queue?.filter((e: any) => !e.is_reconsult).length || 0})
+                </button>
+                <button
+                  onClick={() => setQueueTab("reconsult")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
+                    queueTab === "reconsult" ? "bg-white/10 text-white" : "text-[var(--muted)] hover:text-white border border-transparent hover:border-white/10"
+                  }`}
+                >
+                  Report Review ({queue?.filter((e: any) => e.is_reconsult).length || 0})
+                  {queue?.some((e: any) => e.is_reconsult) && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--cyan)] animate-pulse" />
+                  )}
+                </button>
+              </div>
+            </div>
 
-          {(() => {
-            const filteredQueue = queue?.filter((enc: any) =>
-              queueTab === "reconsult" ? enc.is_reconsult : !enc.is_reconsult
-            ) || [];
+            {(() => {
+              const tabFiltered = queue?.filter((enc: any) =>
+                queueTab === "reconsult" ? enc.is_reconsult : !enc.is_reconsult
+              ) || [];
+              
+              const searchLower = searchQuery.toLowerCase();
+              const filteredQueue = tabFiltered.filter((enc: any) => {
+                const matchName = enc.patient?.name?.toLowerCase().includes(searchLower);
+                const matchToken = enc.token?.number?.toLowerCase().includes(searchLower);
+                const matchChief = enc.triage?.chief_complaint?.toLowerCase().includes(searchLower);
+                const matchMobile = enc.patient?.mobile?.includes(searchQuery);
+                return matchName || matchToken || matchChief || matchMobile;
+              });
 
-            if (filteredQueue.length === 0) {
+              if (filteredQueue.length === 0) {
+                return (
+                  <Empty>
+                    {searchQuery 
+                      ? `No patients match "${searchQuery}"`
+                      : queueTab === "reconsult"
+                      ? "No patients waiting for report review."
+                      : "No patients waiting in your queue."}
+                  </Empty>
+                );
+              }
+
               return (
-                <Empty>
-                  {queueTab === "reconsult"
-                    ? "No patients waiting for report review."
-                    : "No patients waiting in your queue."}
-                </Empty>
-              );
-            }
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  {filteredQueue.map((enc: any) => {
+                    const acuity = enc.triage?.acuity || "4";
+                    const isRedFlag = enc.triage?.red_flag;
 
-            return (
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                {filteredQueue.map((enc: any) => {
-                  const acuity = enc.triage?.acuity || "4";
-                  const isRedFlag = enc.triage?.red_flag;
-                  const tagTone = acuity === "1" ? "red" : acuity === "2" ? "red" : acuity === "3" ? "amber" : "blue";
+                    return (
+                      <Card
+                        key={enc.encounter_id}
+                        className={`hover-border relative overflow-hidden flex flex-col justify-between h-full transition ${
+                          isRedFlag ? "border-red-500/30" : ""
+                        }`}
+                        style={{ border: isRedFlag ? "1px solid rgba(239, 68, 68, 0.4)" : "" }}
+                      >
+                        {isRedFlag && <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 rounded-full blur-2xl" />}
 
-                  return (
-                    <Card
-                      key={enc.encounter_id}
-                      className={`hover-border relative overflow-hidden flex flex-col justify-between h-full transition ${
-                        isRedFlag ? "border-red-500/30" : ""
-                      }`}
-                      style={{ border: isRedFlag ? "1px solid rgba(239, 68, 68, 0.4)" : "" }}
-                    >
-                      {isRedFlag && <div className="absolute top-0 right-0 w-24 h-24 bg-red-500/10 rounded-full blur-2xl" />}
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-start">
+                            <span className="text-[12px] font-bold uppercase tracking-wider text-[var(--dim)]">
+                              Token: <b className="text-white text-base">{enc.token?.number || "—"}</b>
+                            </span>
+                            <div className="flex gap-1">
+                              {enc.triage?.acuity && (
+                                <Tag tone={["1", "2"].includes(String(enc.triage.acuity)) ? "red" : ["3"].includes(String(enc.triage.acuity)) ? "amber" : "green"}>
+                                  ESI-{enc.triage.acuity}
+                                </Tag>
+                              )}
+                              {isRedFlag && (
+                                <Tag tone="red">RED FLAG</Tag>
+                              )}
+                            </div>
+                          </div>
 
-                      <div className="space-y-2">
-                        <div className="flex justify-between items-start">
-                          <span className="text-[12px] font-bold uppercase tracking-wider text-[var(--dim)]">
-                            Token: <b className="text-white text-base">{enc.token?.number || "—"}</b>
-                          </span>
-                          {isRedFlag && (
-                            <Tag tone="red">
-                              RED FLAG
-                            </Tag>
+                          <div>
+                            <h4 className="text-base font-extrabold text-slate-100">{enc.patient?.name}</h4>
+                            <p className="text-[12px]" style={{ color: "var(--muted)" }}>
+                              {enc.patient?.age} yrs · {enc.patient?.gender} · {enc.patient?.mobile}
+                            </p>
+                          </div>
+
+                          <div className="holo p-2 text-[12px] whitespace-pre-line text-slate-300">
+                            <b>Chief Complaint:</b><br />
+                            {enc.triage?.chief_complaint || "Routine consultation."}
+                          </div>
+
+                          {enc.token?.room && (
+                            <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--dim)]">
+                              <MapPin size={12} className="text-[var(--cyan)]" />
+                              <span>{enc.token.room} ({enc.token.floor})</span>
+                              {enc.token.eta_minutes != null && <span className="ml-auto">Est: ~{enc.token.eta_minutes}m</span>}
+                            </div>
                           )}
                         </div>
 
-                        <div>
-                          <h4 className="text-base font-extrabold text-slate-100">{enc.patient?.name}</h4>
-                          <p className="text-[12px]" style={{ color: "var(--muted)" }}>
-                            {enc.patient?.age} yrs · {enc.patient?.gender} · {enc.patient?.mobile}
-                          </p>
-                        </div>
-
-                        <div className="holo p-2 text-[12px] whitespace-pre-line text-slate-300">
-                          <b>Chief Complaint:</b><br />
-                          {enc.triage?.chief_complaint || "Routine consultation."}
-                        </div>
-
-                        {enc.token?.room && (
-                          <div className="flex items-center gap-1.5 text-[11.5px] text-[var(--dim)]">
-                            <MapPin size={12} className="text-[var(--cyan)]" />
-                            <span>{enc.token.room} ({enc.token.floor})</span>
-                            {enc.token.eta_minutes != null && <span className="ml-auto">Est: ~{enc.token.eta_minutes}m</span>}
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={() => onSelectPatient({ ...enc, _doctorName: activeDoc?.name || null })}
-                        className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
-                      >
-                        Consult Patient <ArrowRight size={14} />
-                      </button>
-                    </Card>
-                  );
-                })}
-              </div>
-            );
-          })()}
-          </>}
-
-          {renderQueueRow(
-            "First Consultations",
-            queue?.filter((enc: any) => !enc.is_reconsult) || [],
-            "No patients waiting for their first consultation.",
-          )}
-
-          <div className="h-px w-full bg-gradient-to-r from-transparent via-white/20 to-transparent" />
-
-          {renderQueueRow(
-            "Report Reviews",
-            queue?.filter((enc: any) => enc.is_reconsult) || [],
-            "No patients waiting for report review.",
-          )}
+                        <button
+                          onClick={() => onSelectPatient({ ...enc, _doctorName: activeDoc?.name || null })}
+                          className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
+                        >
+                          Consult Patient <ArrowRight size={14} />
+                        </button>
+                      </Card>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
     </div>
