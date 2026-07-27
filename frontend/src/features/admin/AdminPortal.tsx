@@ -19,6 +19,7 @@ const SPECIALTY_DEPARTMENTS = [
   "Dentistry",
   "Psychiatry",
   "Endocrinology",
+  "Oncology",
 ];
 
 export default function AdminPortal() {

@@ -36,6 +36,9 @@ def seed() -> None:
             ("Dr. Arvind Menon", "Orthopaedics"),
             ("Dr. Arjun Shah", "Dermatology"),
             ("Dr. Divya Reddy", "Dermatology"),
+            ("Dr. Nisha Rao", "Oncology"),
+            ("Dr. Arvind Khanna", "Oncology"),
+            ("Dr. Kavita Iyer", "Oncology"),
         ]
         
         doctor_by_name: dict[str, models.Staff] = {}

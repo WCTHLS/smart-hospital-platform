@@ -188,7 +188,7 @@ export default function PatientLogin() {
         {step === "otp" && <div className="space-y-4">
           <div className="flex items-center gap-2"><LockKeyhole size={16} /> OTP sent to {mobile}</div>
           <input className="input" inputMode="numeric" autoComplete="one-time-code" maxLength={10} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 10))} placeholder="Enter OTP" />
-          <div className="actions-row between !mt-0 !border-0 !pt-0">
+          <div className="actions-row between !mt-5 !border-0 !pt-0">
             <button className="btn-link" disabled={busy} onClick={() => setStep("mobile")}><ArrowLeft size={14} /> Change number</button>
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <button className="btn ghost sm" disabled={busy} onClick={sendOtp}>Resend OTP</button>

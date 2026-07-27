@@ -7,17 +7,22 @@ interface VitalsAndLabsProps {
 }
 
 export default function VitalsAndLabs({ latestVitals, orders }: VitalsAndLabsProps) {
+  const measurement = (value: unknown, unit: string) =>
+    value === null || value === undefined || value === "" ? "Not recorded" : `${value} ${unit}`;
+
   return (
     <Card className="space-y-3 animate-in fade-in duration-300">
       <h4 className="font-bold text-sm flex items-center gap-2" style={{ color: "#123a7a" }}>
         <Clipboard size={16} className="text-[var(--cyan)]" /> Vitals &amp; Labs
       </h4>
       {latestVitals && (
-        <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>BP</small><br /><b>{latestVitals.bp}</b></div>
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{latestVitals.spo2}%</b></div>
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>HR</small><br /><b>{latestVitals.heart_rate}</b></div>
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{latestVitals.temperature}°F</b></div>
+          <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Weight</small><br /><b>{measurement(latestVitals.weight_kg, "kg")}</b></div>
+          <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Height</small><br /><b>{measurement(latestVitals.height_cm, "cm")}</b></div>
         </div>
       )}
 

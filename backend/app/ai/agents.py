@@ -28,6 +28,16 @@ def _any_keyword(keywords: list[str], text: str) -> bool:
     return any(re.search(r"\b" + re.escape(kw) + r"\b", text) for kw in keywords)
 
 
+def _high_temperature_threshold_f() -> float:
+    """Return the configured Fahrenheit fever threshold."""
+    return float(
+        kb.VITAL_THRESHOLDS.get(
+            "temp_high_f",
+            kb.VITAL_THRESHOLDS.get("temp_high", 103.0),
+        )
+    )
+
+
 # ------------------------------------------------------------------------------------ Intake Agent
 def intake_agent(symptom_text: str, *, duration: str | None = None) -> dict[str, Any]:
     red_flags = kb.detect_red_flags(symptom_text)
@@ -87,14 +97,14 @@ def triage_agent(
         reasons.append(f"Systolic BP {sbp} mmHg (hypotension).")
     if hr is not None and hr > kb.VITAL_THRESHOLDS["hr_high"]:
         reasons.append(f"Heart rate {hr} bpm (tachycardia).")
-    if temp is not None and temp >= kb.VITAL_THRESHOLDS["temp_high"]:
+    if temp is not None and temp >= _high_temperature_threshold_f():
         reasons.append(f"Temperature {temp}°F (high-grade fever).")
 
     if critical_vital:
         acuity = "1"
     elif red_flags:
         acuity = "2"
-    elif hr and hr > kb.VITAL_THRESHOLDS["hr_high"] or (temp and temp >= kb.VITAL_THRESHOLDS["temp_high"]):
+    elif hr and hr > kb.VITAL_THRESHOLDS["hr_high"] or (temp and temp >= _high_temperature_threshold_f()):
         acuity = "3"
     else:
         acuity = "3" if (age and (age < 2 or age > 70)) else "4"
@@ -137,7 +147,7 @@ def _abnormal_vitals(vitals: dict[str, Any]) -> list[str]:
         flags.append(f"Hypertensive (SBP {sbp} mmHg)")
     if sbp is not None and sbp <= kb.VITAL_THRESHOLDS["sbp_low"]:
         flags.append(f"Hypotensive (SBP {sbp} mmHg)")
-    if temp is not None and temp >= kb.VITAL_THRESHOLDS["temp_high"]:
+    if temp is not None and temp >= _high_temperature_threshold_f():
         flags.append(f"High-grade fever ({temp}°F)")
     if rr is not None and rr >= kb.VITAL_THRESHOLDS["rr_high"]:
         flags.append(f"Tachypnea (RR {rr}/min)")
