@@ -55,7 +55,7 @@ def _get_speaker_model():
             print("[Speaker ID] Loading local speaker-embedding model…")
             _SPEAKER_MODEL = EncoderClassifier.from_hparams(
                 source="speechbrain/spkrec-ecapa-voxceleb",
-                savedir="/tmp/spkrec-ecapa",
+                savedir=os.path.join(tempfile.gettempdir(), "spkrec-ecapa"),
             )
             print("[Speaker ID] Model loaded — speaker labels are ready.")
         except Exception as err:  # pragma: no cover - defensive

@@ -90,6 +90,8 @@ class ModelGateway:
             if choices:
                 text = choices[0].get("message", {}).get("content")
                 if text:
+                    print(f"\033[92m[ModelGateway] Grok/Groq API call success (model={model}). Prompt: ~{len(prompt)//4} tokens, Response: {len(text)} chars\033[0m")
+                    logger.info("Grok/Groq API call success")
                     return text.strip()
             return None
         except Exception as e:
@@ -137,6 +139,8 @@ class ModelGateway:
                 if candidates:
                     text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text")
                     if text:
+                        print(f"\033[92m[ModelGateway] Gemini API call success (model=gemini-flash-latest). Prompt: ~{len(prompt)//4} tokens, Response: {len(text)} chars\033[0m")
+                        logger.info("Gemini API call success")
                         return text.strip()
             except Exception as e:
                 logger.warning("Gemini API call failed: %s; trying Grok fallback...", str(e))
@@ -169,7 +173,12 @@ class ModelGateway:
         try:
             resp = httpx.post(f"{self._base}/api/generate", json=body, timeout=self._timeout)
             resp.raise_for_status()
-            return (resp.json().get("response") or "").strip() or None
+            res_text = (resp.json().get("response") or "").strip()
+            if res_text:
+                print(f"\033[92m[ModelGateway] Ollama API call success (model={self._model}). Prompt: ~{len(prompt)//4} tokens, Response: {len(res_text)} chars\033[0m")
+                logger.info("Ollama API call success")
+                return res_text
+            return None
         except Exception:  # noqa: BLE001
             logger.warning("Ollama LLM generate failed; using deterministic fallback", exc_info=False)
             self._known_available = None  # re-probe next time

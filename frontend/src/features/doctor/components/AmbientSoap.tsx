@@ -76,8 +76,11 @@ export default function AmbientSoap({ encounterId, doctorName }: AmbientSoapProp
   const [translating, setTranslating] = useState(false);
   const [translateError, setTranslateError] = useState(false);
 
+  const [useLocalWhisper, setUseLocalWhisper] = useState(false);
+
   const streamRef = useRef<MediaStream | null>(null);
   const listeningRef = useRef(false);
+  const recognitionRef = useRef<any>(null);
   const chunkSeqRef = useRef(0);
   const nextToAppendRef = useRef(0);
   const pendingResultsRef = useRef<Map<number, { text: string; speaker: string | null }>>(new Map());
@@ -87,6 +90,11 @@ export default function AmbientSoap({ encounterId, doctorName }: AmbientSoapProp
   useEffect(() => {
     return () => {
       listeningRef.current = false;
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch {}
+      }
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
@@ -166,16 +174,79 @@ export default function AmbientSoap({ encounterId, doctorName }: AmbientSoapProp
     }
   }
 
+  function startWebSpeechListening() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setMicError("Real-time Web Speech API is not supported in this browser. Please use Chrome/Edge or toggle on 'Offline Whisper'.");
+      return;
+    }
+    setMicError(null);
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = true;
+    
+    const langCode = languageRef.current === "auto" ? "en-US" : (
+      languageRef.current === "en" ? "en-US" : 
+      languageRef.current === "hi" ? "hi-IN" :
+      languageRef.current === "ta" ? "ta-IN" :
+      languageRef.current === "te" ? "te-IN" :
+      languageRef.current === "bn" ? "bn-IN" :
+      languageRef.current === "mr" ? "mr-IN" :
+      languageRef.current === "gu" ? "gu-IN" :
+      languageRef.current === "kn" ? "kn-IN" :
+      languageRef.current === "ml" ? "ml-IN" : 
+      `${languageRef.current}`
+    );
+    rec.lang = langCode;
+
+    let finalTranscript = transcript;
+    
+    rec.onresult = (event: any) => {
+      let interimTranscript = "";
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += (finalTranscript ? " " : "") + event.results[i][0].transcript;
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+      setTranscript((finalTranscript + (interimTranscript ? " " + interimTranscript : "")).trim());
+    };
+
+    rec.onerror = (e: any) => {
+      console.error("Speech recognition error:", e);
+      if (e.error === "not-allowed") {
+        setMicError("Microphone access denied — allow mic permission.");
+      }
+    };
+
+    rec.onend = () => {
+      if (listeningRef.current) {
+        try {
+          rec.start();
+        } catch (err) {
+          console.error("Failed to restart speech recognition:", err);
+        }
+      }
+    };
+
+    listeningRef.current = true;
+    setListening(true);
+    recognitionRef.current = rec;
+    rec.start();
+  }
+
   async function startListening() {
     if (!supported) {
       setMicError("Live listening needs a modern browser (Chrome, Edge, Firefox) with microphone support.");
       return;
     }
     setMicError(null);
+    if (!useLocalWhisper) {
+      startWebSpeechListening();
+      return;
+    }
     try {
-      // Ask the browser to do its own noise suppression / echo cancellation / gain control on
-      // the raw mic signal before it ever reaches Whisper — a free, real accuracy improvement
-      // with no extra server-side cost.
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
@@ -195,6 +266,12 @@ export default function AmbientSoap({ encounterId, doctorName }: AmbientSoapProp
 
   function stopListening() {
     listeningRef.current = false;
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch {}
+      recognitionRef.current = null;
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     setListening(false);
@@ -257,19 +334,35 @@ export default function AmbientSoap({ encounterId, doctorName }: AmbientSoapProp
             <span className="live" style={{ opacity: listening ? 1 : 0.45 }}>{listening ? "LISTENING" : "IDLE"}</span>
           </span>
         </div>
-        <div className="mb-2 flex items-center gap-2">
-          <Languages size={14} style={{ color: "var(--dim)" }} />
-          <label className="text-[12px] font-semibold" style={{ color: "var(--muted)" }}>Consultation language</label>
-          <select
-            className="input text-xs select"
-            style={{ width: "auto", flex: "none" }}
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-          >
-            {AMBIENT_LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>{l.label}</option>
-            ))}
-          </select>
+        <div className="mb-2 flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Languages size={14} style={{ color: "var(--dim)" }} />
+            <label className="text-[12px] font-semibold" style={{ color: "var(--muted)" }}>Consultation language</label>
+            <select
+              className="input text-xs select"
+              style={{ width: "auto", flex: "none" }}
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+            >
+              {AMBIENT_LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>{l.label}</option>
+              ))}
+            </select>
+          </div>
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none" style={{ color: "var(--muted)" }}>
+            <input
+              type="checkbox"
+              checked={useLocalWhisper}
+              onChange={(e) => {
+                if (listening) {
+                  alert("Please stop the current listening session before changing speech engine mode.");
+                  return;
+                }
+                setUseLocalWhisper(e.target.checked);
+              }}
+            />
+            <span>Offline Whisper Mode</span>
+          </label>
         </div>
         <textarea
           className="input"
@@ -280,7 +373,11 @@ export default function AmbientSoap({ encounterId, doctorName }: AmbientSoapProp
         />
         {listening && (
           <div className="mt-1 text-[12.5px] italic" style={{ color: "var(--dim)" }}>
-            {transcribing ? "Transcribing the last few seconds…" : "Listening — speak naturally, text appears every few seconds."}
+            {useLocalWhisper ? (
+              transcribing ? "Transcribing the last few seconds…" : "Listening offline — speak naturally, text appears every few seconds."
+            ) : (
+              "Listening real-time — speak naturally, words appear immediately."
+            )}
           </div>
         )}
         <div className="mt-3 flex flex-wrap gap-2">
