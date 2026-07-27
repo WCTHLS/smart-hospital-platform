@@ -242,15 +242,17 @@ export default function AmbientSoap({ encounterId, doctorName }: AmbientSoapProp
       return;
     }
     setMicError(null);
-    if (!useLocalWhisper) {
-      startWebSpeechListening();
-      return;
-    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       streamRef.current = stream;
+
+      if (!useLocalWhisper) {
+        startWebSpeechListening();
+        return;
+      }
+
       const mimeType = pickMimeType();
       chunkSeqRef.current = 0;
       nextToAppendRef.current = 0;
@@ -259,7 +261,8 @@ export default function AmbientSoap({ encounterId, doctorName }: AmbientSoapProp
       listeningRef.current = true;
       setListening(true);
       recordNextChunk(stream, mimeType);
-    } catch {
+    } catch (err) {
+      console.error("Microphone access error:", err);
       setMicError("Microphone access denied — allow mic permission to use ambient listening.");
     }
   }
