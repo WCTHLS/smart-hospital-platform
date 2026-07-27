@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart,
   Smartphone, BellRing, ShieldAlert, FlaskConical, Pill, Menu, PanelLeftClose,
-  Syringe,
+  Syringe, ChevronDown,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useJourney } from "../lib/store";
@@ -13,8 +13,6 @@ import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
 
 const NAV = [
   { to: "/", label: "Home", icon: Activity, end: true },
-  { to: "/patient/checkin", label: "Check-in", icon: MessageSquareHeart, roles: ["patient"] },
-  { to: "/patient", label: "My Status", icon: Smartphone, roles: ["patient"] },
   { to: "/triage", label: "Triage Desk", icon: HeartPulse, roles: ["nurse"] },
   { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, roles: ["doctor"] },
   { to: "/oncology", label: "Oncology & Cancer Care", icon: Syringe, roles: ["doctor"] },
@@ -61,6 +59,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const nav = useNavigate();
   const connected = useRealtime((s) => s.connected);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
+  const [patientMenuOpen, setPatientMenuOpen] = useState(() => loc.pathname.startsWith("/patient"));
 
   const activeRole = journey.activeRole;
 
@@ -123,7 +122,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             </span>
           </button>
           <div className="ml-1 hidden min-w-0 truncate border-l border-[var(--line)] pl-3 text-[11px] uppercase tracking-[0.16em] text-[var(--dim)] xl:block">
-            {NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
+            {loc.pathname.startsWith("/patient")
+              ? "Patient Dashboard"
+              : NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
           </div>
         </div>
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
@@ -145,19 +146,57 @@ export default function Layout({ children }: { children: ReactNode }) {
           backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
           backdropFilter: "blur(28px) saturate(180%)",
         }}>
-        {visibleNav.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.end} onClick={closeSidebarOnMobile}
-            className={({ isActive }) =>
-              `flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition`}
-            style={({ isActive }: any) => ({
-              color: isActive ? "#123a7a" : "var(--muted)",
-              background: isActive ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))" : "transparent",
-              border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
-              boxShadow: isActive ? "0 0 14px rgba(37,100,207,.12)" : "none",
-            })}>
-            <n.icon size={17} />
-            {n.label}
-          </NavLink>
+        {visibleNav.map((n, index) => (
+          <div key={n.to}>
+            <NavLink to={n.to} end={n.end} onClick={closeSidebarOnMobile}
+              className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
+              style={({ isActive }: any) => ({
+                color: isActive ? "#123a7a" : "var(--muted)",
+                background: isActive ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))" : "transparent",
+                border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
+                boxShadow: isActive ? "0 0 14px rgba(37,100,207,.12)" : "none",
+              })}>
+              <n.icon size={17} />
+              {n.label}
+            </NavLink>
+
+            {index === 0 && (
+              <div className="mt-1">
+                <button
+                  type="button"
+                  onClick={() => setPatientMenuOpen((open) => !open)}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13.5px] font-semibold transition"
+                  style={{
+                    color: loc.pathname.startsWith("/patient") ? "#123a7a" : "var(--muted)",
+                    background: loc.pathname.startsWith("/patient")
+                      ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))"
+                      : "transparent",
+                    border: loc.pathname.startsWith("/patient") ? "1px solid var(--line2)" : "1px solid transparent",
+                  }}
+                  aria-expanded={patientMenuOpen}
+                >
+                  <Smartphone size={17} />
+                  <span className="flex-1">Patient Portal</span>
+                  <ChevronDown size={15} className={`transition-transform ${patientMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {patientMenuOpen && (
+                  <div className="ml-5 mt-1 space-y-1 border-l border-[var(--line)] pl-2">
+                    <NavLink to="/patient" end onClick={closeSidebarOnMobile}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold transition"
+                      style={({ isActive }) => ({ color: isActive ? "#123a7a" : "var(--muted)", background: isActive ? "rgba(37,100,207,.1)" : "transparent" })}>
+                      <Smartphone size={15} /> Dashboard
+                    </NavLink>
+                    <NavLink to="/patient/checkin" onClick={closeSidebarOnMobile}
+                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold transition"
+                      style={({ isActive }) => ({ color: isActive ? "#123a7a" : "var(--muted)", background: isActive ? "rgba(37,100,207,.1)" : "transparent" })}>
+                      <MessageSquareHeart size={15} /> Check-in
+                    </NavLink>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         ))}
 
         <div className="mt-auto space-y-2">
