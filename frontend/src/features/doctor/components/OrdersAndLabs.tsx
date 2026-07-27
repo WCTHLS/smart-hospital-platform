@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText } from "lucide-react";
+import { ChevronDown, FileText, X } from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Tag, Empty, AgentBadge } from "../../../components/ui";
 
@@ -35,6 +35,24 @@ const MASTER_TEST_CATALOG = [
 
 const POPULAR_QUICK_MENU = ["CT scan for brain", "MRI Brain", "Chest CT Scan", "Chest X-ray", "ECG", "CBC", "HbA1c", "Lipid Profile"];
 
+function storedAiFlag(summary?: string | null): { flag: string; label: string } | null {
+  if (!summary) return null;
+  const flag = summary.match(/Case Flag:\s*(POSITIVE|BORDERLINE|NORMAL)/i)?.[1]?.toUpperCase();
+  if (!flag) return null;
+  if (flag === "NORMAL") return { flag, label: "Normal" };
+
+  const finding = summary.match(/Primary Finding:\s*([^\r\n]+)/i)?.[1]?.trim() || "Abnormal finding";
+  return {
+    flag,
+    label: `${finding.replace(/^Borderline finding:\s*/i, "")} · ${flag}`,
+  };
+}
+
+function storedGradcamUri(summary?: string | null): string | null {
+  const value = summary?.match(/Grad-CAM(?:\+\+)? Heatmap:\s*(\/uploads\/[^\s\r\n]+)/i)?.[1];
+  return value || null;
+}
+
 interface OrdersAndLabsProps {
   encounterId: string;
   sel: string[];
@@ -46,6 +64,8 @@ export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: 
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [ai, setAi] = useState<Record<string, any>>({});
+  const [expandedAnalysis, setExpandedAnalysis] = useState<Record<string, boolean>>({});
+  const [imagePreview, setImagePreview] = useState<{ uri: string; title: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
 
@@ -91,7 +111,8 @@ export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: 
     setAnalyzing((prev) => ({ ...prev, [id]: true }));
     try {
       await api.localAnalyzeLabOrder(id);
-      qc.invalidateQueries({ queryKey: ["lab", encounterId] });
+      await qc.invalidateQueries({ queryKey: ["lab", encounterId] });
+      setExpandedAnalysis((current) => ({ ...current, [id]: true }));
     } catch (e) {
       console.error("Local analyze error:", e);
     } finally {
@@ -235,7 +256,7 @@ export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: 
                   )}
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center justify-end gap-1.5">
                 {(o.status === "RESULTED" || o.attachment_uri) && (
                   <button 
                     className="btn cyan text-xs !py-0.5 font-bold" 
@@ -289,6 +310,75 @@ export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: 
 
             {o.status === "RESULTED" && (o.notes || o.ai_analysis_summary || o.attachment_uri) && (
               <div className="mt-2.5 pt-2 border-t border-white/5 space-y-2 text-[12.5px] bg-white/[0.01] p-3 rounded-xl">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    {storedAiFlag(o.ai_analysis_summary) && (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] tracking-wide ${
+                            storedAiFlag(o.ai_analysis_summary)?.flag === "NORMAL"
+                              ? "border-emerald-500/30 bg-emerald-500/10 font-extrabold uppercase text-emerald-500"
+                              : "border-rose-500/30 bg-rose-500/10 text-rose-500"
+                          }`}
+                        >
+                          {storedAiFlag(o.ai_analysis_summary)?.flag === "NORMAL" ? (
+                            "Normal"
+                          ) : (
+                            <>
+                              <span className="mr-1 font-semibold">Detected</span>
+                              <span className="font-extrabold">{storedAiFlag(o.ai_analysis_summary)?.label}</span>
+                            </>
+                          )}
+                        </span>
+                        {storedGradcamUri(o.ai_analysis_summary) && (
+                          <button
+                            type="button"
+                            onClick={() => setImagePreview({
+                              uri: `${import.meta.env.VITE_API_BASE_URL ?? ""}${storedGradcamUri(o.ai_analysis_summary)}?v=${Date.now()}`,
+                              title: "Grad-CAM++ Heatmap",
+                            })}
+                            className="btn ghost inline-flex text-xs !py-0.5 font-bold text-rose-500"
+                            title="View Grad-CAM++ class activation heatmap"
+                          >
+                            View Grad-CAM++
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+                    {o.ai_analysis_summary && (
+                      <button
+                        type="button"
+                        className="btn ghost text-xs !py-0.5 font-bold"
+                        onClick={() => setExpandedAnalysis((current) => ({
+                          ...current,
+                          [o.lab_order_id]: !current[o.lab_order_id],
+                        }))}
+                        aria-expanded={Boolean(expandedAnalysis[o.lab_order_id])}
+                      >
+                        <ChevronDown
+                          size={14}
+                          className={`transition-transform ${expandedAnalysis[o.lab_order_id] ? "rotate-180" : ""}`}
+                        />
+                        {expandedAnalysis[o.lab_order_id] ? "Collapse AI Result" : "Expand AI Result"}
+                      </button>
+                    )}
+                    {o.attachment_uri && (
+                      <button
+                        type="button"
+                        onClick={() => setImagePreview({
+                          uri: `${o.attachment_uri.startsWith("http") ? o.attachment_uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`}${o.attachment_uri.includes("?") ? "&" : "?"}v=${Date.now()}`,
+                          title: o.attachment_name || `${o.test} — Original Scan`,
+                        })}
+                        className="btn ghost inline-flex text-xs !py-0.5 font-bold"
+                        title={o.attachment_name || "View uploaded lab document"}
+                      >
+                        <FileText size={13} /> View
+                      </button>
+                    )}
+                  </div>
+                </div>
                 {o.notes && !o.notes.includes("LOCAL PYTORCH") && (
                   <div style={{ color: "var(--muted)" }}>
                     <b className="text-slate-300 block mb-1">Technician Notes:</b>
@@ -297,30 +387,29 @@ export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: 
                     </div>
                   </div>
                 )}
-                {o.ai_analysis_summary && (
-                  <div style={{ color: "var(--muted)" }}>
+                {o.ai_analysis_summary && expandedAnalysis[o.lab_order_id] && (
+                  <div className="space-y-2" style={{ color: "var(--muted)" }}>
+                    {storedGradcamUri(o.ai_analysis_summary) && (
+                      <div className="overflow-hidden rounded-xl border border-rose-500/20 bg-black/20">
+                        <div className="border-b border-white/5 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-rose-400">
+                          Grad-CAM++ — {storedAiFlag(o.ai_analysis_summary)?.flag} class activation
+                        </div>
+                        <img
+                          src={`${import.meta.env.VITE_API_BASE_URL ?? ""}${storedGradcamUri(o.ai_analysis_summary)}`}
+                          alt="Grad-CAM++ heatmap showing image regions that influenced the top prediction"
+                          className="mx-auto max-h-[420px] w-auto max-w-full object-contain"
+                        />
+                      </div>
+                    )}
                     <b className="text-sky-400 block mb-1">Local PyTorch Diagnostic Analysis (Doctor Only):</b>
                     <div className="whitespace-pre-wrap text-slate-200 text-[12px] leading-relaxed font-mono bg-black/20 p-2.5 rounded-lg border border-white/5">
                       {o.ai_analysis_summary}
                     </div>
                   </div>
                 )}
-                {(o.ai_analysis_summary || o.notes)?.includes("LOCAL PYTORCH") && (
+                {expandedAnalysis[o.lab_order_id] && (o.ai_analysis_summary || o.notes)?.includes("LOCAL PYTORCH") && (
                   <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11.5px] font-bold flex items-center gap-1.5 shadow-sm">
                     <span>⚠️ Preliminary AI Finding — Requires Physician Verification</span>
-                  </div>
-                )}
-                {o.attachment_uri && (
-                  <div>
-                    <a
-                      href={o.attachment_uri.startsWith("http") ? o.attachment_uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn ghost inline-flex !px-2 !py-1 text-[10px] font-bold text-[var(--cyan)]"
-                      title={o.attachment_name || "View uploaded lab document"}
-                    >
-                      <FileText size={11} /> View
-                    </a>
                   </div>
                 )}
               </div>
@@ -333,6 +422,40 @@ export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: 
           </Card>
         ))}
       </div>
+
+      {imagePreview && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label={imagePreview.title}
+          onClick={() => setImagePreview(null)}
+        >
+          <div
+            className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-slate-950 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <h3 className="truncate text-sm font-bold text-white">{imagePreview.title}</h3>
+              <button
+                type="button"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white"
+                onClick={() => setImagePreview(null)}
+                aria-label="Close image preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto bg-black/40 p-3">
+              <img
+                src={imagePreview.uri}
+                alt={imagePreview.title}
+                className="mx-auto h-auto max-h-[80vh] w-full max-w-4xl rounded-lg object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
