@@ -8,17 +8,62 @@ from __future__ import annotations
 
 import os
 import re
+import sys
+from contextlib import contextmanager
 from typing import Any
 import numpy as np
 
+_VISION_IMPORT_ERRORS: dict[str, str] = {}
+
+
+@contextmanager
+def _without_speechbrain_lazy_modules():
+    """Prevent Python inspection from activating optional SpeechBrain redirects.
+
+    TorchVision inspects every entry in sys.modules while registering operators.
+    SpeechBrain's LazyModule objects treat that inspection as attribute access and
+    may try to import optional integrations such as k2. Temporarily hiding only
+    those proxy objects makes the two libraries safe to initialize in either order.
+    """
+    hidden = {
+        name: module
+        for name, module in tuple(sys.modules.items())
+        if (
+            module is not None
+            and type(module).__name__ in {"LazyModule", "DeprecatedModuleRedirect"}
+            and type(module).__module__ == "speechbrain.utils.importutils"
+        )
+    }
+    for name in hidden:
+        sys.modules.pop(name, None)
+    try:
+        yield
+    finally:
+        for name, module in hidden.items():
+            sys.modules.setdefault(name, module)
+
+
 try:
     import torch
-    import torchvision
-    import torchxrayvision as xrv
 except Exception as _imp_err:
-    print(f"[PyTorch Setup Note]: {_imp_err}")
+    print(f"[PyTorch Setup Note] torch: {_imp_err}")
+    _VISION_IMPORT_ERRORS["torch"] = str(_imp_err)
     torch = None
+
+try:
+    with _without_speechbrain_lazy_modules():
+        import torchvision
+except Exception as _imp_err:
+    print(f"[PyTorch Setup Note] torchvision: {_imp_err}")
+    _VISION_IMPORT_ERRORS["torchvision"] = str(_imp_err)
     torchvision = None
+
+try:
+    with _without_speechbrain_lazy_modules():
+        import torchxrayvision as xrv
+except Exception as _imp_err:
+    print(f"[PyTorch Setup Note] torchxrayvision: {_imp_err}")
+    _VISION_IMPORT_ERRORS["torchxrayvision"] = str(_imp_err)
     xrv = None
 
 from app.ai.dicom_helper import process_dicom_file
@@ -42,6 +87,27 @@ def _get_xrv_model():
     return _XRV_MODEL
 
 
+def _vision_unavailable_response(source_type: str, reason: str) -> dict[str, Any]:
+    """Return an honest, API-compatible result when vision inference cannot run."""
+    return {
+        "analysis_type": "LOCAL_PYTORCH_VISION_UNAVAILABLE",
+        "model_engine": "TorchXRayVision (unavailable)",
+        "source_type": source_type,
+        "primary_finding": "AI imaging analysis unavailable",
+        "case_flag": "UNAVAILABLE",
+        "confidence_score": 0.0,
+        "severity": "UNAVAILABLE",
+        "impression": (
+            "The image was received, but the local vision model could not be initialized. "
+            "No diagnostic inference was produced."
+        ),
+        "top_predictions": [],
+        "recommendation": "Have a qualified radiologist review the original image.",
+        "error": reason,
+        "disclaimer": "No AI diagnosis was produced.",
+    }
+
+
 def _save_gradcam_pp_overlay(
     activations: Any,
     gradients: Any,
@@ -50,7 +116,14 @@ def _save_gradcam_pp_overlay(
     pathology: str,
 ) -> str | None:
     """Create a thresholded Grad-CAM++ overlay for one DenseNet pathology output."""
-    if torch is None or activations is None or gradients is None:
+    if torch is None:
+        print("[Grad-CAM++] Skipped: PyTorch is unavailable")
+        return None
+    if activations is None or gradients is None:
+        print(
+            "[Grad-CAM++] Skipped: target-layer activations or gradients "
+            "were not captured"
+        )
         return None
     try:
         from PIL import Image
@@ -70,11 +143,27 @@ def _save_gradcam_pp_overlay(
         positive_gradients = torch.relu(gradients)
         weights = (alpha * positive_gradients).sum(dim=(2, 3), keepdim=True)
         cam = torch.relu((weights * activations).sum(dim=1, keepdim=True))
+
+        # Some TorchXRayVision outputs pass through operating-point
+        # normalization, which can produce entirely non-positive Grad-CAM++
+        # channel weights. Fall back to standard Grad-CAM weighting so a valid
+        # target-layer gradient still produces a localization map.
+        if float(cam.max()) <= 1e-8:
+            standard_weights = gradients.mean(dim=(2, 3), keepdim=True)
+            cam = torch.relu(
+                (standard_weights * activations).sum(dim=1, keepdim=True)
+            )
+        if float(cam.max()) <= 1e-8:
+            absolute_weights = gradients.abs().mean(dim=(2, 3), keepdim=True)
+            cam = (absolute_weights * activations.abs()).sum(
+                dim=1, keepdim=True
+            )
         cam = torch.nn.functional.interpolate(
             cam, size=image_tensor.shape[-2:], mode="bilinear", align_corners=False
         )[0, 0]
         cam_min, cam_max = cam.min(), cam.max()
         if float(cam_max - cam_min) <= 1e-8:
+            print("[Grad-CAM++] Skipped: activation map was spatially constant")
             return None
         cam = (cam - cam_min) / (cam_max - cam_min)
 
@@ -84,6 +173,7 @@ def _save_gradcam_pp_overlay(
         cam = torch.where(cam >= activation_threshold, cam, torch.zeros_like(cam))
         retained_max = cam.max()
         if float(retained_max) <= 1e-8:
+            print("[Grad-CAM++] Skipped: no activation survived the display threshold")
             return None
         cam = (cam / retained_max).detach().cpu().numpy()
 
@@ -107,6 +197,7 @@ def _save_gradcam_pp_overlay(
         Image.fromarray((overlay * 255).astype(np.uint8)).save(
             os.path.join(output_dir, filename), format="PNG"
         )
+        print(f"[Grad-CAM++] Heatmap generated: /uploads/{filename}")
         return f"/uploads/{filename}"
     except Exception as err:
         print(f"[Grad-CAM++] Warning generating heatmap: {err}")
@@ -176,9 +267,16 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
                 img_np = np.clip(img_np, p2, p98)
                 img_np = (img_np - p2) / (p98 - p2) * 255.0
 
-            img_tensor_data = xrv.datasets.normalize(img_np, 255)
+            # Equivalent to TorchXRayVision normalization, but preprocessing must
+            # not dereference xrv before availability has been checked.
+            img_tensor_data = (img_np / 255.0) * 2048.0 - 1024.0
 
         # PyTorch Tensor (1, 1, 224, 224)
+        if torch is None:
+            reason = _VISION_IMPORT_ERRORS.get("torch", "PyTorch is not installed")
+            return _vision_unavailable_response(
+                source_type, f"PyTorch initialization failed: {reason}"
+            )
         img_tensor = torch.from_numpy(img_tensor_data).unsqueeze(0).unsqueeze(0)
         print(f"• PyTorch Tensor Formatted: shape={tuple(img_tensor.shape)}, dtype={img_tensor.dtype}")
 
@@ -445,6 +543,13 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
         else:
             print("• Anatomy Recognized: Chest Radiograph")
             print("• Executing TorchXRayVision DenseNet-121 Neural Network...")
+            if xrv is None:
+                reason = _VISION_IMPORT_ERRORS.get(
+                    "torchxrayvision", "TorchXRayVision is not installed"
+                )
+                return _vision_unavailable_response(
+                    source_type, f"TorchXRayVision initialization failed: {reason}"
+                )
             model = _get_xrv_model()
             if model is not None:
                 captured: dict[str, Any] = {"activations": None, "gradients": None}
@@ -579,29 +684,12 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
                     "recommendation": recommendation,
                     "disclaimer": "⚠️ Preliminary AI Finding — Requires Physician Verification"
                 }
+            return _vision_unavailable_response(
+                source_type, "TorchXRayVision model weights could not be loaded"
+            )
     except Exception as exc:
         print(f"[PyTorch Engine Exception]: {exc}")
-
-    # Fallback response
-    return {
-        "analysis_type": "LOCAL_PYTORCH_VISION",
-        "model_engine": "TorchXRayVision (DenseNet-121)",
-        "source_type": source_type,
-        "primary_finding": "Bilateral Knee Joint Space Narrowing & Subchondral Sclerosis",
-        "confidence_score": 92.4,
-        "severity": "MODERATE",
-        "impression": f"Local PyTorch image processing complete for {test_name}. Visual features evaluated.",
-        "top_predictions": [
-            {"pathology": "Joint Space Narrowing & Osteophytes", "probability": 92.4},
-            {"pathology": "Subchondral Sclerosis", "probability": 78.1},
-            {"pathology": "Cortical Alignment Intact", "probability": 85.2},
-            {"pathology": "Soft Tissue Calcification", "probability": 12.4},
-            {"pathology": "Fracture / Dislocation", "probability": 3.2}
-        ],
-        "recommendation": "Correlate with patient clinical presentation and physical examination.",
-        "disclaimer": "⚠️ Preliminary AI Finding — Requires Physician Verification"
-    }
-
+        return _vision_unavailable_response(source_type, str(exc))
 
 def _analyze_lab_report_text(text_content: str, test_name: str) -> dict[str, Any]:
     """Parse laboratory blood/urine numerical values against medical reference ranges."""
