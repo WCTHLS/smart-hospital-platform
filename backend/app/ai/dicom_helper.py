@@ -9,11 +9,9 @@ import os
 from typing import Any
 
 
-def _file_uri(file_path: str) -> str:
-    """Convert a local relative path into a URL-style path."""
-    normalized_path = "/".join(
-        segment for segment in file_path.replace("\\", "/").split("/") if segment
-    )
+def _preview_uri(file_path: str) -> str:
+    """Return a web-style URI for a local upload path."""
+    normalized_path = file_path.replace("\\", "/").lstrip("/")
     return f"/{normalized_path}"
 
 
@@ -37,12 +35,12 @@ def process_dicom_file(file_path: str, output_dir: str = "uploads") -> dict[str,
     }
 
     if ext in [".jpg", ".jpeg", ".png", ".webp"]:
-        result["preview_uri"] = _file_uri(file_path)
+        result["preview_uri"] = _preview_uri(file_path)
         return result
 
     if ext not in [".dcm", ".dicom"]:
         # Standard file fallback
-        result["preview_uri"] = _file_uri(file_path)
+        result["preview_uri"] = _preview_uri(file_path)
         return result
 
     try:
@@ -88,6 +86,6 @@ def process_dicom_file(file_path: str, output_dir: str = "uploads") -> dict[str,
             result["preview_uri"] = f"/uploads/{preview_filename}"
     except Exception as exc:
         print(f"[DICOM Helper] Exception reading DICOM {file_path}: {exc}")
-        result["preview_uri"] = _file_uri(file_path)
+        result["preview_uri"] = _preview_uri(file_path)
 
     return result

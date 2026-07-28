@@ -40,30 +40,15 @@ const TOPIC_STAGE: Record<string, number> = {
   "visit.discharged": 6,
 };
 
-type StoredStatusSelection =
-  | { type: "appointment"; id: string }
-  | { type: "encounter"; id: string };
-
-function statusSelectionKey(patientId: string) {
-  return `patient-status-selection:${patientId}`;
-}
-
-function readStatusSelection(patientId: string): StoredStatusSelection | null {
-  try {
-    const raw = sessionStorage.getItem(statusSelectionKey(patientId));
-    if (!raw) return null;
-    const value = JSON.parse(raw);
-    if (
-      (value?.type === "appointment" || value?.type === "encounter") &&
-      typeof value.id === "string"
-    ) {
-      return value;
-    }
-  } catch {
-    // Ignore invalid or unavailable browser storage and use the normal default.
-  }
-  return null;
-}
+const VISIT_STAGE_LABELS = [
+  "Checked in",
+  "Triaged",
+  "With the doctor",
+  "Diagnostics",
+  "Under review",
+  "Rx e-signed",
+  "Discharged",
+];
 
 export default function PatientDashboard() {
   const nav = useNavigate();
@@ -403,10 +388,13 @@ export default function PatientDashboard() {
   });
 
   const mine = events.filter((e) => e.payload?.encounter_id === showEncounterId);
-  let stage = STATUS_STAGE[encDetails?.status ?? "CHECKED_IN"] ?? 0;
+  const backendStage = typeof encDetails?.stage === "number" ? encDetails.stage : null;
+  let stage = backendStage ?? STATUS_STAGE[encDetails?.status ?? "CHECKED_IN"] ?? 0;
   
   const isLabVisit = encDetails?.visit_type === "LAB" || encDetails?.department === "Laboratory";
-  if (isLabVisit) {
+  // Retain the complete derivation only as compatibility for an older backend
+  // process. A returned backend stage is the canonical database-backed value.
+  if (backendStage === null && isLabVisit) {
     if (encDetails.status === "DISCHARGED") {
       stage = 6; // Discharged
     } else {
@@ -421,7 +409,7 @@ export default function PatientDashboard() {
         stage = 3; // Diagnostics / checked in & waiting
       }
     }
-  } else {
+  } else if (backendStage === null) {
     if (encDetails?.note?.status === "APPROVED") stage = Math.max(stage, 2);
     if (encDetails?.labs?.length) stage = Math.max(stage, 3);
     if (encDetails?.labs?.some((order: any) => order.results?.length)) stage = Math.max(stage, 4);
@@ -581,36 +569,26 @@ export default function PatientDashboard() {
 
   const hasSelection = !!(showEncounterId || showAppointmentId);
   const selectedApp = appointments.find((a: any) => a.appointment_id === showAppointmentId);
+  const hasPastVisitEntries = pastEpisodes.length > 0;
   const encounterAppointment = encDetails?.appointment || appointments.find((a: any) =>
     a.encounter_id === showEncounterId || a.appointment_id === encDetails?.appointment_id
   );
 
   return (
-    <div className="patient-page grid min-w-0 gap-4 sm:gap-6 lg:grid-cols-[clamp(280px,23vw,360px)_minmax(0,1fr)] 2xl:gap-7 animate-in fade-in duration-300">
+    <div className="patient-page grid min-w-0 gap-4 sm:gap-6 lg:min-h-[calc(100dvh-6.75rem)] lg:grid-cols-[clamp(280px,23vw,360px)_minmax(0,1fr)] 2xl:gap-7 animate-in fade-in duration-300">
       {/* Sidebar - Visits List */}
-      <div className={`min-w-0 space-y-4 ${hasSelection && !showMobileVisitList ? "hidden lg:block" : "block"}`}>
-        <Card className="!p-5">
-          <div className="flex w-full items-center gap-4 text-left">
-            <div className="relative shrink-0">
-              <div
-                className="grid h-[72px] w-[72px] place-items-center overflow-hidden rounded-full p-[3px]"
-                style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))" }}
-              >
-                <div className="grid h-full w-full place-items-center overflow-hidden rounded-full bg-white">
-                  {(p360?.patient?.profile_photo || portalSession.profile_photo)
-                    ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
-                    : <UserRound size={32} className="text-[var(--dim)]" />}
-                </div>
-              </div>
-              <label
-                htmlFor="patient-profile-photo"
-                className={`absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-full border-2 border-white bg-[var(--cyan)] text-white shadow-md transition ${photoUploading ? "cursor-wait opacity-60" : "cursor-pointer hover:scale-105"}`}
-                aria-label="Upload profile photo"
-                aria-disabled={photoUploading}
-                title={photoUploading ? "Uploading photo" : "Upload profile photo"}
-              >
-                <Camera size={13} />
-              </label>
+      <div className={`min-w-0 min-h-0 flex-col gap-4 lg:h-[calc(100dvh-6.75rem)] lg:max-h-[calc(100dvh-6.75rem)] ${hasSelection && !showMobileVisitList ? "hidden lg:flex" : "flex"}`}>
+        <Card>
+          <button
+            type="button"
+            onClick={() => setShowProfileModal(true)}
+            className="group -m-1.5 flex w-[calc(100%+0.75rem)] items-center gap-3 rounded-xl border border-transparent p-1.5 text-left transition hover:border-cyan-500/20 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70"
+            aria-label="View patient profile details"
+          >
+            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-[var(--glass-border)] bg-white/5 group-hover:border-cyan-400/30">
+              {(p360?.patient?.profile_photo || portalSession.profile_photo)
+                ? <img className="h-full w-full object-cover" src={p360?.patient?.profile_photo || portalSession.profile_photo} alt={`${portalPatientName} profile`} />
+                : <UserRound size={30} className="text-[var(--dim)] group-hover:text-[var(--cyan)]" />}
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--dim)]">Patient profile</div>
@@ -692,7 +670,7 @@ export default function PatientDashboard() {
           <div className="flex items-center justify-between gap-2">
             <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Appointments</h4>
             <button 
-              className="btn ghost sm shrink-0 text-[10px] !py-0.5 !px-2 font-extrabold" 
+              className="btn sm shrink-0 px-3 py-1.5 text-xs font-bold" 
               onClick={() => nav("/patient/appointments/book?redirect=/patient")}
             >
               Book appointment
@@ -724,7 +702,7 @@ export default function PatientDashboard() {
                       {appointmentDay}
                       {appointmentDay === today && <span className="ml-1.5 text-[var(--cyan)]">Today</span>}
                     </span>
-                    <Tag tone="amber">{appointment.status || "BOOKED"}</Tag>
+                    <Tag tone="blue">Booked</Tag>
                   </div>
                   <div className="truncate text-[var(--muted)]">
                     {appointment.doctor?.name ?? "Assigned doctor"} · {appointment.specialty} · {timeLabel(appointment.scheduled_start)}
@@ -738,7 +716,19 @@ export default function PatientDashboard() {
                                ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
                                ep.followups?.some((f: any) => f.encounter_id === showEncounterId);
               const activeChild = ep.labs?.find((l: any) => l.status !== "DISCHARGED") || ep.followups?.find((f: any) => f.status !== "DISCHARGED");
-              const displayStatus = activeChild ? activeChild.status : ep.status;
+              const statusEncounter = activeChild ?? ep;
+              const relatedEncounterIds = new Set([
+                ep.encounter_id,
+                ...(ep.labs ?? []).map((item: any) => item.encounter_id),
+                ...(ep.followups ?? []).map((item: any) => item.encounter_id),
+              ]);
+              let displayStage = statusEncounter.stage ?? STATUS_STAGE[statusEncounter.status] ?? 0;
+              for (const event of events) {
+                if (relatedEncounterIds.has(event.payload?.encounter_id)) {
+                  displayStage = Math.max(displayStage, TOPIC_STAGE[event.topic] ?? -1);
+                }
+              }
+              const displayStageLabel = VISIT_STAGE_LABELS[displayStage] ?? VISIT_STAGE_LABELS[0];
               
               return (
                 <button
@@ -751,11 +741,10 @@ export default function PatientDashboard() {
                   }}
                 >
                   <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-[var(--ink)]">
-                      {ep.date}
-                      {ep.date === today && <span className="ml-1.5 text-[var(--cyan)]">Today</span>}
-                    </span>
-                    <Tag tone={displayStatus === "DISCHARGED" ? "green" : "blue"}>{displayStatus}</Tag>
+                    <span className="font-bold text-white">{ep.date}</span>
+                    <Tag tone="blue">
+                      {displayStageLabel}
+                    </Tag>
                   </div>
                   <div className="text-[var(--muted)]">{ep.department} department</div>
                   <div className="mt-1 text-[var(--muted)]">Reason: {ep.reason || "Not provided"}</div>
@@ -787,12 +776,12 @@ export default function PatientDashboard() {
         )}
 
         {/* Past Visits */}
-        <Card className="flex h-[360px] flex-col">
+        <Card className={`space-y-3 lg:flex lg:min-h-0 lg:flex-col ${hasPastVisitEntries ? "lg:flex-1 lg:basis-0" : ""}`}>
           <h4 className="font-bold text-xs uppercase tracking-wider text-[var(--dim)]">Past visits</h4>
           {!pastEpisodes.length && (
             <div className="holo mt-3 text-xs text-[var(--muted)]">No past visits available.</div>
           )}
-          <div className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+          <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1 lg:min-h-0 lg:max-h-none lg:flex-1">
             {pastEpisodes.map((ep: any) => {
               const isActive = ep.encounter_id === showEncounterId || 
                                ep.labs?.some((l: any) => l.encounter_id === showEncounterId) || 
@@ -990,8 +979,8 @@ export default function PatientDashboard() {
               </div>
             </div>
 
-            <div className="p-3.5 bg-sky-600/10 border border-sky-600/20 text-sky-700 rounded-xl text-xs flex gap-2.5 items-start">
-              <CheckCircle2 size={18} className="shrink-0 text-sky-700 mt-0.5" />
+            <div className="success-message flex items-start gap-2.5 rounded-xl border p-3.5 text-xs">
+              <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
               <div>
                 <span className="font-bold block mb-0.5 text-[var(--ink)]">Reports Sent to Doctor!</span>
                 Your lab results and vitals have been successfully sent to the doctor. The doctor will review your reports shortly and update your consultation advice.
@@ -1062,13 +1051,13 @@ export default function PatientDashboard() {
                 >
                   <Download size={14} /> Invoice
                 </button>
-                <Tag tone="green">Checked In</Tag>
+                <Tag tone="blue">Checked In</Tag>
               </div>
             </div>
 
             {/* Check-in Complete Alert */}
-            <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 text-emerald-700 rounded-xl text-xs flex gap-2.5 items-start">
-              <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-700" />
+            <div className="success-message flex items-start gap-2.5 rounded-xl border p-3 text-xs">
+              <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
               <div>
                 <span className="font-bold block mb-0.5">Check-in Complete!</span>
                 {encDetails.visit_type === "E_CONSULT" 
@@ -1206,10 +1195,11 @@ export default function PatientDashboard() {
             })()}
 
             {/* Brief Appointment Details */}
-            <div className="p-3 rounded-xl border bg-[rgba(20,33,61,0.04)] space-y-2 text-xs" style={{ borderColor: "var(--glass-border)" }}>
-              <div className="font-semibold text-[var(--ink)] flex items-center gap-1.5 border-b border-[var(--line)] pb-1 mb-1">
-                <Clipboard size={14} className={encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? "text-emerald-700" : "text-[var(--cyan)]"} /> {encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? "Lab Visit Summary" : "Visit Summary"}
+            <div className="p-3 rounded-xl border bg-white/5 text-xs" style={{ borderColor: "var(--glass-border)" }}>
+              <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-1 mb-1">
+                <Clipboard size={14} className={encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? "text-emerald-400" : "text-[var(--cyan)]"} /> {encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? "Lab Visit Summary" : "Visit Summary"}
               </div>
+              <div className="visit-summary-grid">
               {encDetails.visit_type === "LAB" || encDetails.department === "Laboratory" ? (
                 <>
                   <div className="kv"><span>Department</span><b>Clinical Laboratory</b></div>
@@ -1218,6 +1208,7 @@ export default function PatientDashboard() {
                 </>
               ) : (
                 <>
+                  <div className="kv visit-summary-wide"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encounterAppointment?.reason || encDetails.reason || "Not provided"}</b></div>
                   <div className="kv"><span>Doctor</span><b>{encounterAppointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || "Not assigned"}</b></div>
                   <div className="kv"><span>Specialty</span><b>{encounterAppointment?.specialty || encDetails.triage?.specialty || encDetails.department || "Not recorded"}</b></div>
                   <div className="kv">
@@ -1228,9 +1219,9 @@ export default function PatientDashboard() {
                     ].filter(Boolean).join(" / ") || "Not assigned"}</b>
                   </div>
                   <div className="kv"><span>Time Slot</span><b>{encounterAppointment?.scheduled_start ? timeLabel(encounterAppointment.scheduled_start) : timeLabel(encDetails.arrival)}</b></div>
-                  <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encounterAppointment?.reason || encDetails.reason || "Not provided"}</b></div>
                 </>
               )}
+              </div>
             </div>
           </Card>
         )}
@@ -1277,12 +1268,8 @@ export default function PatientDashboard() {
                     borderColor: "rgba(37,100,207,0.3)" 
                   }}
                 >
-                  <div className="absolute top-0 right-0 p-2 opacity-5">
-                    <Ticket size={120} />
-                  </div>
-                  
-                  <div className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[var(--cyan)]">Your Queue Token</div>
-                  <div className="text-5xl font-black tracking-wider text-[var(--ink)] drop-shadow-[0_0_16px_rgba(37,100,207,0.8)] sm:text-6xl">
+                  <div className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[var(--cyan)]">Your Queue Token</div>
+                  <div className="text-5xl font-black tracking-wider text-white drop-shadow-[0_0_16px_rgba(52,225,232,0.8)] sm:text-6xl">
                     {encDetails.token.number}
                   </div>
                   
@@ -1304,10 +1291,12 @@ export default function PatientDashboard() {
               )}
 
               {/* Brief Appointment Details */}
-              <div className="p-3 rounded-xl border bg-[rgba(20,33,61,0.04)] space-y-2 text-xs" style={{ borderColor: "var(--glass-border)" }}>
-                <div className="font-semibold text-[var(--ink)] flex items-center gap-1.5 border-b border-[var(--line)] pb-1 mb-1">
+              <div className="p-3 rounded-xl border bg-white/5 text-xs" style={{ borderColor: "var(--glass-border)" }}>
+                <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-1 mb-1">
                   <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
                 </div>
+                <div className="visit-summary-grid">
+                <div className="kv visit-summary-wide"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
                 <div className="kv"><span>Assigned Doctor</span><b>{encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
                 <div className="kv"><span>Specialty</span><b>{encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
                 <div className="kv"><span>Room / Floor</span><b>{[
@@ -1316,7 +1305,7 @@ export default function PatientDashboard() {
                 ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
                 <div className="kv"><span>Time Slot</span><b>{encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
                 <div className="kv"><span>Acuity Level</span><b>{encDetails.triage?.acuity || "Not recorded"}</b></div>
-                <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
+                </div>
               </div>
             </Card>
 
@@ -1365,7 +1354,7 @@ export default function PatientDashboard() {
                 <div className={`${episodeTimelineTab === "care" ? "flex" : "hidden"} relative flex-col md:flex-row md:items-start gap-6 md:gap-4 pl-4 md:pl-0 pt-2 pb-1`}>
                   {/* Step 1: Doctor Consult */}
                   <div className="flex-1 relative flex gap-3.5 items-start">
-                    <div className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] bg-emerald-500 text-white shrink-0 mt-0.5 border-4 border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                    <div className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] bg-[#277154] !text-white shrink-0 mt-0.5 border-4 border-[#277154]/20 shadow-[0_0_10px_rgba(39,113,84,0.22)]">
                       ✓
                     </div>
                     <div className="space-y-0.5">
@@ -1386,16 +1375,16 @@ export default function PatientDashboard() {
                     const activeLab = currentEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
                     
                     let statusText = "Pending Lab Booking";
-                    let stepColorClass = "bg-slate-700 text-slate-400 border-slate-700/20";
+                    let stepColorClass = "bg-white text-slate-500 border-slate-200";
                     let marker = "2";
                     
                     if (allResulted) {
                       statusText = "Results Published";
-                      stepColorClass = "bg-emerald-500 text-white border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]";
+                      stepColorClass = "bg-[#277154] !text-white border-[#277154]/20 shadow-[0_0_10px_rgba(39,113,84,0.22)]";
                       marker = "✓";
                     } else if (activeLab) {
                       statusText = `Checked-in (${activeLab.token?.number || "L-101"})`;
-                      stepColorClass = "bg-sky-600 text-white border-sky-600/20 shadow-[0_0_10px_rgba(37,100,207,0.3)] animate-pulse";
+                      stepColorClass = "bg-[#37b5b1] text-white border-[#37b5b1]/20 shadow-[0_0_10px_rgba(55,181,177,0.24)] animate-pulse";
                       marker = "⚡";
                     }
 
@@ -1418,18 +1407,18 @@ export default function PatientDashboard() {
                     const completedFollowup = currentEpisode.followups?.find((f: any) => f.status === "DISCHARGED");
                     
                     let statusText = "Review pending";
-                    let stepColorClass = "bg-slate-700 text-slate-400 border-slate-700/20";
+                    let stepColorClass = "bg-white text-slate-500 border-slate-200";
                     let marker = "3";
                     
                     if (completedFollowup) {
                       statusText = "Re-visit Completed";
-                      stepColorClass = "bg-emerald-500 text-white border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]";
+                      stepColorClass = "bg-[#277154] !text-white border-[#277154]/20 shadow-[0_0_10px_rgba(39,113,84,0.22)]";
                       marker = "✓";
                     } else if (activeFollowup) {
                       statusText = activeFollowup.visit_type === "E_CONSULT" 
                         ? `E-Consult Active (${activeFollowup.token?.number || "E-501"})`
                         : `Re-visit Active (${activeFollowup.token?.number || "T-101"})`;
-                      stepColorClass = "bg-sky-600 text-white border-sky-600/20 shadow-[0_0_10px_rgba(37,100,207,0.3)] animate-pulse";
+                      stepColorClass = "bg-[#37b5b1] text-white border-[#37b5b1]/20 shadow-[0_0_10px_rgba(55,181,177,0.24)] animate-pulse";
                       marker = "⚡";
                     }
 
@@ -1593,6 +1582,22 @@ export default function PatientDashboard() {
               </Card>
             )}
 
+            <Card className="text-xs">
+              <div className="font-semibold text-slate-100 flex items-center gap-1.5 border-b border-white/5 pb-2 mb-1">
+                <Clipboard size={14} className="text-[var(--cyan)]" /> Visit Summary
+              </div>
+              <div className="visit-summary-grid">
+              <div className="kv visit-summary-wide"><span>Chief Complaint / Reason for Visit</span><b>{parentEncDetails?.triage?.chief_complaint || parentEncDetails?.appointment?.reason || encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
+              <div className="kv"><span>Doctor</span><b>{parentEncDetails?.triage?.recommended_doctor?.name || parentEncDetails?.appointment?.doctor?.name || encDetails.triage?.recommended_doctor?.name || encDetails.appointment?.doctor?.name || "Not assigned"}</b></div>
+              <div className="kv"><span>Specialty</span><b>{parentEncDetails?.triage?.specialty || parentEncDetails?.appointment?.specialty || parentEncDetails?.department || encDetails.triage?.specialty || encDetails.appointment?.specialty || encDetails.department || "Not recorded"}</b></div>
+              <div className="kv"><span>Room / Floor</span><b>{[
+                parentEncDetails?.token?.room || parentEncDetails?.triage?.recommended_doctor?.room || parentEncDetails?.appointment?.doctor?.room || encDetails.token?.room || encDetails.triage?.recommended_doctor?.room || encDetails.appointment?.doctor?.room,
+                parentEncDetails?.token?.floor || parentEncDetails?.triage?.recommended_doctor?.floor || parentEncDetails?.appointment?.doctor?.floor || encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
+              ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
+              <div className="kv"><span>Time Slot</span><b>{parentEncDetails?.appointment?.scheduled_start ? timeLabel(parentEncDetails.appointment.scheduled_start) : encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
+              </div>
+            </Card>
+
             {/* Follow-up Care Portal */}
             {parentEncDetails?.status === "DISCHARGED" && parentEncDetails?.visit_type !== "REVISIT" && parentEncDetails?.visit_type !== "E_CONSULT" && (
               <Card 
@@ -1629,7 +1634,7 @@ export default function PatientDashboard() {
 
                   if (completedFollowup) {
                     return (
-                      <div className="p-3 text-xs bg-emerald-500/10 border-emerald-500/20 text-emerald-700 rounded-xl border flex gap-2">
+                      <div className="success-message flex gap-2 rounded-xl border p-3 text-xs">
                         <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
                         <div>
                           <strong>Follow-up Completed:</strong> Your follow-up consultation is completed. Prescribed medications and doctor advice are updated below.
@@ -1716,16 +1721,14 @@ export default function PatientDashboard() {
                                 setRevisitError("");
                                 setShowRevisitModal(true);
                               }}
-                              className="btn sm"
-                              style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
+                              className="btn sm shrink-0 px-3 py-1.5 text-xs font-bold"
                             >
                               🏥 Book In-Person Re-Visit
                             </button>
                             <button 
                               onClick={() => handleRequestEconsult(docId)}
                               disabled={requestingEconsult}
-                              className="btn outline sm flex items-center gap-1.5"
-                              style={{ borderColor: "rgba(37,100,207,0.3)", color: "var(--cyan)" }}
+                              className="btn sm flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs font-bold"
                             >
                               💬 Request E-Consultation (Remote Review)
                             </button>
@@ -1949,8 +1952,8 @@ export default function PatientDashboard() {
       {showProfileModal && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
           <div 
-            className="w-full max-w-md space-y-4 rounded-3xl border border-sky-600/30 p-6 shadow-2xl animate-in zoom-in-95 duration-200"
-            style={{ background: "linear-gradient(135deg, #0d3c66, #062038)" }}
+            className="light-modal-panel w-full max-w-md space-y-4 rounded-3xl border border-cyan-500/30 p-6 shadow-2xl animate-in zoom-in-95 duration-200"
+            style={{ background: "linear-gradient(135deg, #0d1527, #0a0f1d)" }}
           >
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2.5">
@@ -2029,15 +2032,15 @@ export default function PatientDashboard() {
             <div className="space-y-2.5 text-xs">
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Medical Record Number (MRN)</span>
-                <span className="font-mono font-bold text-sky-400">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</span>
+                <span className="profile-value font-mono font-bold">{p360?.patient?.mrn || portalSession?.mrn || "MRN Pending"}</span>
               </div>
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Mobile Number</span>
-                <span className="font-bold text-slate-100">{p360?.patient?.mobile || portalSession?.mobile || "N/A"}</span>
+                <span className="profile-value font-bold">{p360?.patient?.mobile || portalSession?.mobile || "N/A"}</span>
               </div>
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Date of Birth / Age</span>
-                <span className="font-bold text-slate-100">
+                <span className="profile-value font-bold">
                   {p360?.patient?.dob || portalSession?.dob || "N/A"}
                   {(() => {
                     const dobStr = p360?.patient?.dob || portalSession?.dob;
@@ -2051,15 +2054,15 @@ export default function PatientDashboard() {
               </div>
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Gender</span>
-                <span className="font-bold text-slate-100">{p360?.patient?.gender || "N/A"}</span>
+                <span className="profile-value font-bold">{p360?.patient?.gender || "N/A"}</span>
               </div>
               <div className="flex justify-between items-center py-1.5 border-b border-white/5">
                 <span className="text-[var(--dim)]">Blood Group</span>
-                <span className="font-bold text-sky-500">{p360?.patient?.blood_group || "N/A"}</span>
+                <span className="profile-value font-bold">{p360?.patient?.blood_group || "N/A"}</span>
               </div>
               <div className="py-1.5">
                 <span className="text-[var(--dim)] block mb-1">Residential Address</span>
-                <span className="font-medium text-slate-200 block bg-slate-900/60 p-2 rounded-xl border border-white/5">{p360?.patient?.address || "12 MG Road, Pune, Maharashtra"}</span>
+                <span className="profile-value block rounded-xl border border-gray-200 bg-gray-50 p-2 font-medium">{p360?.patient?.address || "12 MG Road, Pune, Maharashtra"}</span>
               </div>
             </div>
             </>

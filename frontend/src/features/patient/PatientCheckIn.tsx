@@ -86,20 +86,9 @@ export default function CheckIn() {
           {loadingAppointments && <div className="holo">Loading today's appointments...</div>}
           {!loadingAppointments && !appointments.length && <div className="holo">No booked appointment was found for today.</div>}
           {appointments.map((item) => <div className="holo" key={item.appointment_id}>
-            <div className="grid items-center gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
               <div className="min-w-0"><b className="block truncate">{item.doctor?.name ?? "Assigned doctor"}</b><span className="mt-1 block text-xs leading-relaxed" style={{ color: "var(--muted)" }}>{item.specialty} · {timeLabel(item.scheduled_start)} · {item.reason || "OPD visit"}</span></div>
-              <button
-                type="button"
-                className="btn g w-full justify-center"
-                disabled={checkingIn}
-                onClick={() => {
-                  setAppointment(item);
-                  setStep("details");
-                  setError("");
-                }}
-              >
-                Continue to check-in
-              </button>
+              <button className="btn g w-full shrink-0 sm:min-w-[110px] sm:w-auto sm:justify-self-end" onClick={() => { setAppointment(item); setStep("details"); }}>Check in</button>
             </div>
           </div>)}
           <div className="actions-row between">

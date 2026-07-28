@@ -44,6 +44,8 @@ function HistoricalVisitDropdown({ encounter }: { encounter: any }) {
                     <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>BP</small><br /><b>{details.vitals.bp}</b></div>
                     <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{details.vitals.spo2}%</b></div>
                     <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{details.vitals.temperature}°F</b></div>
+                    {details.vitals.weight != null && <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>Weight</small><br /><b>{details.vitals.weight} kg</b></div>}
+                    {details.vitals.height != null && <div className="bg-white/5 p-1 rounded text-center"><small style={{ color: "var(--dim)" }}>Height</small><br /><b>{details.vitals.height} cm</b></div>}
                   </div>
                 </div>
               ) : (
@@ -243,9 +245,9 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
   );
 
   return (
-    <div className="patient-360-layout min-w-0 space-y-4">
+    <div className="grid gap-4 xl:grid-cols-2">
       {/* Chronic Medical Issues (Problem List) */}
-      <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(239,68,68,0.04), transparent)" }}>
+      <Card className="order-2 space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 xl:col-span-2">
         <div className="flex justify-between items-center pb-1.5 border-b border-white/5">
           <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#123a7a" }}>
             Chronic Medical Issues (Problem List)
@@ -295,8 +297,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
             <button
               type="submit"
               disabled={addingIssue}
-              className="btn w-full py-1.5 px-4 text-xs font-bold"
-              style={{ background: "linear-gradient(135deg, var(--cyan), #14213d)", color: "white", border: "none" }}
+              className="btn ghost w-full py-1.5 px-4 text-xs font-bold"
             >
               {addingIssue ? "Saving..." : "Add Issue"}
             </button>
@@ -306,10 +307,10 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
 
       {/* Today's Consultation Notes & Advice */}
       {encounterId && (
-        <Card className="space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(26,79,180,0.06), transparent)" }}>
+        <Card className="order-3 space-y-3 relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200 xl:h-fit">
           <div className="flex items-center justify-between">
-            <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#123a7a" }}>
-              <FileText size={16} className="text-sky-500" /> Active Consultation Notes &amp; Advice
+            <h4 className="font-bold flex items-center gap-1.5" style={{ color: "#dce9ff" }}>
+              <FileText size={16} className="text-[#0b787a]" /> Active Consultation Notes &amp; Advice
             </h4>
             {notesSuccess && (
               <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1">
@@ -347,12 +348,12 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
               <div 
                 className="p-3 rounded-xl border text-[11px] space-y-1 mb-2.5 animate-in fade-in duration-200"
                 style={{ 
-                  background: "rgba(26,79,180, 0.05)", 
-                  borderColor: "rgba(26,79,180, 0.25)",
-                  color: "var(--ink)"
+                  background: "rgba(207,239,239,.35)",
+                  borderColor: "#cfefef",
+                  color: "#1f2937"
                 }}
               >
-                <div className="font-bold flex items-center gap-1.5 text-sky-400">
+                <div className="font-bold flex items-center gap-1.5 text-[#0b787a]">
                   <span>📝</span> Parent Visit Diagnosis & Advice ({parentEncounter.arrival?.slice(0, 10)})
                 </div>
                 <div className="text-[11px] whitespace-pre-line text-slate-300 text-left">
@@ -363,7 +364,7 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
 
             <textarea
               className="input w-full"
-              rows={3}
+              rows={8}
               value={adviceNotes}
               onChange={(e) => {
                 setAdviceNotes(e.target.value);
@@ -377,8 +378,8 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                 type="button"
                 onClick={handleSaveNotes}
                 disabled={savingNotes}
-                className="btn !py-1 !px-4 text-xs font-bold"
-                style={{ background: "linear-gradient(135deg, #1a4fb4, #003966)", color: "white", border: "none" }}
+                className="btn !py-2 !px-5 text-xs font-bold"
+                style={{ background: "#0b787a", color: "white", border: "1px solid #0b787a", boxShadow: "0 8px 20px rgba(11,120,122,.2)" }}
               >
                 {savingNotes ? "Saving..." : "Save Consultation Notes"}
               </button>
@@ -387,17 +388,11 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
         </Card>
       )}
 
-      {/* Three columns when wide; only the third moves below at medium width. */}
-      <div className="patient-360-columns grid min-w-0 gap-4">
-        {/* Column 1: Recent Results */}
-        <Card className="flex min-w-0 flex-col">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h4 className="font-bold" style={{ color: "#123a7a" }}>Recent results</h4>
-            <span className="rounded-full bg-[rgba(37,100,207,0.08)] px-2 py-0.5 text-[10px] font-bold text-[var(--cyan)]">
-              {recentLabSections.length} {recentLabSections.length === 1 ? "test" : "tests"}
-            </span>
-          </div>
-          <div className="max-h-[360px] flex-1 space-y-2 overflow-x-hidden overflow-y-auto pr-1">
+      {/* Recent Results: aligned beside Active Consultation on wider displays */}
+        <Card className="order-4 flex min-h-[260px] flex-col overflow-hidden xl:h-full">
+          <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Recent results</h4>
+          <div className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-[var(--cyan)]">Lab Diagnostics</div>
+          <div className="min-h-0 max-h-[240px] flex-1 space-y-2 overflow-y-auto pr-1">
             {recentLabSections.length ? (
               recentLabSections.map((lab: any) => (
                 <div key={lab.lab_order_id} className="min-w-0 rounded-xl border border-[var(--line)] bg-white/20 p-2.5">
@@ -429,27 +424,22 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
           </div>
         </Card>
 
-        {/* Column 2: Previous visit records */}
-        <Card className="flex min-w-0 flex-col">
-          <h4 className="mb-3 font-bold" style={{ color: "#123a7a" }}>Previous visit records</h4>
-          <div className="max-h-[360px] flex-1 space-y-2 overflow-y-auto pr-1">
-            {data.encounters?.filter((e: any) => e.encounter_id !== encounterId && e.status === "DISCHARGED").map((e: any) => (
+        {/* Previous visit records: first card in the row below */}
+        <Card className="order-6 flex min-h-[260px] flex-col overflow-hidden">
+          <h4 className="mb-3 font-bold" style={{ color: "#d7e5ff" }}>Previous visit records (Raw history)</h4>
+          <div className="min-h-0 max-h-[360px] flex-1 space-y-2 overflow-y-auto">
+            {data.encounters?.map((e: any) => (
               <HistoricalVisitDropdown key={e.encounter_id} encounter={e} />
             ))}
           </div>
         </Card>
 
-        {/* Column 3: Uploaded reports */}
-        <Card className="flex min-w-0 flex-col animate-in fade-in duration-300">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h4 className="flex items-center gap-2 font-bold" style={{ color: "#123a7a" }}>
-              <FileText size={16} className="text-[var(--cyan)]" /> Uploaded reports
-            </h4>
-            <span className="rounded-full bg-[rgba(37,100,207,0.08)] px-2 py-0.5 text-[10px] font-bold text-[var(--cyan)]">
-              {data.documents?.length || 0}
-            </span>
-          </div>
-          <div className="max-h-[360px] flex-1 space-y-2 overflow-x-hidden overflow-y-auto pr-1">
+      {/* Uploaded Documents & External Reports */}
+        <Card className="order-5 flex min-h-[260px] flex-col overflow-hidden animate-in fade-in duration-300">
+          <h4 className="mb-3 font-bold flex items-center gap-2" style={{ color: "#d7e5ff" }}>
+            <FileText size={18} className="text-[var(--cyan)]" /> External Reports & Uploaded Documents
+          </h4>
+          <div className="min-h-0 max-h-[360px] flex-1 space-y-3 overflow-y-auto pr-1">
             {data.documents?.length ? data.documents.map((d: any) => (
               <div 
                 key={d.document_id} 
@@ -479,10 +469,9 @@ export default function Patient360({ patientId, encounterId }: Patient360Props) 
                   <span className="shrink-0 pt-0.5 text-[10px] text-[var(--dim)]">Unavailable</span>
                 )}
               </div>
-            )) : <Empty>No uploaded reports</Empty>}
+            )) : <Empty>No external reports or uploaded documents.</Empty>}
           </div>
         </Card>
-      </div>
     </div>
   );
 }

@@ -21,8 +21,8 @@ export default function VitalsAndLabs({ latestVitals, orders }: VitalsAndLabsPro
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>SpO₂</small><br /><b>{latestVitals.spo2}%</b></div>
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>HR</small><br /><b>{latestVitals.heart_rate}</b></div>
           <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Temp</small><br /><b>{latestVitals.temperature}°F</b></div>
-          <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Weight</small><br /><b>{measurement(latestVitals.weight_kg, "kg")}</b></div>
-          <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Height</small><br /><b>{measurement(latestVitals.height_cm, "cm")}</b></div>
+          {latestVitals.weight != null && <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Weight</small><br /><b>{latestVitals.weight} kg</b></div>}
+          {latestVitals.height != null && <div className="holo text-center"><small style={{ color: "var(--dim)" }}>Height</small><br /><b>{latestVitals.height} cm</b></div>}
         </div>
       )}
 

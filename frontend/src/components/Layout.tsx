@@ -93,13 +93,8 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen overflow-x-hidden">
-      <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between gap-2 border-b px-3 sm:gap-3 sm:px-5 lg:px-6"
-        style={{
-          borderColor: "var(--line)",
-          backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.72), rgba(255,255,255,.72))",
-          backdropFilter: "blur(28px) saturate(180%)",
-          boxShadow: "inset 0 -1px 0 rgba(20,33,61,.06)",
-        }}>
+      <header className="app-header fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between gap-2 border-b px-3 sm:gap-3 sm:px-5 lg:px-6"
+        style={{ borderColor: "var(--line)", background: "rgba(6,9,18,.82)", backdropFilter: "blur(16px)" }}>
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <button
             type="button"
@@ -112,9 +107,9 @@ export default function Layout({ children }: { children: ReactNode }) {
             {sidebarOpen ? <PanelLeftClose size={18} /> : <Menu size={19} />}
           </button>
           <button type="button" className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => nav("/")} aria-label="Go to home">
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
-              style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))", boxShadow: "0 0 18px rgba(37,100,207,.5)" }}>
-              <HeartPulse size={18} color="#ffffff" />
+            <span className="brand-mark grid h-9 w-9 shrink-0 place-items-center rounded-xl"
+              style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))", boxShadow: "0 0 18px rgba(52,225,232,.5)" }}>
+              <HeartPulse size={18} color="#04121a" />
             </span>
             <span className="hidden min-[470px]:block">
               <span className="grad-text block text-[15px] font-extrabold leading-tight">Qconnect</span>
@@ -128,8 +123,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
-          <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold sm:text-[11px]"
-            style={{ color: connected ? "#15803d" : "#92400e" }}>
+          <span className="connection-pill flex shrink-0 items-center gap-1.5 text-[10px] font-bold sm:text-[11px]"
+            style={{ color: connected ? "#a7f3c4" : "#ffe0a3" }}>
             <span className="inline-block h-2 w-2 rounded-full"
               style={{ background: connected ? "var(--mint)" : "var(--amber)", boxShadow: `0 0 8px ${connected ? "var(--mint)" : "var(--amber)"}` }} />
             <span className="hidden sm:inline">{connected ? "CONNECTED" : "CONNECTING"}</span>
@@ -140,45 +135,24 @@ export default function Layout({ children }: { children: ReactNode }) {
       {sidebarOpen && <button type="button" className="fixed inset-x-0 bottom-0 top-16 z-10 bg-black/55 lg:hidden" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
 
       {/* Sidebar */}
-      <aside className={`fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
-        style={{
-          borderRight: "1px solid var(--line)",
-          backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
-          backdropFilter: "blur(28px) saturate(180%)",
-        }}>
-        {visibleNav.map((n, index) => (
-          <div key={n.to}>
-            <NavLink to={n.to} end={n.end} onClick={closeSidebarOnMobile}
-              className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
-              style={({ isActive }: any) => ({
-                color: isActive ? "#123a7a" : "var(--muted)",
-                background: isActive ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))" : "transparent",
-                border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
-                boxShadow: isActive ? "0 0 14px rgba(37,100,207,.12)" : "none",
-              })}>
-              <n.icon size={17} />
-              {n.label}
-            </NavLink>
-
-            {index === 0 && (
-              <div className="mt-1">
-                <button
-                  type="button"
-                  onClick={() => setPatientMenuOpen((open) => !open)}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13.5px] font-semibold transition"
-                  style={{
-                    color: loc.pathname.startsWith("/patient") ? "#123a7a" : "var(--muted)",
-                    background: loc.pathname.startsWith("/patient")
-                      ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))"
-                      : "transparent",
-                    border: loc.pathname.startsWith("/patient") ? "1px solid var(--line2)" : "1px solid transparent",
-                  }}
-                  aria-expanded={patientMenuOpen}
-                >
-                  <Smartphone size={17} />
-                  <span className="flex-1">Patient Portal</span>
-                  <ChevronDown size={15} className={`transition-transform ${patientMenuOpen ? "rotate-180" : ""}`} />
-                </button>
+      <aside className={`app-sidebar fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+        style={{ borderRight: "1px solid var(--line)", background: "rgba(6,9,18,.7)", backdropFilter: "blur(14px)" }}>
+        {(activeRole === "patient" ? visibleNav.filter((n) => n.to === "/") : visibleNav).map((n) => (
+          <NavLink key={n.to} to={n.to} end={n.end} onClick={closeSidebarOnMobile}
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition ${
+                isActive ? "text-white" : ""
+              }`}
+            style={({ isActive }: any) => ({
+              color: isActive ? "#eafcff" : "var(--muted)",
+              background: isActive ? "linear-gradient(90deg, rgba(52,225,232,.16), rgba(167,139,250,.16))" : "transparent",
+              border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
+              boxShadow: isActive ? "0 0 14px rgba(52,225,232,.15)" : "none",
+            })}>
+            <n.icon size={17} />
+            {n.label}
+          </NavLink>
+        ))}
 
                 {patientMenuOpen && (
                   <div className="ml-5 mt-1 space-y-1 border-l border-[var(--line)] pl-2">

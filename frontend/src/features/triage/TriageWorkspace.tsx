@@ -20,7 +20,7 @@ export default function Triage() {
   const [symptom, setSymptom] = useState("Fever and cough for 3 days, mild breathlessness");
 
   const [duration, setDuration] = useState("3 days");
-  const [v, setV] = useState({ bp_systolic: 128, bp_diastolic: 82, spo2: 97, heart_rate: 96, temperature: 101.2, weight_kg: 68, height_cm: 165 });
+  const [v, setV] = useState({ bp_systolic: 128, bp_diastolic: 82, spo2: 97, heart_rate: 96, temperature: 101.2, weight_kg: 72, height_cm: 175 });
   const [busy, setBusy] = useState(false);
   const [res, setRes] = useState<any>(null);
   const [selectedEncounter, setSelectedEncounter] = useState<any>(null);
@@ -96,12 +96,17 @@ export default function Triage() {
   const selectPatient = async (encounter: any) => {
     setSelectedEncounter(encounter);
     setRes(null);
-    setOverriding(false);
-    setOverrideReason("");
-    const reason = encounter.triage?.chief_complaint || encounter.reason || "";
-    setSymptom(reason);
-    setDuration(guessDuration(reason));
-
+    setSymptom(encounter.reason || "");
+    setDuration("");
+    setV({
+      bp_systolic: "" as any,
+      bp_diastolic: "" as any,
+      spo2: "" as any,
+      heart_rate: "" as any,
+      temperature: "" as any,
+      weight_kg: "" as any,
+      height_cm: "" as any,
+    });
     setJourney({
       patientId: encounter.patient.patient_id,
       patientName: encounter.patient.name,
@@ -513,21 +518,23 @@ export default function Triage() {
                   disabled={busy || !!res}
                 />
               </Field>
-              <Field label="Weight kg">
+              <Field label="Weight (kg)">
                 <input
                   className="input text-center"
                   type="number"
                   step="0.1"
+                  min="0"
                   value={v.weight_kg}
                   onChange={(e) => upd("weight_kg", e.target.value)}
                   disabled={busy || !!res}
                 />
               </Field>
-              <Field label="Height cm">
+              <Field label="Height (cm)">
                 <input
                   className="input text-center"
                   type="number"
                   step="0.1"
+                  min="0"
                   value={v.height_cm}
                   onChange={(e) => upd("height_cm", e.target.value)}
                   disabled={busy || !!res}

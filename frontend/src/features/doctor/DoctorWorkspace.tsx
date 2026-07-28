@@ -126,6 +126,9 @@ export default function DoctorWorkspace() {
       patientId: enc.patient.patient_id,
       encounterId: enc.encounter_id,
       patientName: enc.patient.name,
+      patientAge: enc.patient.age ?? null,
+      patientGender: enc.patient.gender || null,
+      patientBloodGroup: enc.patient.blood_group || null,
       token: enc.token?.number || null,
       department: enc.visit_type || null,
       chiefComplaint: enc.triage?.chief_complaint || null,
@@ -161,51 +164,31 @@ export default function DoctorWorkspace() {
     .join("") || "?";
 
   return (
-    <div className="space-y-4">
-      <div className="card relative overflow-hidden !p-3 sm:!p-3.5">
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{ background: "radial-gradient(360px 140px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}
-        />
-        <div className="relative space-y-2.5">
-          <div className="flex flex-wrap items-center justify-between gap-2.5">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <div className="avatar-disc h-11 w-11 text-sm">{initials}</div>
-              <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                  <h1 className="grad-text-page min-w-0 truncate text-xl font-extrabold leading-tight">{journey.patientName}</h1>
-                  <span className="text-[12px] font-semibold text-[var(--muted)]">
-                    {[
-                      encDetails?.patient?.age != null ? `${encDetails.patient.age} yrs` : null,
-                      encDetails?.patient?.gender,
-                      encDetails?.patient?.blood_group && encDetails.patient.blood_group !== "UNK"
-                        ? `Blood ${encDetails.patient.blood_group}`
-                        : null,
-                    ].filter(Boolean).join(" · ")}
-                  </span>
-                </div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] font-bold">
-                  {journey.department && <span className="text-[var(--muted)]">{journey.department}</span>}
-                  {journey.token && <span className="text-[var(--cyan)]">Token {journey.token}</span>}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <LiveDot label="Session active" tone="mint" />
-              <button
-                className="btn ghost text-[11.5px] !px-2.5 !py-1.5 font-bold"
-                onClick={handleBackToQueue}
-              >
-                <ArrowLeft size={13} /> Back to Queue
-              </button>
-            </div>
+    <div className="doctor-workspace space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="grad-text text-2xl font-extrabold">{journey.patientName}</h1>
+            {journey.patientAge != null && (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                {journey.patientAge} yrs
+              </span>
+            )}
+            {journey.patientGender && (
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold capitalize text-slate-600">
+                {journey.patientGender}
+              </span>
+            )}
+            {journey.patientBloodGroup && journey.patientBloodGroup !== "UNK" && (
+              <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-bold text-rose-700">
+                Blood {journey.patientBloodGroup}
+              </span>
+            )}
           </div>
-
-          <div className="flex flex-wrap items-start justify-between gap-2 border-t border-[var(--line)] pt-2">
-            <div className="min-w-0 text-[12px] leading-relaxed text-[var(--muted)]">
-              <span className="mr-1.5 font-bold text-[var(--dim)]">Reason</span>
-              <span className="font-semibold text-[var(--ink)]">
-                {encDetails?.triage?.chief_complaint || journey.chiefComplaint || "Not recorded"}
+          <div className="flex items-center gap-2 text-[13px]" style={{ color: "var(--muted)" }}>
+            {journey.chiefComplaint && (
+              <span className="text-slate-300">
+                Reason for Visit: <b className="text-[var(--cyan)]">{journey.chiefComplaint}</b>
               </span>
               {encDetails?.patient_original_reason && encDetails.patient_original_reason !== (encDetails?.triage?.chief_complaint || journey.chiefComplaint) && (
                 <span className="ml-2 text-[11px] text-amber-700">Patient reported: “{encDetails.patient_original_reason}”</span>
@@ -220,6 +203,28 @@ export default function DoctorWorkspace() {
             </button>
           </div>
         </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {journey.department && <Tag tone="blue">{journey.department}</Tag>}
+          {journey.token && <Tag tone="violet">Token {journey.token}</Tag>}
+          <button 
+            type="button"
+            className="btn text-[12.5px] !py-1.5 !px-3.5 font-bold flex items-center gap-1.5 transition shadow-lg"
+            style={{ background: "linear-gradient(135deg, #10b981, #059669)", color: "white", border: "none" }}
+            disabled={discharging}
+            onClick={handleDischargePatient}
+            title="Complete consultation and discharge patient"
+          >
+            <CheckCircle2 size={16} />
+            {discharging ? "Discharging..." : "Complete & Discharge"}
+          </button>
+          <button 
+            className="btn ghost text-[12.5px] !py-1.5 !px-3 font-bold" 
+            onClick={handleResetJourney}
+          >
+            ← Back to Queue
+          </button>
+          <span className="ai-badge"><Mic size={13} /> Copilot session</span>
+        </div>
       </div>
 
       {/* Outer Grid Layout (Workflow + Clinical Decision Support Pane) */}
@@ -231,7 +236,12 @@ export default function DoctorWorkspace() {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`tab-pill ${tab === t.id ? "is-active" : ""}`}
+                className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-semibold transition"
+                style={{
+                  color: tab === t.id ? "#ffffff" : "#4b5563",
+                  background: tab === t.id ? "#0b787a" : "#ffffff",
+                  border: `1px solid ${tab === t.id ? "#0b787a" : "#e5e7eb"}`,
+                }}
               >
                 <t.icon size={15} /> {t.label}
               </button>
@@ -279,7 +289,6 @@ export default function DoctorWorkspace() {
             patientId={journey.patientId} 
             tab={tab}
             encounterId={journey.encounterId}
-            chiefComplaint={journey.chiefComplaint}
             sel={sel}
             toggle={toggleTest}
             suggestions={suggestions}

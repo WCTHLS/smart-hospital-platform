@@ -8,7 +8,6 @@ interface CopilotSidepaneProps {
   patientId: string;
   tab: string;
   encounterId: string | null;
-  chiefComplaint?: string | null;
   sel: string[];
   toggle: (t: string) => void;
   suggestions: any[];
@@ -57,7 +56,6 @@ export default function CopilotSidepane({
   patientId,
   tab,
   encounterId,
-  chiefComplaint,
   sel,
   toggle,
   suggestions,
@@ -150,31 +148,15 @@ export default function CopilotSidepane({
   }
 
   const summaryText = data.ai_summary?.result?.summary;
-  const previousIssues = data.issues?.filter(
-    (issue: any) => !chiefComplaint || issue.issue_name.toLowerCase().trim() !== chiefComplaint.toLowerCase().trim()
-  ) || [];
-  const warningItems = [
-    ...(data.allergies || []).map((allergy: any, index: number) => ({
-      key: `allergy-${allergy.substance}-${index}`,
-      label: `Allergy: ${allergy.substance}`,
-      tone: "red",
-    })),
-    ...previousIssues.map((issue: any) => ({
-      key: issue.issue_id,
-      label: `${issue.issue_name}${issue.onset_info ? ` (${issue.onset_info})` : ""}`,
-      tone: "amber",
-    })),
-  ];
-  const visibleWarnings = showAllIssues ? warningItems : warningItems.slice(0, 3);
-  const visibleMedications = showAllMedications ? (data.medications || []) : (data.medications || []).slice(0, 3);
   const vitalsUpdatedLabel = (() => {
-    const capturedAt = data.latest_vitals?.captured_ts;
-    if (!capturedAt) return "Update time unavailable";
-    const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(capturedAt) ? capturedAt : `${capturedAt}Z`;
-    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - new Date(normalized).getTime()) / 60_000));
-    if (!Number.isFinite(elapsedMinutes)) return "Update time unavailable";
-    if (elapsedMinutes < 1) return "Updated just now";
-    return `Updated ${elapsedMinutes} ${elapsedMinutes === 1 ? "minute" : "minutes"} ago`;
+    const capturedAt = data.latest_vitals?.captured_at;
+    if (!capturedAt) return null;
+    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - new Date(capturedAt).getTime()) / 60000));
+    if (elapsedMinutes < 1) return "updated just now";
+    if (elapsedMinutes < 60) return `updated ${elapsedMinutes} min ago`;
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) return `updated ${elapsedHours} hr${elapsedHours === 1 ? "" : "s"} ago`;
+    return `updated ${new Date(capturedAt).toLocaleDateString()}`;
   })();
 
   const sevTone = (s: string) => (s === "BLOCK" ? "red" : s === "MAJOR" || s === "WARN" ? "amber" : "blue");
@@ -229,10 +211,8 @@ export default function CopilotSidepane({
   return (
     <div className="flex flex-col gap-3 animate-in fade-in duration-300">
       {tab === "labs" ? (
-        <>
-        {renderSummaryCard()}
-        {/* Suggested Orders */}
-        <Card className="order-2 border border-dashed border-[var(--cyan)]/25 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
+        /* AI Suggested Orders Banner in place of Clinical Summary */
+        <Card className="order-2 relative overflow-hidden" style={{ background: "linear-gradient(135deg, #ffffff, rgba(207,239,239,.45))", borderColor: "#cfefef" }}>
           <div className="mb-2 flex items-center justify-between">
             <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
               <Activity size={13} /> Suggested Orders
@@ -263,8 +243,8 @@ export default function CopilotSidepane({
                         onClick={() => toggle(s.test)}
                         className={`text-[11px] font-bold px-2 py-0.5 rounded transition ${
                           isSelected
-                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                            : "bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10"
+                            ? "bg-[#277154] !text-white border border-[#277154]"
+                            : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
                         }`}
                       >
                         {isSelected ? "Selected" : "Add to Order"}
@@ -288,49 +268,11 @@ export default function CopilotSidepane({
         </Card>
         </>
       ) : (
-        renderSummaryCard()
-      )}
-
-      <Card className="order-1 space-y-3 overflow-hidden animate-in fade-in duration-300">
-        <section className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Latest Vitals</div>
-            <span className="text-[9px] font-semibold text-[var(--cyan)]">{vitalsUpdatedLabel}</span>
-          </div>
-          {data.latest_vitals ? (
-            <div className="grid grid-cols-2 gap-1.5 text-center text-[10px]">
-              {[
-                { key: "bp", label: "BP", raw: data.latest_vitals.bp, value: data.latest_vitals.bp || "—" },
-                { key: "spo2", label: "SpO₂", raw: data.latest_vitals.spo2, value: data.latest_vitals.spo2 != null ? `${data.latest_vitals.spo2}%` : "—" },
-                { key: "heart_rate", label: "Heart Rate", raw: data.latest_vitals.heart_rate, value: data.latest_vitals.heart_rate != null ? `${data.latest_vitals.heart_rate} bpm` : "—" },
-                { key: "temperature", label: "Temperature", raw: data.latest_vitals.temperature, value: data.latest_vitals.temperature != null ? `${data.latest_vitals.temperature}°F` : "—" },
-                { key: "weight", label: "Weight", raw: data.latest_vitals.weight_kg, value: data.latest_vitals.weight_kg != null ? `${data.latest_vitals.weight_kg} kg` : "—" },
-                { key: "height", label: "Height", raw: data.latest_vitals.height_cm, value: data.latest_vitals.height_cm != null ? `${data.latest_vitals.height_cm} cm` : "—" },
-                { key: "bmi", label: "BMI", raw: data.latest_vitals.bmi, value: data.latest_vitals.bmi != null ? String(data.latest_vitals.bmi) : "—" },
-              ].map((vital) => (
-                <div
-                  key={vital.key}
-                  className={`relative rounded-lg border px-2 py-1.5 ${
-                    isTemperatureWarning(vital.key, vital.raw)
-                      ? "border-amber-500/45 bg-amber-500/10 text-amber-800"
-                      : isAbnormalVital(vital.key, vital.raw)
-                      ? "border-red-500/45 bg-red-500/10 text-red-800"
-                      : "border-[var(--line)] bg-[rgba(37,100,207,0.04)]"
-                  } ${vital.label === "BMI" ? "col-span-2" : ""}`}
-                >
-                  {(isTemperatureWarning(vital.key, vital.raw) || isAbnormalVital(vital.key, vital.raw)) && (
-                    <AlertTriangle size={11} className="absolute right-1.5 top-1.5" />
-                  )}
-                  <span className="block text-[9px] text-[var(--dim)]">{vital.label}</span>
-                  <b className={`text-[11px] ${
-                    isTemperatureWarning(vital.key, vital.raw)
-                      ? "text-amber-800"
-                      : isAbnormalVital(vital.key, vital.raw)
-                        ? "text-red-800"
-                        : "text-[var(--ink)]"
-                  }`}>{vital.value}</b>
-                </div>
-              ))}
+        /* AI Summary Banner */
+        <Card className="ai-summary-card order-2 relative overflow-hidden" style={{ background: "linear-gradient(135deg, #ffffff, rgba(207,239,239,.55))", borderColor: "#cfefef" }}>
+          <div className="flex items-center justify-between gap-1.5 mb-2">
+            <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
+              <Activity size={13} /> AI Clinical Summary
             </div>
           ) : (
             <div className="text-[11px] text-[var(--muted)]">No vitals captured</div>
@@ -348,36 +290,21 @@ export default function CopilotSidepane({
               </button>
             )}
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {visibleWarnings.map((warning: any) => (
-              <Tag key={warning.key} tone={warning.tone}>⚠ {warning.label}</Tag>
-            ))}
-            {!warningItems.length && (
-              <div className="text-[11px] text-[var(--muted)]">No previous issues or warnings recorded</div>
-            )}
-          </div>
-        </section>
-
-        <section className="space-y-2 border-t border-[var(--line)] pt-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Active Medications</div>
-            <div className="flex items-center gap-2">
-              {(data.medications?.length || 0) > 3 && (
-                <button type="button" onClick={() => setShowAllMedications((open) => !open)}
-                  className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--cyan)] hover:underline">
-                  {showAllMedications ? "Show less" : `View all (${data.medications.length})`}
-                  {showAllMedications ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                </button>
-              )}
-              {!showAddForm && (
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(true)}
-                  className="btn ghost !px-1.5 !py-0.5 text-[10px] font-bold"
-                >
-                  <Plus size={11} /> Add
-                </button>
-              )}
+          
+          {summaryText ? (
+            <p className="text-[11.5px] leading-relaxed text-slate-700 whitespace-pre-line">
+              {summaryText}
+            </p>
+          ) : (
+            <div className="text-center py-1">
+              <p className="text-[11px] text-[var(--muted)] mb-2">History summary has not been generated yet.</p>
+              <button 
+                onClick={handleGenerate} 
+                disabled={generating} 
+                className="btn ghost text-[11px] !py-1.5 !px-2.5 w-full justify-center"
+              >
+                {generating ? "Generating..." : "Generate AI Summary"}
+              </button>
             </div>
           </div>
 
@@ -409,32 +336,58 @@ export default function CopilotSidepane({
             </form>
           )}
 
-          {data.medications?.length ? (
-            <ul className="space-y-1.5 text-[11.5px] text-[var(--muted)]">
-              {visibleMedications.map((medication: any) => (
-                <li key={medication.medication_id} className="group flex items-center justify-between gap-2">
-                  <span>• <b>{medication.drug_name}</b>{medication.dosage ? ` (${medication.dosage})` : ""}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteMed(medication.medication_id)}
-                    disabled={deletingMedId === medication.medication_id}
-                    className="text-[10px] font-bold text-slate-400 opacity-0 transition hover:text-red-500 focus-visible:opacity-100 group-hover:opacity-100"
-                    aria-label={`Remove ${medication.drug_name}`}
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
+      <Card className="order-1 max-h-[386px] space-y-3 overflow-y-auto" style={{ background: "#ffffff" }}>
+          <div className="flex items-center justify-between border-b border-white/5 pb-2">
+            <div className="text-[10px] font-extrabold uppercase tracking-wider text-[var(--dim)]">Clinical snapshot</div>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-[#277154]">Live record</span>
+          </div>
+          {data.latest_vitals ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Vitals</span>
+                {vitalsUpdatedLabel && <span className="text-[9px] font-medium text-emerald-700">{vitalsUpdatedLabel}</span>}
+              </div>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
+                <div className="flex justify-between gap-2"><span className="text-slate-500">BP</span><b>{data.latest_vitals.bp}</b></div>
+                <div className="flex justify-between gap-2"><span className="text-slate-500">SpO₂</span><b>{data.latest_vitals.spo2}%</b></div>
+                <div className="flex justify-between gap-2"><span className="text-slate-500">Heart rate</span><b>{data.latest_vitals.heart_rate} bpm</b></div>
+                <div className="flex justify-between gap-2"><span className="text-slate-500">Temp</span><b>{data.latest_vitals.temperature}°F</b></div>
+                {data.latest_vitals.weight != null && <div className="flex justify-between gap-2"><span className="text-slate-500">Weight</span><b>{data.latest_vitals.weight} kg</b></div>}
+                {data.latest_vitals.height != null && <div className="flex justify-between gap-2"><span className="text-slate-500">Height</span><b>{data.latest_vitals.height} cm</b></div>}
+              </div>
+            </div>
           ) : (
-            <div className="text-[11px] text-[var(--muted)]">None recorded</div>
+            <div className="rounded-lg border border-dashed border-slate-200 p-2 text-[10px] text-[var(--muted)]">No current vitals available.</div>
           )}
-        </section>
+          <div>
+            <div className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Allergies</div>
+            <div className="flex flex-wrap gap-1.5">
+              {data.allergies?.length ? data.allergies.map((allergy: any, index: number) => (
+                <Tag key={`${allergy.substance}-${index}`} tone="red">{allergy.substance}{allergy.severity ? ` · ${allergy.severity}` : ""}</Tag>
+              )) : <span className="text-[11px] text-[var(--muted)]">None recorded</span>}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Issues</div>
+            <div className="flex flex-wrap gap-1.5">
+              {data.issues?.length ? data.issues.map((issue: any) => (
+                <Tag key={issue.issue_id} tone="amber">{issue.issue_name}</Tag>
+              )) : <span className="text-[11px] text-[var(--muted)]">None recorded</span>}
+            </div>
+          </div>
+          <div>
+            <div className="mb-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Active medications</div>
+            {data.active_medications?.length ? (
+              <ul className="space-y-1 text-[11px] text-slate-600">
+                {data.active_medications.map((medication: string, index: number) => <li key={`${medication}-${index}`}>• {medication}</li>)}
+              </ul>
+            ) : <span className="text-[11px] text-[var(--muted)]">None recorded</span>}
+          </div>
       </Card>
 
-      {/* Clinical Decision Support Output Card when on Rx tab */}
+      {/* CDS Agent Output Card when on Rx tab */}
       {tab === "rx" && (
-        <Card className="order-3 border border-[var(--glass-border)] relative overflow-hidden mt-3" style={{ background: "rgba(255,255,255,0.01)" }}>
+        <Card className="order-3 border border-[var(--glass-border)] relative overflow-hidden" style={{ background: "#ffffff" }}>
           {rxDone ? (
             <div className="space-y-3 py-1 animate-in fade-in">
               <div className="flex items-center gap-2 font-bold text-xs" style={{ color: "var(--mint)" }}>
