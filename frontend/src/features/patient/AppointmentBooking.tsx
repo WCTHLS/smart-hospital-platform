@@ -230,7 +230,7 @@ export default function AppointmentBooking() {
         {!busy && !doctors.length && <div className="holo">No {specialty} doctors or slots are available on this date.</div>}
         {doctors.map(({ doctor, slots: doctorSlots }) => <div className="holo" key={doctor.doctor_id}>
           <div className="flex items-start justify-between gap-3"><div><b>{doctor.doctor_name}</b><div className="text-xs" style={{ color: "var(--muted)" }}>{doctor.specialty}</div></div><UserRound size={18} /></div>
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-thin">{doctorSlots.map((slot) => {
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-2 scrollbar-thin">{doctorSlots.map((slot, slotIndex) => {
             const selected = selectedSlot?.doctor_id === slot.doctor_id && selectedSlot?.scheduled_start === slot.scheduled_start;
             return (
               <button 
@@ -241,7 +241,7 @@ export default function AppointmentBooking() {
                   boxShadow: "0 0 14px rgba(37,100,207, 0.3)", 
                   borderColor: "transparent" 
                 } : undefined} 
-                key={slot.scheduled_start} 
+                key={`${slot.doctor_id}-${slot.scheduled_start}-${slot.scheduled_end}-${slotIndex}`}
                 onClick={() => setSelectedSlot(slot)}
               >
                 {timeLabel(slot.scheduled_start)}

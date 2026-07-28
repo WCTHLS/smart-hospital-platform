@@ -37,11 +37,11 @@ const POPULAR_QUICK_MENU = ["CT scan for brain", "MRI Brain", "Chest CT Scan", "
 
 function storedAiFlag(summary?: string | null): { flag: string; label: string } | null {
   if (!summary) return null;
-  const flag = summary.match(/Case Flag:\s*(POSITIVE|BORDERLINE|NORMAL)/i)?.[1]?.toUpperCase();
+  const flag = summary.match(/(?:Case Flag|Status):\s*(POSITIVE|BORDERLINE|NORMAL)/i)?.[1]?.toUpperCase();
   if (!flag) return null;
   if (flag === "NORMAL") return { flag, label: "Normal" };
 
-  const finding = summary.match(/Primary Finding:\s*([^\r\n]+)/i)?.[1]?.trim() || "Abnormal finding";
+  const finding = summary.match(/(?:Primary Finding|Finding):\s*([^\r\n]+)/i)?.[1]?.trim() || "Abnormal finding";
   return {
     flag,
     label: `${finding.replace(/^Borderline finding:\s*/i, "")} · ${flag}`,
@@ -51,6 +51,42 @@ function storedAiFlag(summary?: string | null): { flag: string; label: string } 
 function storedGradcamUri(summary?: string | null): string | null {
   const value = summary?.match(/Grad-CAM(?:\+\+)? Heatmap:\s*(\/uploads\/[^\s\r\n]+)/i)?.[1];
   return value || null;
+}
+
+function doctorFacingAiSummary(summary: string): string {
+  // New summaries are already concise; hide the machine-readable heatmap URI
+  // because the dedicated View Grad-CAM++ button owns that interaction.
+  if (summary.includes("AI IMAGING ASSESSMENT")) {
+    return summary
+      .split(/\r?\n/)
+      .filter((line) => !/Grad-CAM(?:\+\+)? Heatmap:/i.test(line))
+      .join("\n")
+      .trim();
+  }
+
+  // Present legacy stored summaries cleanly without requiring re-analysis.
+  if (summary.includes("LOCAL PYTORCH VISION AI")) {
+    const finding = summary.match(/Primary Finding:\s*([^\r\n]+)/i)?.[1]?.trim();
+    const severity = summary.match(/Severity:\s*([^( \r\n]+)/i)?.[1]?.trim();
+    const confidence = summary.match(/Confidence:\s*([\d.]+%)/i)?.[1]?.trim();
+    const recommendation = summary.match(/Recommendation:\s*([^\r\n]+)/i)?.[1]?.trim();
+    const scores = summary.match(/Top Pathology Scores:\s*([^\r\n]+)/i)?.[1]
+      ?.split("|")
+      .map((value) => value.trim())
+      .filter((value) => value && !value.toLowerCase().startsWith(`${finding?.toLowerCase()}:`))
+      .slice(0, 3);
+
+    return [
+      "AI IMAGING ASSESSMENT",
+      finding ? `• Finding: ${finding}` : null,
+      confidence || severity ? `• Confidence: ${confidence || "N/A"}${severity ? ` · Severity: ${severity}` : ""}` : null,
+      scores?.length ? `• Other considerations: ${scores.join(", ")}` : null,
+      storedGradcamUri(summary) ? "• Grad-CAM++: Available via the “View Grad-CAM++” button." : null,
+      recommendation ? `• Recommendation: ${recommendation}` : null,
+    ].filter(Boolean).join("\n");
+  }
+
+  return summary;
 }
 
 interface OrdersAndLabsProps {
@@ -389,25 +425,13 @@ export default function OrdersAndLabs({ encounterId, sel, setSel, doctorName }: 
                 )}
                 {o.ai_analysis_summary && expandedAnalysis[o.lab_order_id] && (
                   <div className="space-y-2" style={{ color: "var(--muted)" }}>
-                    {storedGradcamUri(o.ai_analysis_summary) && (
-                      <div className="overflow-hidden rounded-xl border border-rose-500/20 bg-black/20">
-                        <div className="border-b border-white/5 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-rose-400">
-                          Grad-CAM++ — {storedAiFlag(o.ai_analysis_summary)?.flag} class activation
-                        </div>
-                        <img
-                          src={`${import.meta.env.VITE_API_BASE_URL ?? ""}${storedGradcamUri(o.ai_analysis_summary)}`}
-                          alt="Grad-CAM++ heatmap showing image regions that influenced the top prediction"
-                          className="mx-auto max-h-[420px] w-auto max-w-full object-contain"
-                        />
-                      </div>
-                    )}
-                    <b className="text-sky-400 block mb-1">Local PyTorch Diagnostic Analysis (Doctor Only):</b>
+                    <b className="text-sky-400 block mb-1">AI Imaging Assessment:</b>
                     <div className="whitespace-pre-wrap text-slate-200 text-[12px] leading-relaxed font-mono bg-black/20 p-2.5 rounded-lg border border-white/5">
-                      {o.ai_analysis_summary}
+                      {doctorFacingAiSummary(o.ai_analysis_summary)}
                     </div>
                   </div>
                 )}
-                {expandedAnalysis[o.lab_order_id] && (o.ai_analysis_summary || o.notes)?.includes("LOCAL PYTORCH") && (
+                {expandedAnalysis[o.lab_order_id] && /LOCAL PYTORCH|AI IMAGING ASSESSMENT/.test(o.ai_analysis_summary || o.notes || "") && (
                   <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11.5px] font-bold flex items-center gap-1.5 shadow-sm">
                     <span>⚠️ Preliminary AI Finding — Requires Physician Verification</span>
                   </div>

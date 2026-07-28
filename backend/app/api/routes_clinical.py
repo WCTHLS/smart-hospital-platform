@@ -1275,25 +1275,32 @@ def run_local_lab_analysis(
     from app.ai.local_analyzer import analyze_medical_file
     analysis = analyze_medical_file(file_path, test_name=order.test_name, clinical_notes=combined_notes)
 
-    top_preds_str = ""
-    if analysis.get("top_predictions"):
-        preds_list = [f"{p['pathology']}: {p['probability']}%" for p in analysis["top_predictions"]]
-        top_preds_str = "\n• Top Pathology Scores: " + " | ".join(preds_list)
-
-    disclaimer_str = analysis.get("disclaimer", "⚠️ Preliminary AI Finding — Requires Physician Verification")
-    source_str = analysis.get("source_type", "Radiology Image Scan")
-    gradcam_str = analysis.get("gradcam_heatmap_uri") or "Not generated (normal or unsupported analysis)"
+    primary_finding = str(analysis["primary_finding"])
+    other_predictions = [
+        f"{prediction['pathology']} ({prediction['probability']}%)"
+        for prediction in analysis.get("top_predictions", [])
+        if str(prediction.get("pathology", "")).lower() != primary_finding.lower()
+    ][:3]
+    considerations_str = (
+        f"\n• Other considerations: {', '.join(other_predictions)}"
+        if other_predictions else ""
+    )
+    gradcam_uri = analysis.get("gradcam_heatmap_uri")
+    gradcam_notice = (
+        '• Grad-CAM++: Available via the "View Grad-CAM++" button.\n'
+        if gradcam_uri else ""
+    )
+    gradcam_metadata = f"\n• Grad-CAM++ Heatmap: {gradcam_uri}" if gradcam_uri else ""
 
     formatted_summary = (
-        f"🤖 LOCAL PYTORCH VISION AI [{source_str}]:\n"
-        f"• Case Flag: {analysis.get('case_flag', analysis['severity'])}\n"
-        f"• Primary Finding: {analysis['primary_finding']}\n"
-        f"• Severity: {analysis['severity']} (Confidence: {analysis['confidence_score']}%){top_preds_str}\n"
-        f"• Grad-CAM++ Heatmap: {gradcam_str}\n"
-        f"• Grad-CAM++ Layer: {analysis.get('gradcam_target_layer') or 'not applicable'}\n"
-        f"• Source Attachment: {order.attachment_uri or 'none'}\n"
-        f"• Impression: {analysis['impression']}\n"
+        "AI IMAGING ASSESSMENT\n"
+        f"• Status: {analysis.get('case_flag', analysis['severity'])}\n"
+        f"• Finding: {primary_finding}\n"
+        f"• Confidence: {analysis['confidence_score']}% · Severity: {analysis['severity']}"
+        f"{considerations_str}\n"
+        f"{gradcam_notice}"
         f"• Recommendation: {analysis['recommendation']}"
+        f"{gradcam_metadata}"
     )
     order.ai_analysis_summary = formatted_summary
     # Preserve the originally uploaded scan for the UI's "View" action. A generated

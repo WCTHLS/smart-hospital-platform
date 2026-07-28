@@ -97,6 +97,10 @@ export default function LabWorkspace() {
           onSubmitSuccess={() => {
             refetch();
             qc.invalidateQueries({ queryKey: ["lab"] });
+            qc.invalidateQueries({ queryKey: ["portal-p360"] });
+            qc.invalidateQueries({ queryKey: ["portal-encounter"] });
+            qc.invalidateQueries({ queryKey: ["portal-encounter-parent"] });
+            qc.invalidateQueries({ queryKey: ["portal-lab"] });
           }}
         />
       </div>

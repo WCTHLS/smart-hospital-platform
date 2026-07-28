@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Stethoscope, User, ShieldAlert, Users, MapPin, ArrowRight, Search } from "lucide-react";
+import { Stethoscope, User, ShieldAlert, Users, MapPin, ArrowRight, Search, FileClock, X } from "lucide-react";
 import { api, ApiError } from "../../../lib/api";
 import { Card, Tag, Empty } from "../../../components/ui";
 
@@ -31,6 +31,20 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
     refetchInterval: 5000,
     retry: false,
   });
+
+  const reportReviewCount = queue?.filter((enc: any) => enc.is_reconsult).length || 0;
+  const [showReportReviewNotice, setShowReportReviewNotice] = useState(false);
+  const notifiedDoctorRef = useRef("");
+
+  useEffect(() => {
+    if (!selectedDoctorId || reportReviewCount === 0) return;
+    if (notifiedDoctorRef.current === selectedDoctorId) return;
+
+    notifiedDoctorRef.current = selectedDoctorId;
+    setShowReportReviewNotice(true);
+    const timer = window.setTimeout(() => setShowReportReviewNotice(false), 7000);
+    return () => window.clearTimeout(timer);
+  }, [reportReviewCount, selectedDoctorId]);
 
   const activeDoc = doctors?.find((d: any) => d.doctor_id === selectedDoctorId);
   const isUnlocked = Boolean(selectedDoctorId);
@@ -307,7 +321,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                   style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}
                 />
               </div>
-              <div className="flex gap-2">
+              <div className="relative flex gap-2">
                 <button
                   onClick={() => setQueueTab("first")}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
@@ -327,6 +341,38 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--cyan)] animate-pulse" />
                   )}
                 </button>
+                {showReportReviewNotice && reportReviewCount > 0 && (
+                  <div
+                    className="absolute right-0 top-[calc(100%+8px)] z-30 w-64 rounded-xl border border-sky-500/25 bg-white p-3 text-left shadow-xl"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setShowReportReviewNotice(false)}
+                      className="absolute right-2 top-2 text-[var(--dim)] transition hover:text-[var(--ink)]"
+                      aria-label="Dismiss report review notice"
+                    >
+                      <X size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQueueTab("reconsult");
+                        setShowReportReviewNotice(false);
+                      }}
+                      className="flex w-full items-start gap-2 pr-5"
+                    >
+                      <FileClock size={17} className="mt-0.5 shrink-0 text-[var(--cyan)]" />
+                      <span>
+                        <span className="block text-xs font-extrabold text-[var(--ink)]">Reports awaiting review</span>
+                        <span className="mt-0.5 block text-[11px] text-[var(--muted)]">
+                          {reportReviewCount} {reportReviewCount === 1 ? "patient is" : "patients are"} waiting.
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 

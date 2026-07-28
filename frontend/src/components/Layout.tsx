@@ -222,7 +222,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* Main */}
       <div className={`min-w-0 pt-16 transition-[margin] duration-200 ${sidebarOpen ? "lg:ml-[236px]" : "ml-0"}`}>
-        <motion.main initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+        <motion.main key={loc.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25 }} className="mx-auto w-full min-w-0 max-w-[2560px] px-3 py-4 pb-6 sm:px-5 sm:py-5 lg:px-6 lg:py-6 2xl:px-8">
           {children}
         </motion.main>

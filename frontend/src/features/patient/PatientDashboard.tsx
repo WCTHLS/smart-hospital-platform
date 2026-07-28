@@ -197,6 +197,7 @@ export default function PatientDashboard() {
     enabled: !!portalPatientId,
     refetchInterval: 5000,
     staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: true,
   });
 
@@ -204,6 +205,8 @@ export default function PatientDashboard() {
     queryKey: ["portal-upcoming-appointments", portalPatientId],
     queryFn: () => api.upcomingAppointments(portalPatientId),
     enabled: !!portalPatientId,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const { data: triageStaffList } = useQuery({
