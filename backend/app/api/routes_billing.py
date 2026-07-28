@@ -101,8 +101,8 @@ def _reconcile_episode_prescription_payments(
 
 
 def _razorpay_client() -> razorpay.Client:
-    if not settings.razorpay_configured:
-        raise HTTPException(503, "Razorpay is not configured")
+    if not settings.razorpay_active:
+        raise HTTPException(503, "Razorpay is disabled or not configured")
     return razorpay.Client(auth=(settings.razorpay_key_id, settings.razorpay_key_secret))
 
 
@@ -137,7 +137,7 @@ def create_razorpay_order(body: RazorpayOrderRequest, db: Session = Depends(get_
         raise HTTPException(409, "This appointment slot is no longer available")
     receipt = f"appt_{uuid.uuid4().hex[:24]}"
 
-    is_mock = not settings.razorpay_configured
+    is_mock = not settings.razorpay_active
     if is_mock:
         order = {
             "id": f"order_mock_{uuid.uuid4().hex[:14]}",
@@ -203,7 +203,7 @@ def create_razorpay_lab_order(body: RazorpayLabOrderRequest, db: Session = Depen
     amount_paise = round(body.amount * 100)
     receipt = f"lab_{uuid.uuid4().hex[:24]}"
     
-    is_mock = not settings.razorpay_configured
+    is_mock = not settings.razorpay_active
     if is_mock:
         order = {
             "id": f"order_mock_{uuid.uuid4().hex[:14]}",
@@ -310,7 +310,7 @@ def create_razorpay_prescription_order(body: RazorpayPrescriptionOrderRequest, d
     amount_paise = round(body.amount * 100)
     receipt = f"rx_{uuid.uuid4().hex[:24]}"
     
-    is_mock = not settings.razorpay_configured
+    is_mock = not settings.razorpay_active
     if is_mock:
         order = {
             "id": f"order_mock_{uuid.uuid4().hex[:14]}",

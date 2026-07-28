@@ -353,6 +353,17 @@ def rx_cds_agent(
     patient_context: dict[str, Any] | None = None,
     stock_index: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    # There is nothing for CDS to evaluate when the prescription has no
+    # medicine. In particular, do not spend an LLM request on an empty prompt.
+    if not any(str(item.get("drug_name") or "").strip() for item in proposed_items):
+        return envelope(
+            {"alerts": [], "suggestions": [], "block": False},
+            agent="Rx CDS",
+            needs_approval=True,
+            source="deterministic-engine",
+            citations=[],
+        )
+
     stock_index = stock_index or {}
     
     ai_success = False

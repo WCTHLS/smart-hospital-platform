@@ -43,12 +43,19 @@ class Settings(BaseSettings):
     twilio_test_mobile_numbers: str = ""
 
     # Razorpay Standard Checkout
+    # Disabled by default: payments use the application's direct-success/mock
+    # path unless Razorpay is explicitly enabled and both keys are configured.
+    razorpay_enabled: bool = False
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""
 
     @property
     def razorpay_configured(self) -> bool:
         return bool(self.razorpay_key_id.strip() and self.razorpay_key_secret.strip())
+
+    @property
+    def razorpay_active(self) -> bool:
+        return self.razorpay_enabled and self.razorpay_configured
 
     # CORS
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
