@@ -618,6 +618,8 @@ def formulary_guidance_agent(
     chief_complaint: str,
     patient_issues: list[str],
     ai_diagnostics: list[dict[str, Any]],
+    patient_allergies: list[str] | None = None,
+    current_medications: list[str] | None = None,
     vitals: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     """AI Pharmacological & Generic Formula Guidance Agent.
@@ -627,6 +629,9 @@ def formulary_guidance_agent(
     Zero brand names — pure generic formulation guidance.
     """
     import json
+    patient_allergies = patient_allergies or []
+    current_medications = current_medications or []
+
     def _safe(val: Any) -> str:
         return str(val).encode("ascii", errors="replace").decode("ascii")
 
@@ -636,36 +641,44 @@ def formulary_guidance_agent(
     print(f"* Patient: {_safe(patient_name)}")
     print(f"* Chief Complaint: {_safe(chief_complaint)}")
     print(f"* Patient Medical Issues: {_safe(patient_issues)}")
+    print(f"* Known Allergies: {_safe(patient_allergies)}")
+    print(f"* Current Medications: {_safe(current_medications)}")
     print(f"* Local PyTorch AI Scan Findings: {_safe(ai_diagnostics)}")
     print("-" * 76)
 
-    prompt = f"""You are an expert Clinical Pharmacologist and Evidence-Based Formulary AI Assistant.
-Analyze the following patient clinical context and provide generic formulation recommendations for the consulting physician.
+    prompt = f"""
+    You are an expert Clinical Pharmacologist and Evidence-Based Formulary AI Assistant.
+    Analyze the following clinical context to provide evidence-based, generic formulation recommendations for the consulting physician.
 
-ANONYMIZED PATIENT CLINICAL CONTEXT:
-- Present Chief Complaint (Current Visit Only): {chief_complaint}
-- Major Chronic Co-morbidities (Systemic Conditions Only): {', '.join(patient_issues) if patient_issues else 'None (No active chronic co-morbidities)'}
-- PyTorch Local AI Diagnostic Findings & Lab Reports (Current Visit Only): {json.dumps(ai_diagnostics)}
+    ANONYMIZED PATIENT CLINICAL CONTEXT:
+    - Presenting Complaint & History: {chief_complaint}
+    - Known Allergies: {', '.join(patient_allergies) if patient_allergies else 'No Known Drug Allergies (NKDA)'}
+    - Active Chronic Co-morbidities: {', '.join(patient_issues) if patient_issues else 'None'}
+    - Current Existing Medications: {', '.join(current_medications) if current_medications else 'None'}
+    - PyTorch Local AI Diagnostic Findings & Lab Reports: {json.dumps(ai_diagnostics)}
 
-CRITICAL MANDATES:
-1. DO NOT mention drug brand names. Output ONLY generic active formulations and pharmacological classes (e.g. Paracetamol 650mg, Levofloxacin 500mg, Azithromycin 250mg, Amoxicillin + Clavulanic Acid 625mg).
-2. Directly correlate recommendations to the Present Chief Complaint ({chief_complaint}) and the Current Visit PyTorch AI Diagnostic Results.
-3. DO NOT suggest medications for old or unstated symptoms. Stay strictly focused on the current presentation and lab findings.
+    CRITICAL PHARMACOLOGICAL RULES:
+    1. NO BRAND NAMES: Output ONLY generic active formulations and pharmacological classes (e.g., "Levofloxacin 500mg", "Salbutamol 100mcg + Ipratropium 20mcg").
+    2. MONOTHERAPY DEFAULT FOR OUTPATIENTS: For mild-to-moderate outpatient respiratory infections or COPD exacerbations (SpO2 >= 92%), DO NOT prescribe routine dual antibiotic coverage (e.g., Beta-lactam PLUS Macrolide). Recommend SINGLE-AGENT coverage unless severe, hospitalized features are documented.
+    3. ALLERGY CONTRAINDICATIONS: STRICTLY CROSS-CHECK ALLERGIES. If the patient has a Penicillin/Beta-lactam allergy, DO NOT recommend Amoxicillin, Amoxicillin-Clavulanate, or Cephalosporins. Choose an evidence-based alternative class (e.g., Respiratory Fluoroquinolones, Macrolides, or Doxycycline).
+    4. MEDICATION FAILURE & STEP-UP: Check current medications. If the patient reports worsening symptoms despite using an existing drug (e.g., failing rescue Salbutamol), DO NOT simply re-prescribe the same monotherapy. Step up to combination therapy (e.g., SABA + SAMA) or add anti-inflammatory management (e.g., short-course oral systemic corticosteroids for AECOPD).
+    5. NO DUPLICATION: Do not suggest redundant medications covering identical mechanisms unless synergism is explicitly guideline-indicated.
 
-Return ONLY a valid JSON object matching this schema:
-{{
-  "formula_recommendations": [
+    Return ONLY a valid JSON object matching this schema:
     {{
-      "category": "Category name",
-      "formula_name": "Generic Formula Title",
-      "active_ingredients": "Active ingredients with dose",
-      "class": "Pharmacological class",
-      "dosage_guidance": "Recommended schedule & duration",
-      "clinical_rationale": "Why this formula is recommended based on patient issues and PyTorch AI scan findings",
-      "safety_note": "Safety monitoring or precaution"
+    "formula_recommendations": [
+        {{
+        "category": "Antibacterial / Bronchodilator / Anti-inflammatory / Adjunctive",
+        "formula_name": "Generic Title",
+        "active_ingredients": "Active ingredients with dose",
+        "class": "Pharmacological class",
+        "dosage_guidance": "Recommended schedule & duration",
+        "clinical_rationale": "Why this formula is indicated based on guidelines, presentation, and AI findings",
+        "safety_note": "Safety precaution, allergy considerations, or monitoring guidance"
+        }}
+    ]
     }}
-  ]
-}}"""
+"""
 
     formulas = []
 

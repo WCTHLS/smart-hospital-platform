@@ -42,6 +42,77 @@ def _get_xrv_model():
     return _XRV_MODEL
 
 
+def _save_gradcam_pp_overlay(
+    activations: Any,
+    gradients: Any,
+    image_tensor: Any,
+    source_path: str,
+    pathology: str,
+) -> str | None:
+    """Create a thresholded Grad-CAM++ overlay for one DenseNet pathology output."""
+    if torch is None or activations is None or gradients is None:
+        return None
+    try:
+        from PIL import Image
+
+        # Grad-CAM++ channel weights. Squared/cubed gradient terms approximate the
+        # second/third-order contribution weighting used to separate multiple focal regions.
+        gradients_sq = gradients.pow(2)
+        gradients_cube = gradients.pow(3)
+        spatial_activation_sum = activations.sum(dim=(2, 3), keepdim=True)
+        denominator = 2.0 * gradients_sq + spatial_activation_sum * gradients_cube
+        denominator = torch.where(
+            denominator.abs() > 1e-8,
+            denominator,
+            torch.ones_like(denominator),
+        )
+        alpha = gradients_sq / denominator
+        positive_gradients = torch.relu(gradients)
+        weights = (alpha * positive_gradients).sum(dim=(2, 3), keepdim=True)
+        cam = torch.relu((weights * activations).sum(dim=1, keepdim=True))
+        cam = torch.nn.functional.interpolate(
+            cam, size=image_tensor.shape[-2:], mode="bilinear", align_corners=False
+        )[0, 0]
+        cam_min, cam_max = cam.min(), cam.max()
+        if float(cam_max - cam_min) <= 1e-8:
+            return None
+        cam = (cam - cam_min) / (cam_max - cam_min)
+
+        # Suppress diffuse low-importance activations. Only pixels at least 55% of
+        # the peak Grad-CAM++ response remain visible.
+        activation_threshold = 0.55
+        cam = torch.where(cam >= activation_threshold, cam, torch.zeros_like(cam))
+        retained_max = cam.max()
+        if float(retained_max) <= 1e-8:
+            return None
+        cam = (cam / retained_max).detach().cpu().numpy()
+
+        base = image_tensor.detach().cpu()[0, 0].numpy()
+        base_min, base_max = float(base.min()), float(base.max())
+        base = (base - base_min) / max(base_max - base_min, 1e-8)
+        base_rgb = np.stack([base, base, base], axis=-1)
+
+        # Red-to-yellow activation map with intensity-dependent transparency.
+        heat_rgb = np.zeros_like(base_rgb)
+        heat_rgb[..., 0] = cam
+        heat_rgb[..., 1] = np.clip((cam - 0.35) / 0.65, 0.0, 1.0) * 0.75
+        alpha = (cam * 0.60)[..., None]
+        overlay = np.clip(base_rgb * (1.0 - alpha) + heat_rgb * alpha, 0.0, 1.0)
+
+        safe_pathology = re.sub(r"[^a-z0-9]+", "_", pathology.lower()).strip("_")
+        source_stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", os.path.splitext(os.path.basename(source_path))[0])
+        output_dir = "uploads"
+        os.makedirs(output_dir, exist_ok=True)
+        filename = f"gradcampp_{source_stem}_{safe_pathology}.png"
+        Image.fromarray((overlay * 255).astype(np.uint8)).save(
+            os.path.join(output_dir, filename), format="PNG"
+        )
+        return f"/uploads/{filename}"
+    except Exception as err:
+        print(f"[Grad-CAM++] Warning generating heatmap: {err}")
+        return None
+
+
 def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
     """Format-Agnostic Local Medical Vision Inference Engine.
     Processes DICOM (.dcm) or standard images (.png/.jpg) using PyTorch & TorchXRayVision.
@@ -376,55 +447,112 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
             print("• Executing TorchXRayVision DenseNet-121 Neural Network...")
             model = _get_xrv_model()
             if model is not None:
-                with torch.no_grad():
+                captured: dict[str, Any] = {"activations": None, "gradients": None}
+                feature_container = getattr(getattr(model, "model", None), "features", None)
+                if feature_container is None:
+                    feature_container = getattr(model, "features", None)
+                # denseblock3 retains a higher-resolution spatial map than denseblock4,
+                # producing sharper localization while still carrying high-level features.
+                # Fall back to denseblock4 for compatible DenseNet variants.
+                feature_layer = None
+                gradcam_target_layer = None
+                if feature_container is not None:
+                    feature_layer = getattr(feature_container, "denseblock3", None)
+                    if feature_layer is not None:
+                        gradcam_target_layer = "denseblock3"
+                    if feature_layer is None:
+                        feature_layer = getattr(feature_container, "denseblock4", None)
+                        if feature_layer is not None:
+                            gradcam_target_layer = "denseblock4"
+                hook_handles = []
+
+                if feature_layer is not None:
+                    def _capture_activations(_module, _inputs, output):
+                        captured["activations"] = output
+
+                    def _capture_gradients(_module, _grad_inputs, grad_outputs):
+                        captured["gradients"] = grad_outputs[0]
+
+                    hook_handles = [
+                        feature_layer.register_forward_hook(_capture_activations),
+                        feature_layer.register_full_backward_hook(_capture_gradients),
+                    ]
+
+                try:
+                    model.zero_grad(set_to_none=True)
                     outputs = model(img_tensor)
+                except Exception:
+                    for handle in hook_handles:
+                        handle.remove()
+                    raise
 
                 pathologies = model.pathologies
-                raw_probs = outputs[0].cpu().numpy()
+                raw_probs = outputs[0].detach().cpu().numpy()
 
                 predictions = []
                 for path_name, prob in zip(pathologies, raw_probs):
                     p_val = float(prob)
                     if p_val < 0 or p_val > 1:
                         p_val = 1.0 / (1.0 + np.exp(-p_val))
-                    # Calibrate relative to 0.50 background baseline noise threshold
-                    calib_prob = min(99.9, max(0.0, (p_val - 0.50) / 0.12) * 100.0)
                     predictions.append({
                         "pathology": str(path_name),
-                        "probability": round(calib_prob, 1),
+                        "probability": round(p_val * 100.0, 1),
                         "raw_score": float(p_val)
                     })
 
-                predictions.sort(key=lambda x: x["probability"], reverse=True)
+                predictions.sort(key=lambda x: x["raw_score"], reverse=True)
                 top_pred = predictions[0]
+                top_score = top_pred["raw_score"]
+                confidence = top_pred["probability"]
+                top_5 = predictions[:5]
+                top_names = [f"{p['pathology']} ({p['probability']}%)" for p in top_5[:3]]
 
-                # If all calibrated pathology probabilities are below 12.0%, it's a Normal Chest Radiograph
-                if top_pred["probability"] < 12.0:
+                # Flag the case from the highest raw model output.
+                if top_score > 0.70:
+                    case_flag = "POSITIVE"
+                    primary_finding = top_pred["pathology"]
+                    severity = "HIGH"
+                    impression = (
+                        f"Positive model classification for '{primary_finding}' "
+                        f"(top score {confidence}%). Top predictions: {', '.join(top_names)}."
+                    )
+                    recommendation = "Prompt physician/radiologist review and correlate with the clinical presentation."
+                elif top_score > 0.45:
+                    case_flag = "BORDERLINE"
+                    primary_finding = f"Borderline finding: {top_pred['pathology']}"
+                    severity = "BORDERLINE"
+                    impression = (
+                        f"Borderline model classification for '{top_pred['pathology']}' "
+                        f"(top score {confidence}%). Top predictions: {', '.join(top_names)}."
+                    )
+                    recommendation = "Radiologist review is recommended before treating this finding as positive."
+                else:
+                    case_flag = "NORMAL"
                     primary_finding = "No Acute Cardiopulmonary Abnormality (Normal Chest Radiograph)"
-                    confidence = round(100.0 - top_pred["probability"], 1)
                     severity = "NORMAL"
                     impression = (
-                        "TorchXRayVision DenseNet-121 deep learning inference shows clear lung fields "
-                        "without acute consolidation, pneumothorax, pleural effusion, or focal opacities. "
-                        "Cardiac silhouette and hilar contours are within normal limits."
+                        f"No supported pathology exceeded the borderline threshold. The highest model "
+                        f"score was '{top_pred['pathology']}' at {confidence}%."
                     )
-                    top_5 = [
-                        {"pathology": "Clear Lung Parenchyma", "probability": round(confidence, 1)},
-                        {"pathology": "Normal Cardiac Silhouette", "probability": round(confidence - 2.7, 1)},
-                        {"pathology": "Intact Pleural Spaces", "probability": round(confidence - 4.3, 1)},
-                        {"pathology": "No Pneumothorax", "probability": round(confidence - 1.2, 1)},
-                        {"pathology": "No Rib Fracture", "probability": round(confidence - 1.8, 1)}
-                    ]
-                else:
-                    primary_finding = top_pred["pathology"]
-                    confidence = top_pred["probability"]
-                    severity = "HIGH" if confidence > 50.0 else "MODERATE"
-                    top_5 = predictions[:5]
-                    top_names = [f"{p['pathology']} ({p['probability']}%)" for p in top_5[:3]]
-                    impression = (
-                        f"TorchXRayVision DenseNet-121 deep learning inference detected primary pathology '{primary_finding}' "
-                        f"with {confidence}% confidence score. Top predictions: {', '.join(top_names)}."
-                    )
+                    recommendation = "Routine clinical correlation; physician verification remains required."
+
+                gradcam_uri = None
+                if case_flag in {"POSITIVE", "BORDERLINE"} and hook_handles:
+                    try:
+                        target_index = pathologies.index(top_pred["pathology"])
+                        model.zero_grad(set_to_none=True)
+                        outputs[0, target_index].backward()
+                        gradcam_uri = _save_gradcam_pp_overlay(
+                            captured["activations"],
+                            captured["gradients"],
+                            img_tensor,
+                            file_path,
+                            top_pred["pathology"],
+                        )
+                    except Exception as err:
+                        print(f"[Grad-CAM++] Warning during targeted backward pass: {err}")
+                for handle in hook_handles:
+                    handle.remove()
 
                 print("-" * 72)
                 print("TORCHXRAYVISION DENSENET-121 PATHOLOGY PREDICTIONS:")
@@ -439,11 +567,16 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
                     "model_engine": "TorchXRayVision (DenseNet-121)",
                     "source_type": source_type,
                     "primary_finding": primary_finding,
+                    "case_flag": case_flag,
+                    "top_label": top_pred["pathology"],
+                    "top_score": round(top_score, 4),
+                    "gradcam_heatmap_uri": gradcam_uri,
+                    "gradcam_target_layer": gradcam_target_layer,
                     "confidence_score": confidence,
                     "severity": severity,
                     "impression": impression,
                     "top_predictions": top_5,
-                    "recommendation": "Correlate with patient clinical presentation and lab diagnostics.",
+                    "recommendation": recommendation,
                     "disclaimer": "⚠️ Preliminary AI Finding — Requires Physician Verification"
                 }
     except Exception as exc:

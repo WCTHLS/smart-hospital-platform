@@ -430,13 +430,18 @@ def upload_lab_attachment(
     os.makedirs(upload_dir, exist_ok=True)
     
     file_ext = os.path.splitext(file.filename or "")[1]
-    safe_filename = f"lab_{lab_order_id}{file_ext}"
+    # Unique URLs prevent the browser from showing a cached previous scan after replacement.
+    safe_filename = f"lab_{lab_order_id}_{secrets.token_hex(6)}{file_ext}"
     file_path = os.path.join(upload_dir, safe_filename)
     
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
     attachment_uri = f"/uploads/{safe_filename}"
+    order.attachment_name = file.filename
+    order.attachment_uri = attachment_uri
+    order.ai_analysis_summary = None
+    db.commit()
     return {"filename": file.filename, "uri": attachment_uri}
 
 
@@ -596,23 +601,57 @@ def get_formulary_guidance(encounter_id: str, db: Session = Depends(get_db)) -> 
         if i.status == "ACTIVE" and any(kw in i.issue_name.upper() for kw in CHRONIC_KEYWORDS)
     ]
 
-    # 2. Present Chief Complaint for THIS Current Visit Only
-    triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id))
-    chief_complaint = ""
-    if triage and triage.chief_complaint and not triage.chief_complaint.isdigit():
-        chief_complaint = triage.chief_complaint.strip()
-    
+    # 2. Present chief complaint. E-consults/revisits are follow-ups linked through
+    # ``parent:<encounter_id>`` metadata, so inherit the complaint from that exact
+    # parent visit rather than exposing the linkage marker as clinical text.
+    def clean_complaint(value: str | None) -> str:
+        if not value:
+            return ""
+        parts = [
+            part.strip()
+            for part in value.split(";")
+            if part.strip() and not part.strip().lower().startswith("parent:")
+        ]
+        cleaned = "; ".join(parts).strip()
+        return "" if cleaned.isdigit() else cleaned
+
+    parent_id = None
+    if encounter.notes:
+        for part in encounter.notes.split(";"):
+            if part.strip().lower().startswith("parent:"):
+                parent_id = part.split(":", 1)[1].strip()
+                break
+
+    complaint_encounter_id = (
+        parent_id
+        if encounter.visit_type in {"E_CONSULT", "REVISIT"} and parent_id
+        else encounter_id
+    )
+    complaint_encounter = db.get(models.Encounter, complaint_encounter_id)
+    complaint_triage = db.scalar(
+        select(models.Triage)
+        .where(models.Triage.encounter_id == complaint_encounter_id)
+        .order_by(models.Triage.created_ts.desc())
+    )
+    chief_complaint = clean_complaint(
+        complaint_triage.chief_complaint if complaint_triage else None
+    )
+
+    if not chief_complaint and complaint_encounter:
+        complaint_appt = db.scalar(
+            select(models.Appointment)
+            .where(models.Appointment.encounter_id == complaint_encounter_id)
+            .order_by(models.Appointment.created_ts.desc())
+        )
+        if complaint_appt:
+            reason = clean_complaint(complaint_appt.reason)
+            if not reason.lower().startswith("re-visit follow-up for encounter"):
+                chief_complaint = reason
+        if not chief_complaint:
+            chief_complaint = clean_complaint(complaint_encounter.notes)
+
     if not chief_complaint:
-        appt = db.scalar(select(models.Appointment).where(models.Appointment.encounter_id == encounter_id))
-        if appt and appt.reason:
-            chief_complaint = appt.reason.strip()
-        elif encounter.notes:
-            note_text = encounter.notes.strip()
-            if "parent:" in note_text:
-                note_text = note_text.split(";", 1)[-1].strip()
-            chief_complaint = note_text
-        else:
-            chief_complaint = "Fever and cough"
+        chief_complaint = "Follow-up consultation"
 
     # 3. Lab Orders & PyTorch Diagnostics (Query ONLY lab findings for THIS specific visit / care episode encounter ID)
     target_encounter_id = encounter_id
@@ -663,16 +702,40 @@ def get_formulary_guidance(encounter_id: str, db: Session = Depends(get_db)) -> 
                 "status": order.status
             })
 
-    # 4. Execute AI Formulary Agent (100% Anonymized, Present Complaint + Major Co-morbidities + Current Visit Reports)
+    patient_allergies = [
+        " — ".join(filter(None, [
+            allergy.substance,
+            allergy.drug_class,
+            allergy.severity,
+            allergy.reaction,
+        ]))
+        for allergy in patient.allergies
+        if allergy.substance
+    ]
+    current_medications = [
+        " ".join(filter(None, [medication.drug_name, medication.dosage])).strip()
+        for medication in patient.medications
+        if medication.status == "ACTIVE"
+    ]
+
+    # 4. Execute AI Formulary Agent (anonymized clinical context, allergies,
+    # current medications, major co-morbidities, and current-episode reports).
     guidance = agents.formulary_guidance_agent(
         patient_name="Patient",
         chief_complaint=chief_complaint,
         patient_issues=chronic_issues,
         ai_diagnostics=ai_findings,
+        patient_allergies=patient_allergies,
+        current_medications=current_medications,
     )
 
     appt = db.scalar(select(models.Appointment).where(models.Appointment.encounter_id == encounter_id))
-    patient_original_reason = appt.reason if (appt and appt.reason) else (encounter.notes or None)
+    if encounter.visit_type in {"E_CONSULT", "REVISIT"} and parent_id:
+        patient_original_reason = chief_complaint
+    else:
+        patient_original_reason = clean_complaint(
+            appt.reason if (appt and appt.reason) else encounter.notes
+        ) or None
 
     audit_logs = db.scalars(
         select(models.EncounterAuditLog)
@@ -687,6 +750,8 @@ def get_formulary_guidance(encounter_id: str, db: Session = Depends(get_db)) -> 
         "active_issues": chronic_issues,
         "chief_complaint": chief_complaint,
         "patient_original_reason": patient_original_reason,
+        "known_allergies": patient_allergies,
+        "current_medications": current_medications,
         "audit_logs": [
             {
                 "audit_id": log.audit_id,
@@ -1217,22 +1282,31 @@ def run_local_lab_analysis(
 
     disclaimer_str = analysis.get("disclaimer", "⚠️ Preliminary AI Finding — Requires Physician Verification")
     source_str = analysis.get("source_type", "Radiology Image Scan")
+    gradcam_str = analysis.get("gradcam_heatmap_uri") or "Not generated (normal or unsupported analysis)"
 
     formatted_summary = (
         f"🤖 LOCAL PYTORCH VISION AI [{source_str}]:\n"
+        f"• Case Flag: {analysis.get('case_flag', analysis['severity'])}\n"
         f"• Primary Finding: {analysis['primary_finding']}\n"
         f"• Severity: {analysis['severity']} (Confidence: {analysis['confidence_score']}%){top_preds_str}\n"
+        f"• Grad-CAM++ Heatmap: {gradcam_str}\n"
+        f"• Grad-CAM++ Layer: {analysis.get('gradcam_target_layer') or 'not applicable'}\n"
+        f"• Source Attachment: {order.attachment_uri or 'none'}\n"
         f"• Impression: {analysis['impression']}\n"
         f"• Recommendation: {analysis['recommendation']}"
     )
     order.ai_analysis_summary = formatted_summary
-    if analysis.get("preview_uri"):
+    # Preserve the originally uploaded scan for the UI's "View" action. A generated
+    # preview is only used when the order did not already have an attachment.
+    if analysis.get("preview_uri") and not order.attachment_uri:
         order.attachment_uri = analysis["preview_uri"]
 
     db.commit()
 
     return {
         "status": "success",
+        "source": "inference",
+        "cached": False,
         "lab_order_id": lab_order_id,
         "analysis": analysis,
         "formatted_summary": formatted_summary
