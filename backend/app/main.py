@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     init_db()
     hub.bind_loop(asyncio.get_running_loop())
     bus.subscribe("*", hub.on_event)  # stream every domain event to WebSocket clients
-    logging.getLogger("aarogya").info("Qconnect backend ready · env=%s · db=%s",
+    logging.getLogger("aarogya").info("ClinIQ backend ready · env=%s · db=%s",
                                        settings.environment, settings.database_url)
     yield
 

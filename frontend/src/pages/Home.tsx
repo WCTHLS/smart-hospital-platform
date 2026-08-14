@@ -29,8 +29,16 @@ export default function Home() {
       <Card className="overflow-hidden !p-0">
         <div className="relative px-8 py-10"
           style={{ background: "radial-gradient(760px 320px at 20% -30%, rgba(37,100,207,.22), transparent 62%), radial-gradient(700px 320px at 100% 120%, rgba(26,79,180,.20), transparent 60%)" }}>
-          <div className="text-[12px] font-extrabold uppercase tracking-[0.34em]" style={{ color: "var(--cyan)" }}>
-            Next-Gen Clinical OS · Open Source
+          <div className="space-y-2">
+            <div className="text-xs font-extrabold uppercase tracking-[0.25em]" style={{ color: "var(--cyan)" }}>
+              ClinIQ
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl" style={{ color: "var(--ink)" }}>
+              Smart Hospital Platform
+            </h1>
+            <p className="max-w-2xl text-sm font-medium leading-relaxed" style={{ color: "var(--muted)" }}>
+              An open-source, hospital operating system that guides every patient from queue-free check-in to digital discharge - with a clinician-in-the-loop AI mesh.
+            </p>
           </div>
           <div className="mt-6 flex flex-wrap gap-3">
             <button className="btn" onClick={() => nav("/patient/checkin")}>
@@ -39,7 +47,7 @@ export default function Home() {
             <button className="btn ghost" onClick={() => nav("/command")}>Open Command Center</button>
           </div>
           <div className="mt-6 flex flex-wrap gap-2">
-            {["ABDM / ABHA", "FHIR R4", "Clinician-in-the-loop", "DPDP-aligned", "Self-hosted"].map((t) => (
+            {["FHIR R4", "Clinician-in-the-loop", "DPDP-aligned", "Self-hosted"].map((t) => (
               <span key={t} className="rounded-full px-3 py-1 text-[12px]"
                 style={{ background: "var(--panel)", border: "1px solid var(--glass-border)", color: "var(--ink)" }}>{t}</span>
             ))}

@@ -55,6 +55,42 @@ _ROOMS = {
 _SUMMARY_CACHE: dict[str, dict] = {}
 
 
+def _issue_doctor_token(
+    db: Session,
+    encounter: models.Encounter,
+    doctor: models.Staff,
+    *,
+    prefix: str = "A",
+) -> models.Token:
+    """Put a follow-up encounter directly in its assigned doctor's queue."""
+    existing = db.scalar(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter.encounter_id)
+        .where(models.Token.token_number.like(f"{prefix}-%"))
+        .order_by(models.Token.issued_ts.desc())
+    )
+    if existing:
+        return existing
+
+    total = db.scalar(
+        select(func.count())
+        .select_from(models.Token)
+        .where(models.Token.token_number.like(f"{prefix}-%"))
+    ) or 0
+    start = 501 if prefix == "E" else 42
+    token = models.Token(
+        encounter_id=encounter.encounter_id,
+        token_number=f"{prefix}-{total + start:03d}",
+        department=doctor.department or doctor.specialty or "Outpatient",
+        room=doctor.room or ("Tele-Consult" if prefix == "E" else "Doctor consultation"),
+        floor=doctor.floor or "Ground Floor",
+        eta_minutes=10 if prefix == "E" else 6,
+        status="WAITING",
+    )
+    db.add(token)
+    return token
+
+
 def _calculate_patients_ahead(db: Session, encounter_id: str) -> int:
     """Return the current encounter's queue position from persisted encounters."""
     encounter = db.get(models.Encounter, encounter_id)
@@ -345,6 +381,23 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         if appointment.status == "CHECKED_IN" and appointment.encounter_id:
             existing_encounter = db.get(models.Encounter, appointment.encounter_id)
             if existing_encounter:
+                if existing_encounter.visit_type == "REVISIT":
+                    doctor = db.get(models.Staff, existing_encounter.doctor_id or appointment.doctor_id)
+                    if not doctor or doctor.role != "DOCTOR":
+                        raise HTTPException(409, "Re-visit has no valid doctor assignment")
+                    existing_encounter.status = "TRIAGED"
+                    doctor_token = _issue_doctor_token(db, existing_encounter, doctor)
+                    db.commit()
+                    return {
+                        "patient": _patient_brief(patient),
+                        "encounter_id": existing_encounter.encounter_id,
+                        "appointment_id": appointment.appointment_id,
+                        "status": existing_encounter.status,
+                        "new_patient": False,
+                        "reason": body.reason or appointment.reason,
+                        "doctor_token": doctor_token.token_number,
+                    }
+
                 triage_staff = db.scalar(
                     select(models.Staff)
                     .where(models.Staff.role == "NURSE")
@@ -418,6 +471,43 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
     if appointment:
         appointment.encounter_id = encounter.encounter_id
         appointment.status = "CHECKED_IN"
+
+    # Re-visits are already assigned to the original doctor. They bypass
+    # nurse triage entirely and enter that doctor's consultation queue.
+    if encounter.visit_type == "REVISIT":
+        doctor = db.get(models.Staff, encounter.doctor_id)
+        if not doctor or doctor.role != "DOCTOR":
+            raise HTTPException(409, "Re-visit has no valid doctor assignment")
+        encounter.status = "TRIAGED"
+        doctor_token = _issue_doctor_token(db, encounter, doctor)
+        audit(
+            db,
+            actor_id=patient.patient_id,
+            actor_role="PATIENT",
+            action="FOLLOWUP_CHECK_IN",
+            entity_type="encounter",
+            entity_id=encounter.encounter_id,
+            metadata={"channel": body.channel, "triage_skipped": True},
+        )
+        db.commit()
+        bus.publish(Topics.PATIENT_CHECKED_IN, {
+            "encounter_id": encounter.encounter_id,
+            "channel": body.channel,
+            "triage_skipped": True,
+        })
+        bus.publish(Topics.TOKEN_ISSUED, {
+            "encounter_id": encounter.encounter_id,
+            "token": doctor_token.token_number,
+        })
+        return {
+            "patient": _patient_brief(patient),
+            "encounter_id": encounter.encounter_id,
+            "appointment_id": encounter.appointment_id,
+            "status": encounter.status,
+            "new_patient": created,
+            "reason": body.reason,
+            "doctor_token": doctor_token.token_number,
+        }
 
     triage_staff = db.scalar(
         select(models.Staff)
@@ -1235,6 +1325,8 @@ def delete_patient_medication(patient_id: str, medication_id: str, db: Session =
 @router.post("/encounters/{encounter_id}/triage")
 def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get_db)) -> dict:
     encounter = _get_encounter(db, encounter_id)
+    if encounter.visit_type in {"REVISIT", "E_CONSULT"}:
+        raise HTTPException(409, "Follow-up consultations bypass triage and go directly to the assigned doctor")
     patient = _get_patient(db, encounter.patient_id)
 
     # Guard against duplicate triage submissions (e.g. double-click / retry on
@@ -1982,7 +2074,7 @@ def get_discharge_report(encounter_id: str, db: Session = Depends(get_db)):
                 <tr>
                     <td style="text-align: left; vertical-align: middle;">
                         <div style="font-size: 24px; font-weight: 800; color: #2564cf; display: flex; align-items: center; gap: 8px;">
-                            🏥 QConnect Smart Hospital
+                            🏥 ClinIQ Smart Hospital
                         </div>
                         <div style="font-size: 12px; color: #64748b; margin-top: 4px;">
                             ABDM Registered Digital Health Facility • Tel: +91 80 4910 2000
@@ -2345,6 +2437,7 @@ def list_triage_queue(db: Session = Depends(get_db)) -> list[dict]:
     stmt = (
         select(models.Encounter)
         .where(models.Encounter.status == "CHECKED_IN")
+        .where(models.Encounter.visit_type.notin_(["REVISIT", "E_CONSULT", "LAB"]))
         .order_by(models.Encounter.arrival_ts.desc())
     )
     encounters = db.scalars(stmt).all()
@@ -2626,45 +2719,35 @@ def request_econsult(patient_id: str, body: EconsultRequestPayload, db: Session 
         .order_by(models.Encounter.arrival_ts.desc())
     )
     if existing_econsult:
+        if existing_econsult.status == "CHECKED_IN":
+            existing_econsult.status = "TRIAGED"
         existing_token = db.scalar(
             select(models.Token)
             .where(models.Token.encounter_id == existing_econsult.encounter_id)
             .order_by(models.Token.token_id.desc())
         )
-        if existing_token:
-            return {
-                "encounter_id": existing_econsult.encounter_id,
-                "token_number": existing_token.token_number,
-                "status": existing_econsult.status,
-            }
+        existing_token = existing_token or _issue_doctor_token(
+            db, existing_econsult, doctor, prefix="E"
+        )
+        db.commit()
+        return {
+            "encounter_id": existing_econsult.encounter_id,
+            "token_number": existing_token.token_number,
+            "status": existing_econsult.status,
+        }
 
     encounter = models.Encounter(
         patient_id=patient_id,
         doctor_id=body.doctor_id,
         department=doctor.department,
         visit_type="E_CONSULT",
-        status="CHECKED_IN",
+        status="TRIAGED",
         notes=parent_notes,
     )
     db.add(encounter)
     db.flush()
     
-    total_tokens = db.scalar(
-        select(func.count())
-        .select_from(models.Token)
-        .where(models.Token.token_number.like("E-%"))
-    ) or 0
-    
-    token = models.Token(
-        encounter_id=encounter.encounter_id,
-        token_number=f"E-{total_tokens + 501:03d}",
-        department=doctor.department or "Outpatient",
-        room=doctor.room or "Tele-Consult",
-        floor=doctor.floor or "Ground Floor",
-        eta_minutes=10,
-        status="WAITING",
-    )
-    db.add(token)
+    token = _issue_doctor_token(db, encounter, doctor, prefix="E")
     db.commit()
     
     return {

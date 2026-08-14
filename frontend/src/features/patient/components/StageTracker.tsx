@@ -13,6 +13,7 @@ const STAGES = [
 
 interface StageTrackerProps {
   stage: number;
+  skipTriage?: boolean;
   token?: {
     number: string;
     room?: string;
@@ -21,7 +22,12 @@ interface StageTrackerProps {
   } | null;
 }
 
-export default function StageTracker({ stage, token }: StageTrackerProps) {
+export default function StageTracker({ stage, token, skipTriage = false }: StageTrackerProps) {
+  const stages = skipTriage
+    ? STAGES.map((item, index) => index === 1
+      ? { label: "Doctor token issued", msg: "Triage is skipped for this follow-up. You're waiting in your doctor's queue." }
+      : item)
+    : STAGES;
   const activeStage = Math.min(Math.max(stage, 0), STAGES.length - 1);
 
   return (
@@ -39,13 +45,13 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
       </div>
 
       <div className="md:hidden">
-        <div className="relative grid grid-cols-7 px-1 pt-1" aria-label={`Visit progress: ${STAGES[activeStage].label}`}>
+        <div className="relative grid grid-cols-7 px-1 pt-1" aria-label={`Visit progress: ${stages[activeStage].label}`}>
           <div className="absolute left-[7%] right-[7%] top-4 h-px bg-[var(--line2)]" />
           <div
             className="absolute left-[7%] top-4 h-px bg-[var(--cyan)] transition-[width] duration-500"
             style={{ width: `${(activeStage / (STAGES.length - 1)) * 86}%` }}
           />
-          {STAGES.map((item, index) => {
+          {stages.map((item, index) => {
             const done = index < activeStage;
             const current = index === activeStage;
             return (
@@ -68,15 +74,15 @@ export default function StageTracker({ stage, token }: StageTrackerProps) {
         </div>
         <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/[0.07] px-3 py-2.5 text-center">
           <div className="text-xs font-extrabold text-white">
-            {STAGES[activeStage].label}
+            {stages[activeStage].label}
             <span className="ml-2 text-[9px] uppercase tracking-wider text-[var(--cyan)]">Current</span>
           </div>
-          <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">{STAGES[activeStage].msg}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">{stages[activeStage].msg}</p>
         </div>
       </div>
 
       <div className="relative hidden text-center md:grid md:grid-cols-7 md:gap-2 xl:gap-3 2xl:gap-4">
-        {STAGES.map((s, i) => {
+        {stages.map((s, i) => {
           const done = i < activeStage;
           const current = i === activeStage;
           return (

@@ -152,7 +152,7 @@ export default function LabOrdersAlert({
             key: order.key_id,
             amount: order.amount,
             currency: order.currency,
-            name: "Qconnect",
+            name: "ClinIQ",
             description: `Lab Tests: ${pendingOrders.map((o: any) => o.test).join(", ")}`,
             order_id: order.order_id,
             prefill: order.prefill,

@@ -80,7 +80,7 @@ export default function PrescriptionSlip({
             key: order.key_id,
             amount: order.amount,
             currency: order.currency,
-            name: "Qconnect",
+            name: "ClinIQ",
             description: `Medication Checkout (Rx: ${prescription.rx_id.slice(0, 8)})`,
             order_id: order.order_id,
             prefill: order.prefill,

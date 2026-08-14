@@ -833,7 +833,11 @@ export default function PatientDashboard() {
         )}
 
         {showEncounterId && encDetails && encDetails.status !== "DISCHARGED" && encDetails.visit_type !== "E_CONSULT" && (
-          <StageTracker stage={stage} token={token} />
+          <StageTracker
+            stage={stage}
+            token={token}
+            skipTriage={encDetails.visit_type === "REVISIT"}
+          />
         )}
 
         {showEncounterId && (encDetails?.routing_override || parentEncDetails?.routing_override) && (() => {
@@ -1255,7 +1259,7 @@ export default function PatientDashboard() {
                   >
                     <Download size={14} /> Invoice
                   </button>
-                  <Tag tone="blue">Triaged</Tag>
+                  <Tag tone="blue">{encDetails.visit_type === "REVISIT" ? "Doctor queue" : "Triaged"}</Tag>
                 </div>
               </div>
 
@@ -1263,8 +1267,12 @@ export default function PatientDashboard() {
               <div className="p-3 bg-emerald-500/5 border border-emerald-500/20 text-emerald-700 rounded-xl text-xs flex gap-2.5 items-start">
                 <CheckCircle2 size={16} className="shrink-0 mt-0.5 text-emerald-700" />
                 <div>
-                  <span className="font-bold block mb-0.5">Triage Complete!</span>
-                  Vitals and symptoms recorded. Your queue token has been generated.
+                  <span className="font-bold block mb-0.5">
+                    {encDetails.visit_type === "REVISIT" ? "Checked in directly with your doctor!" : "Triage Complete!"}
+                  </span>
+                  {encDetails.visit_type === "REVISIT"
+                    ? "Triage is skipped for this follow-up. Your doctor consultation token has been generated."
+                    : "Vitals and symptoms recorded. Your queue token has been generated."}
                 </div>
               </div>
 
@@ -1281,7 +1289,9 @@ export default function PatientDashboard() {
                     <Ticket size={120} />
                   </div>
                   
-                  <div className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[var(--cyan)]">Your Queue Token</div>
+                  <div className="rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-[var(--cyan)]">
+                    {encDetails.visit_type === "REVISIT" ? "Your Doctor Token" : "Your Queue Token"}
+                  </div>
                   <div className="text-5xl font-black tracking-wider text-[var(--ink)] drop-shadow-[0_0_16px_rgba(37,100,207,0.8)] sm:text-6xl">
                     {encDetails.token.number}
                   </div>
@@ -1315,7 +1325,9 @@ export default function PatientDashboard() {
                   encDetails.token?.floor || encDetails.triage?.recommended_doctor?.floor || encDetails.appointment?.doctor?.floor,
                 ].filter(Boolean).join(" / ") || "Not assigned"}</b></div>
                 <div className="kv"><span>Time Slot</span><b>{encDetails.appointment?.scheduled_start ? timeLabel(encDetails.appointment.scheduled_start) : "Not recorded"}</b></div>
-                <div className="kv"><span>Acuity Level</span><b>{encDetails.triage?.acuity || "Not recorded"}</b></div>
+                {encDetails.visit_type !== "REVISIT" && (
+                  <div className="kv"><span>Acuity Level</span><b>{encDetails.triage?.acuity || "Not recorded"}</b></div>
+                )}
                 <div className="kv"><span>Chief Complaint / Reason for Visit</span><b>{encDetails.triage?.chief_complaint || encDetails.appointment?.reason || "Not recorded"}</b></div>
               </div>
             </Card>
@@ -1426,9 +1438,9 @@ export default function PatientDashboard() {
                       stepColorClass = "bg-emerald-500 text-white border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.3)]";
                       marker = "✓";
                     } else if (activeFollowup) {
-                      statusText = activeFollowup.visit_type === "E_CONSULT" 
+                      statusText = activeFollowup.visit_type === "E_CONSULT"
                         ? `E-Consult Active (${activeFollowup.token?.number || "E-501"})`
-                        : `Re-visit Active (${activeFollowup.token?.number || "T-101"})`;
+                        : `Re-visit Active (${activeFollowup.token?.number || "A-042"})`;
                       stepColorClass = "bg-sky-600 text-white border-sky-600/20 shadow-[0_0_10px_rgba(37,100,207,0.3)] animate-pulse";
                       marker = "⚡";
                     }

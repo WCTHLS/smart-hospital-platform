@@ -141,7 +141,7 @@ export default function AppointmentBooking() {
             key: order.key_id,
             amount: order.amount,
             currency: order.currency,
-            name: "Qconnect",
+            name: "ClinIQ",
             description: `${selectedSlot.specialty} consultation with ${selectedSlot.doctor_name}`,
             order_id: order.order_id,
             prefill: order.prefill,

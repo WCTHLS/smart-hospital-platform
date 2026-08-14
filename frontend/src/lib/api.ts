@@ -107,9 +107,10 @@ export const api = {
   // clinical
   ambient: (encounter_id: string, transcript: string) =>
     post<any>(`/api/v1/encounters/${encounter_id}/ambient`, { encounter_id, transcript }),
-  ambientTranscribeAudio: (encounter_id: string, blob: Blob, filename: string) => {
+  ambientTranscribeAudio: (encounter_id: string, blob: Blob, filename: string, language?: string) => {
     const formData = new FormData();
     formData.append("audio", blob, filename);
+    if (language) formData.append("language", language);
     return fetch(`${BASE}/api/v1/encounters/${encounter_id}/ambient/transcribe-audio`, {
       method: "POST",
       body: formData,
@@ -120,6 +121,8 @@ export const api = {
       return data as { text: string; speaker: string | null };
     });
   },
+  translateText: (text: string, targetLanguage: string) =>
+    post<any>("/api/v1/ai/translate", { text, target_language: targetLanguage }),
   ambientResetSpeakers: (encounter_id: string) =>
     post<any>(`/api/v1/encounters/${encounter_id}/ambient/reset-speakers`, {}),
   approveNote: (note_id: string, body: any) => post<any>(`/api/v1/notes/${note_id}/approve`, body),

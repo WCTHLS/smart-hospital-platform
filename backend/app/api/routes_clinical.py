@@ -489,10 +489,11 @@ def suggest_encounter_labs(encounter_id: str, db: Session = Depends(get_db)) -> 
     suggested = []
     try:
         triage = db.scalar(select(models.Triage).where(models.Triage.encounter_id == encounter_id))
-        if triage:
-            chief_complaint = triage.chief_complaint or ""
-            symptom_summary = triage.symptom_summary or ""
-            
+        appt = db.get(models.Appointment, encounter.appointment_id) if encounter.appointment_id else None
+        chief_complaint = (triage.chief_complaint if triage else None) or (appt.reason if appt else None) or encounter.notes or ""
+        symptom_summary = (triage.symptom_summary if triage else None) or (appt.reason if appt else None) or encounter.notes or ""
+
+        if chief_complaint or symptom_summary:
             vitals_rec = db.scalar(
                 select(models.Vitals).where(models.Vitals.encounter_id == encounter_id)
                 .order_by(models.Vitals.captured_ts.desc())

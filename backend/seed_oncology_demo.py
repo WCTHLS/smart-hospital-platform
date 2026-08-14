@@ -70,7 +70,7 @@ def seed_oncology_demo():
         ]:
             db.add(models.BiomarkerTest(
                 diagnosis_id=dx1.diagnosis_id, patient_id=p1.patient_id, marker_name=marker,
-                result=result, value=value, method=method, lab_name="Qconnect Molecular Diagnostics Lab",
+                result=result, value=value, method=method, lab_name="ClinIQ Molecular Diagnostics Lab",
                 tested_date=today - timedelta(days=65),
             ))
         reg1 = models.ChemoRegimen(

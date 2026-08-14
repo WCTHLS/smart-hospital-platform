@@ -117,7 +117,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <HeartPulse size={18} color="#ffffff" />
             </span>
             <span className="hidden min-[470px]:block">
-              <span className="grad-text block text-[15px] font-extrabold leading-tight">Qconnect</span>
+              <span className="grad-text block text-[15px] font-extrabold leading-tight">ClinIQ</span>
               <span className="block text-[10px] text-[var(--dim)]">Smart Hospital OS</span>
             </span>
           </button>

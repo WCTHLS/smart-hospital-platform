@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FileText, Mic, FlaskConical, Pill, ArrowLeft, Sparkles, History } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
@@ -110,6 +110,12 @@ export default function DoctorWorkspace() {
       setLoadingSuggestions(false);
     }
   }
+
+  useEffect(() => {
+    if (journey.encounterId) {
+      void getSuggestions(journey.encounterId);
+    }
+  }, [journey.encounterId]);
 
   const handleSelectPatient = (enc: any) => {
     setSel([]);
