@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, Plus, CheckCircle2, Pill, BadgeCheck, AlertTriangle } from "lucide-react";
+import { Trash2, Plus, CheckCircle2, Pill, BadgeCheck, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "../../../lib/api";
 import { useJourney } from "../../../lib/store";
 import { Card } from "../../../components/ui";
@@ -111,6 +111,10 @@ export default function Prescription({
   const [loadingGuidance, setLoadingGuidance] = useState(false);
   const [guidanceData, setGuidanceData] = useState<any>(null);
   const [showGuidance, setShowGuidance] = useState(true);
+  const [expandedRecs, setExpandedRecs] = useState<Record<number, boolean>>({});
+  const toggleRec = (idx: number) => {
+    setExpandedRecs((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
 
   async function fetchGuidance() {
     setLoadingGuidance(true);
@@ -128,13 +132,13 @@ export default function Prescription({
   return (
     <div className="w-full animate-in fade-in duration-300 space-y-3">
       {/* AI Generic Formulary Guidance Advisory Panel */}
-      <Card className="border border-sky-600/30 bg-blue-950/20">
+      <Card className="border border-black/[0.08] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)] rounded-2xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-base">💡</span>
-            <div>
-              <h4 className="font-bold text-xs text-sky-400">AI Pharmacological & Generic Formula Guidance</h4>
-              <p className="text-[11px] text-slate-400">
+            <div className="text-left">
+              <h4 className="font-extrabold text-xs text-[#0c3b63]">AI Pharmacological &amp; Generic Formula Guidance</h4>
+              <p className="text-[11px] text-slate-500">
                 Analyzes patient issues and local PyTorch AI diagnostic reports to suggest generic formulations.
               </p>
             </div>
@@ -143,47 +147,73 @@ export default function Prescription({
             type="button"
             onClick={fetchGuidance}
             disabled={loadingGuidance}
-            className="btn cyan text-xs !py-1 !px-3 inline-flex items-center gap-1.5 shrink-0"
+            className="border border-[#0078d4] text-[#0078d4] font-bold text-[11px] px-3.5 py-1.5 rounded-lg hover:bg-[#0078d4]/5 shrink-0 transition flex items-center gap-1.5"
           >
             {loadingGuidance ? "Analyzing..." : "⚡ Suggest Generic Formulas"}
           </button>
         </div>
 
         {guidanceData && showGuidance && (
-          <div className="mt-3 pt-3 border-t border-sky-600/20 space-y-2.5 animate-in fade-in duration-200 text-xs">
-            {/* Clean Summary Banner */}
-            <div className="flex items-center gap-2 text-[11.5px] bg-blue-950/30 p-2.5 rounded-lg border border-sky-600/20 text-sky-200 font-medium">
-              <span>💡</span>
+          <div className="mt-3 pt-3 border-t border-black/[0.07] space-y-2.5 animate-in fade-in duration-200 text-xs">
+            {/* Clean Summary Banner - High contrast dark slate text */}
+            <div className="flex items-start gap-2.5 text-[11px] leading-relaxed bg-[#0078d4]/5 p-2.5 rounded-xl border border-[#0078d4]/10 text-slate-700 font-semibold text-left">
+              <span className="text-base leading-none">💡</span>
               <span>
                 Based on patient's current presentation <b>({guidanceData.chief_complaint?.replace(/parent:[^;]+;\s*/, "") || "Fever & cough"})</b>
                 {guidanceData.patient_original_reason && guidanceData.patient_original_reason !== guidanceData.chief_complaint && (
-                  <span className="text-[11px] text-amber-300 ml-1">
+                  <span className="text-[10.5px] text-amber-600 ml-1 font-bold">
                     (Patient originally reported: <i>"{guidanceData.patient_original_reason}"</i>)
                   </span>
                 )}, active lab diagnostic reports ({guidanceData.ai_diagnostics_evaluated?.map((d: any) => d.test_name).join(", ") || "None"}), and medical history, here are the AI-suggested generic formulations:
               </span>
             </div>
 
-            {/* Suggested Generic Formulas List */}
-            <div className="space-y-2 pt-1">
-              <h5 className="font-semibold text-slate-300 text-xs">Generic Formula Recommendations for Clinical Consideration:</h5>
-              {guidanceData.formula_recommendations?.map((f: any, idx: number) => (
-                <div key={idx} className="p-2.5 rounded-xl bg-white/5 border border-white/10 hover:border-sky-600/40 transition-all">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-sky-400 text-xs">{f.formula_name}</span>
-                    <span className="text-[10px] text-slate-400 px-2 py-0.5 rounded-full bg-white/5">{f.category}</span>
-                  </div>
-                  <div className="mt-1 text-[11.5px] text-slate-200 font-mono">
-                    <b>Active Formulations:</b> {f.active_ingredients}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-slate-300">
-                    <b>Dosage Guidance:</b> {f.dosage_guidance} | <b>Class:</b> {f.class}
-                  </div>
-                  <div className="mt-1 text-[10.5px] text-slate-400 italic">
-                    💡 {f.clinical_rationale} ({f.safety_note})
-                  </div>
-                </div>
-              ))}
+            {/* Suggested Generic Formulas List - Collapsible Accoridon */}
+            <div className="space-y-1.5 pt-1 text-left">
+              <h5 className="font-extrabold text-slate-750 text-xs mb-1.5">Generic Formula Recommendations for Clinical Consideration:</h5>
+              <div className="space-y-1.5">
+                {guidanceData.formula_recommendations?.map((f: any, idx: number) => {
+                  const isExpanded = !!expandedRecs[idx];
+                  return (
+                    <div 
+                      key={idx} 
+                      className="rounded-xl border border-black/[0.06] bg-white hover:border-[#0078d4]/30 transition-all overflow-hidden"
+                    >
+                      {/* Accordion Row Header */}
+                      <button
+                        type="button"
+                        onClick={() => toggleRec(idx)}
+                        className="w-full flex items-center justify-between gap-3 p-2.5 text-left transition hover:bg-slate-50/50"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-extrabold text-[#0078d4] text-[12px]">{f.formula_name}</span>
+                          <span className="text-[9.5px] text-[#0078d4] font-extrabold px-2 py-0.5 rounded-full bg-[#0078d4]/10 border border-[#0078d4]/15">
+                            {f.category}
+                          </span>
+                        </div>
+                        <span className="text-slate-400">
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </span>
+                      </button>
+
+                      {/* Accordion Content Details */}
+                      {isExpanded && (
+                        <div className="p-3 border-t border-black/[0.04] bg-slate-50/50 space-y-2 text-[11px] text-slate-600 leading-relaxed">
+                          <div className="text-[11.5px] text-slate-700 font-mono">
+                            <b>Active Formulations:</b> {f.active_ingredients}
+                          </div>
+                          <div className="text-[11px] text-slate-600">
+                            <b>Dosage Guidance:</b> {f.dosage_guidance} | <b>Class:</b> {f.class}
+                          </div>
+                          <div className="text-[10.5px] text-slate-500 italic bg-white p-2 rounded-lg border border-black/[0.03]">
+                            💡 {f.clinical_rationale} ({f.safety_note})
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}

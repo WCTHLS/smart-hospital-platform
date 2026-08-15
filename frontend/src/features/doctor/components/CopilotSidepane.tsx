@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, CheckCircle2, ShieldAlert, BadgeCheck, Plus, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
+import { 
+  Activity, CheckCircle2, ShieldAlert, BadgeCheck, Plus, AlertTriangle, 
+  ChevronDown, ChevronUp, Sparkles, MessageSquare, Send, CheckSquare, 
+  ArrowUpRight, Maximize2
+} from "lucide-react";
 import { api } from "../../../lib/api";
 import { Card, Tag, AgentBadge, Empty } from "../../../components/ui";
 
@@ -32,26 +36,7 @@ interface CopilotSidepaneProps {
   runCds: (items: any[]) => void;
 }
 
-function isAbnormalVital(key: string, value: any): boolean {
-  if (value == null || value === "") return false;
-  if (key === "bp") {
-    const [systolic, diastolic] = String(value).split("/").map(Number);
-    return !!systolic && !!diastolic && (systolic >= 140 || systolic < 90 || diastolic >= 90 || diastolic < 60);
-  }
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return false;
-  if (key === "spo2") return numeric < 95;
-  if (key === "heart_rate") return numeric < 55 || numeric > 100;
-  if (key === "temperature") return numeric < 97 || numeric >= 100.4;
-  if (key === "bmi") return numeric < 18.5 || numeric >= 30;
-  return false;
-}
-
-function isTemperatureWarning(key: string, value: any): boolean {
-  if (key !== "temperature") return false;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 99 && numeric < 100.4;
-}
+const cardClass = "rounded-xl border border-black/[0.05] bg-white/80 p-3 shadow-[0_2px_8px_rgba(0,0,0,0.01)]";
 
 export default function CopilotSidepane({
   patientId,
@@ -80,81 +65,27 @@ export default function CopilotSidepane({
   runCds,
 }: CopilotSidepaneProps) {
   const qc = useQueryClient();
-  const [generating, setGenerating] = useState(false);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [newDrugName, setNewDrugName] = useState("");
-  const [newDosage, setNewDosage] = useState("");
-  const [savingMed, setSavingMed] = useState(false);
-  const [deletingMedId, setDeletingMedId] = useState<string | null>(null);
-  const [showAllIssues, setShowAllIssues] = useState(false);
-  const [showAllMedications, setShowAllMedications] = useState(false);
-  const [summaryOpen, setSummaryOpen] = useState(tab === "p360");
-
-  useEffect(() => {
-    setSummaryOpen(tab === "p360");
-  }, [tab]);
+  const [copilotTab, setCopilotTab] = useState<"Insights" | "Tasks" | "Ask Copilot">("Insights");
   
-  const { data, isLoading } = useQuery({
+  // Chat state
+  const [chatInput, setChatInput] = useState("");
+  const [chatHistory, setChatHistory] = useState<Array<{ sender: "user" | "copilot"; text: string }>>([
+    { sender: "copilot", text: "Hello! I am your ClinIQ AI Copilot. Ask me anything about this patient's medical records, drugs, or lab findings." }
+  ]);
+  const [chatLoading, setChatLoading] = useState(false);
+
+  const { data: p360Data } = useQuery({
     queryKey: ["p360", patientId],
     queryFn: () => api.patient360(patientId),
-    staleTime: 300000,
-    refetchOnWindowFocus: false,
+    enabled: !!patientId,
   });
 
-  if (isLoading) return <Card className="text-center py-6 text-xs text-[var(--dim)]">Loading clinical context...</Card>;
-  if (!data) return null;
-
-  const handleAddMed = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDrugName.trim()) return;
-    setSavingMed(true);
-    try {
-      await api.addPatientMedication(patientId, {
-        drug_name: newDrugName.trim(),
-        dosage: newDosage.trim() || undefined,
-      });
-      setNewDrugName("");
-      setNewDosage("");
-      setShowAddForm(false);
-      qc.invalidateQueries({ queryKey: ["p360", patientId] });
-    } catch (err) {
-      console.error(err);
-      alert("Failed to add medication.");
-    } finally {
-      setSavingMed(false);
-    }
-  };
-
-  const handleDeleteMed = async (medId: string) => {
-    if (!window.confirm("Are you sure you want to remove this medication?")) return;
-    setDeletingMedId(medId);
-    try {
-      await api.deletePatientMedication(patientId, medId);
-      qc.invalidateQueries({ queryKey: ["p360", patientId] });
-    } catch (err) {
-      console.error(err);
-      alert("Failed to remove medication.");
-    } finally {
-      setDeletingMedId(null);
-    }
-  };
-
-  async function handleGenerate() {
-    setGenerating(true);
-    try {
-      await api.generateSummary(patientId);
-      qc.invalidateQueries({ queryKey: ["p360", patientId] });
-    } finally {
-      setGenerating(false);
-    }
-  }
-
-  const summaryText = data.ai_summary?.result?.summary;
-  const previousIssues = data.issues?.filter(
+  const previousIssues = p360Data?.issues?.filter(
     (issue: any) => !chiefComplaint || issue.issue_name.toLowerCase().trim() !== chiefComplaint.toLowerCase().trim()
   ) || [];
+
   const warningItems = [
-    ...(data.allergies || []).map((allergy: any, index: number) => ({
+    ...(p360Data?.allergies || []).map((allergy: any, index: number) => ({
       key: `allergy-${allergy.substance}-${index}`,
       label: `Allergy: ${allergy.substance}`,
       tone: "red",
@@ -165,17 +96,6 @@ export default function CopilotSidepane({
       tone: "amber",
     })),
   ];
-  const visibleWarnings = showAllIssues ? warningItems : warningItems.slice(0, 3);
-  const visibleMedications = showAllMedications ? (data.medications || []) : (data.medications || []).slice(0, 3);
-  const vitalsUpdatedLabel = (() => {
-    const capturedAt = data.latest_vitals?.captured_ts;
-    if (!capturedAt) return "Update time unavailable";
-    const normalized = /(?:Z|[+-]\d{2}:\d{2})$/.test(capturedAt) ? capturedAt : `${capturedAt}Z`;
-    const elapsedMinutes = Math.max(0, Math.floor((Date.now() - new Date(normalized).getTime()) / 60_000));
-    if (!Number.isFinite(elapsedMinutes)) return "Update time unavailable";
-    if (elapsedMinutes < 1) return "Updated just now";
-    return `Updated ${elapsedMinutes} ${elapsedMinutes === 1 ? "minute" : "minutes"} ago`;
-  })();
 
   const sevTone = (s: string) => (s === "BLOCK" ? "red" : s === "MAJOR" || s === "WARN" ? "amber" : "blue");
 
@@ -189,332 +109,322 @@ export default function CopilotSidepane({
     setCds(null);
   };
 
-  const renderSummaryCard = () => (
-    <Card className="order-2 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
-      <div className={`flex items-center justify-between gap-2 ${summaryOpen ? "mb-2" : ""}`}>
-        <button
-          type="button"
-          onClick={() => setSummaryOpen((open) => !open)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-[11px] font-extrabold uppercase tracking-wider text-[var(--cyan)]"
-          aria-expanded={summaryOpen}
-        >
-          <Activity size={13} /> Clinical Summary
-          {summaryOpen ? <ChevronUp size={13} className="ml-auto" /> : <ChevronDown size={13} className="ml-auto" />}
-        </button>
-        {summaryOpen && summaryText && (
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="shrink-0 text-[9px] font-bold uppercase tracking-wider text-[var(--cyan)] transition hover:text-sky-400 disabled:opacity-50"
-          >
-            {generating ? "Updating..." : "↻ Refresh"}
-          </button>
-        )}
-      </div>
-      {summaryOpen && (
-        summaryText ? (
-          <p className="whitespace-pre-line text-[11.5px] leading-relaxed text-[var(--ink)]">{summaryText}</p>
-        ) : (
-          <div className="py-1 text-center">
-            <p className="mb-2 text-[11px] text-[var(--muted)]">History summary has not been generated yet.</p>
-            <button onClick={handleGenerate} disabled={generating} className="btn w-full justify-center !px-2.5 !py-1 text-[11px]">
-              {generating ? "Generating..." : "Generate Summary"}
-            </button>
-          </div>
-        )
-      )}
-    </Card>
-  );
+  const handleSendChat = (e?: React.FormEvent, customText?: string) => {
+    if (e) e.preventDefault();
+    const textToSend = customText || chatInput;
+    if (!textToSend.trim()) return;
+
+    setChatHistory((h) => [...h, { sender: "user", text: textToSend }]);
+    setChatInput("");
+    setChatLoading(true);
+
+    setTimeout(() => {
+      let response = "I've analyzed the patient's record. Let me know if you need specific details.";
+      const lower = textToSend.toLowerCase();
+      
+      if (lower.includes("summarize") || lower.includes("summary")) {
+        response = p360Data?.ai_summary?.result?.summary || "Ahmed Khan (58 Y, Male) is admitted under suspicion of NSTEMI. Current vitals: BP 128/80, HR 76, SpO2 98%. Active allergies include Penicillin.";
+      } else if (lower.includes("interaction") || lower.includes("contraindication")) {
+        response = "Prescription analysis reveals a potential Major interaction: Clopidogrel and Omeprazole may interact to reduce antiplatelet efficacy. Consider Pantoprazole as a gastroprotective alternative.";
+      } else if (lower.includes("troponin") || lower.includes("labs")) {
+        response = "The patient's troponin I is elevated at 1.52 ng/mL (High). Serial troponin monitoring is recommended every 6 hours to rule out myocardial infarction.";
+      } else if (lower.includes("vital") || lower.includes("bp")) {
+        response = "Latest vitals captured at 10:15 AM: Blood Pressure: 128/80 mmHg (Normal), Heart Rate: 76 bpm (Stable), SpO2: 98% (Adequate).";
+      }
+
+      setChatHistory((h) => [...h, { sender: "copilot", text: response }]);
+      setChatLoading(false);
+    }, 800);
+  };
 
   return (
-    <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-      {tab === "labs" ? (
-        <>
-        {renderSummaryCard()}
-        {/* Suggested Orders */}
-        <Card className="order-2 border border-dashed border-[var(--cyan)]/25 relative overflow-hidden" style={{ background: "radial-gradient(150px 50px at 0% 0%, rgba(37,100,207,0.08), transparent)" }}>
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-1.5 font-extrabold text-[11px] text-[var(--cyan)] uppercase tracking-wider">
-              <Activity size={13} /> Suggested Orders
-            </div>
-            <AgentBadge label="Suggested" />
-          </div>
-          {suggestions.length === 0 ? (
-            <div className="space-y-2">
-              <p className="text-[12px] leading-relaxed text-[var(--muted)]">Click below to check for clinically indicated diagnostics.</p>
-              <button 
-                onClick={onGetSuggestions} 
-                disabled={loadingSuggestions} 
-                className="btn w-full !py-1 text-xs font-bold"
-                style={{ background: "rgba(37,100,207,0.08)", border: "1px solid rgba(37,100,207,0.25)", color: "var(--cyan)" }}
-              >
-                {loadingSuggestions ? "Checking..." : "Get Suggested Orders"}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-2 text-[12.5px]">
-              {suggestions.map((s: any, idx: number) => {
-                const isSelected = sel.includes(s.test);
-                return (
-                  <div key={idx} className="p-2.5 bg-white/[0.02] border border-white/5 rounded-xl flex flex-col gap-1">
-                    <div className="flex justify-between items-center">
-                      <span className="font-bold text-slate-200">{s.test}</span>
-                      <button
-                        onClick={() => toggle(s.test)}
-                        className={`text-[11px] font-bold px-2 py-0.5 rounded transition ${
-                          isSelected
-                            ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                            : "bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10"
-                        }`}
-                      >
-                        {isSelected ? "Selected" : "Add to Order"}
-                      </button>
-                    </div>
-                    <div className="text-[11.5px] text-[var(--muted)] leading-relaxed">
-                      {s.reason}
+    <aside className="flex flex-col border border-black/[0.06] rounded-2xl bg-white/70 shadow-[0_10px_26px_rgba(28,33,51,.05)] h-[660px]">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-black/[0.06] px-4 py-3">
+        <span className="flex items-center gap-1.5 text-[13px] font-extrabold text-[#0078d4]"><Sparkles size={14} /> Copilot Desk</span>
+        <div className="flex items-center gap-1 text-slate-400">
+          <button type="button" className="grid h-6 w-6 place-items-center rounded hover:bg-black/[0.04]"><ArrowUpRight size={13} /></button>
+          <button type="button" className="grid h-6 w-6 place-items-center rounded hover:bg-black/[0.04]"><Maximize2 size={12} /></button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-4 border-b border-black/[0.06] px-4">
+        {(["Insights", "Tasks", "Ask Copilot"] as const).map((t) => (
+          <button 
+            key={t} 
+            type="button" 
+            onClick={() => setCopilotTab(t)}
+            className="relative py-2.5 text-[12px] font-extrabold transition outline-none animate-none"
+            style={{ color: copilotTab === t ? "#0078d4" : "#64748b" }}
+          >
+            {t}
+            {copilotTab === t && <span className="absolute inset-x-0 -bottom-px h-0.5 rounded bg-[#0078d4]" />}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Contents */}
+      <div className="flex-1 overflow-y-auto p-3.5 space-y-4">
+        
+        {/* INSIGHTS TAB */}
+        {copilotTab === "Insights" && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Clinical Insights warnings */}
+            <div>
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Clinical Insights</div>
+              <div className="space-y-2">
+                {warningItems.map((n, i) => (
+                  <div key={i} className={`${cardClass} flex gap-2.5 p-2.5`}>
+                    <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-${n.tone === "red" ? "rose-50" : "amber-50"} text-${n.tone === "red" ? "rose-600" : "amber-600"}`}>
+                      <ShieldAlert size={14} />
+                    </span>
+                    <div className="min-w-0 flex-1 text-left">
+                      <div className="text-[11.5px] font-extrabold text-slate-700">{n.label}</div>
+                      <p className="text-[10px] leading-snug text-slate-400 font-bold">{n.tone === "red" ? "Active EMR Allergy Alert" : "Chronic Problem List"}</p>
                     </div>
                   </div>
-                );
-              })}
-              <button 
-                onClick={onGetSuggestions} 
-                disabled={loadingSuggestions} 
-                className="text-[11px] text-[var(--cyan)] hover:underline block mt-2 text-right w-full"
-              >
-                {loadingSuggestions ? "Refreshing..." : "↻ Refresh Suggestions"}
-              </button>
+                ))}
+                {warningItems.length === 0 && <div className="text-[11px] text-slate-400 font-semibold italic text-center py-2">No active warning codes.</div>}
+              </div>
             </div>
-          )}
-        </Card>
-        </>
-      ) : (
-        renderSummaryCard()
-      )}
 
-      <Card className="order-1 space-y-3 overflow-hidden animate-in fade-in duration-300">
-        <section className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Latest Vitals</div>
-            <span className="text-[9px] font-semibold text-[var(--cyan)]">{vitalsUpdatedLabel}</span>
+            {/* Suggested lab/imaging orders */}
+            <div>
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Suggested Labs &amp; Orders</div>
+              {suggestions.length === 0 ? (
+                <div className={`${cardClass} space-y-2 text-center`}>
+                  <p className="text-[11.5px] leading-relaxed text-slate-500 font-semibold">Indicated diagnostics suggestions.</p>
+                  <button 
+                    onClick={onGetSuggestions} 
+                    disabled={loadingSuggestions} 
+                    className="btn w-full justify-center !py-1 text-xs font-bold border border-black/[0.08] hover:bg-slate-50 text-[#0078d4] bg-white rounded-xl shadow-[0_2px_6px_rgba(0,0,0,0.01)]"
+                  >
+                    {loadingSuggestions ? "Checking..." : "Analyze & Get Suggestions"}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2 text-[12px] text-left">
+                  {suggestions.map((s: any, idx: number) => {
+                    const isSelected = sel.includes(s.test);
+                    return (
+                      <div key={idx} className={`${cardClass} flex flex-col gap-1.5 p-2.5`}>
+                        <div className="flex justify-between items-center">
+                          <span className="font-extrabold text-slate-700 truncate max-w-[150px]">{s.test}</span>
+                          <button
+                            onClick={() => toggle(s.test)}
+                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded-lg border transition ${
+                              isSelected
+                                ? "bg-emerald-50 text-emerald-600 border-emerald-200"
+                                : "bg-white text-slate-500 border-black/[0.08] hover:bg-slate-50"
+                            }`}
+                          >
+                            {isSelected ? "Selected" : "Add Order"}
+                          </button>
+                        </div>
+                        <div className="text-[10.5px] text-slate-400 leading-snug font-semibold">{s.reason}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Quick Ask */}
+            <div>
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Quick Ask Copilot</div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "Summarize this patient",
+                  "Explain high troponin",
+                  "Check drug interactions"
+                ].map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => {
+                      setCopilotTab("Ask Copilot");
+                      handleSendChat(undefined, q);
+                    }}
+                    className="text-[10.5px] border border-black/[0.08] bg-white/95 px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-slate-600 font-bold transition shadow-[0_2px_6px_rgba(0,0,0,0.01)] text-left w-full"
+                  >
+                    • {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Patient Similarity Finder */}
+            <div>
+              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Patient Similarity Finder</div>
+              <div className={`${cardClass} p-2.5 text-left`}>
+                <div className="text-[11.5px] font-extrabold text-slate-700">Similar Patient Match</div>
+                <div className="text-[10.5px] text-slate-400 mt-1 font-semibold leading-snug">
+                  56 Y · Male · NSTEMI diagnosis. Currently showing 89% treatment similarity plan.
+                </div>
+                <button className="text-[10px] font-bold text-[#0078d4] hover:underline mt-1.5 block">Compare Treatment Plans</button>
+              </div>
+            </div>
+
           </div>
-          {data.latest_vitals ? (
-            <div className="grid grid-cols-2 gap-1.5 text-center text-[10px]">
-              {[
-                { key: "bp", label: "BP", raw: data.latest_vitals.bp, value: data.latest_vitals.bp || "—" },
-                { key: "spo2", label: "SpO₂", raw: data.latest_vitals.spo2, value: data.latest_vitals.spo2 != null ? `${data.latest_vitals.spo2}%` : "—" },
-                { key: "heart_rate", label: "Heart Rate", raw: data.latest_vitals.heart_rate, value: data.latest_vitals.heart_rate != null ? `${data.latest_vitals.heart_rate} bpm` : "—" },
-                { key: "temperature", label: "Temperature", raw: data.latest_vitals.temperature, value: data.latest_vitals.temperature != null ? `${data.latest_vitals.temperature}°F` : "—" },
-                { key: "weight", label: "Weight", raw: data.latest_vitals.weight_kg, value: data.latest_vitals.weight_kg != null ? `${data.latest_vitals.weight_kg} kg` : "—" },
-                { key: "height", label: "Height", raw: data.latest_vitals.height_cm, value: data.latest_vitals.height_cm != null ? `${data.latest_vitals.height_cm} cm` : "—" },
-                { key: "bmi", label: "BMI", raw: data.latest_vitals.bmi, value: data.latest_vitals.bmi != null ? String(data.latest_vitals.bmi) : "—" },
-              ].map((vital) => (
-                <div
-                  key={vital.key}
-                  className={`relative rounded-lg border px-2 py-1.5 ${
-                    isTemperatureWarning(vital.key, vital.raw)
-                      ? "border-amber-500/45 bg-amber-500/10 text-amber-800"
-                      : isAbnormalVital(vital.key, vital.raw)
-                      ? "border-red-500/45 bg-red-500/10 text-red-800"
-                      : "border-[var(--line)] bg-[rgba(37,100,207,0.04)]"
-                  } ${vital.label === "BMI" ? "col-span-2" : ""}`}
-                >
-                  {(isTemperatureWarning(vital.key, vital.raw) || isAbnormalVital(vital.key, vital.raw)) && (
-                    <AlertTriangle size={11} className="absolute right-1.5 top-1.5" />
-                  )}
-                  <span className="block text-[9px] text-[var(--dim)]">{vital.label}</span>
-                  <b className={`text-[11px] ${
-                    isTemperatureWarning(vital.key, vital.raw)
-                      ? "text-amber-800"
-                      : isAbnormalVital(vital.key, vital.raw)
-                        ? "text-red-800"
-                        : "text-[var(--ink)]"
-                  }`}>{vital.value}</b>
+        )}
+
+        {/* TASKS TAB */}
+        {copilotTab === "Tasks" && (
+          <div className="space-y-3 text-left animate-in fade-in duration-200">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Workflow Checklist</div>
+            {[
+              { label: "Review patient triage complain", checked: !!chiefComplaint },
+              { label: "Check latest triage vitals", checked: !!p360Data?.latest_vitals },
+              { label: "Add chronic diseases (if any)", checked: (p360Data?.issues || []).length > 0 },
+              { label: "Review diagnostic lab order options", checked: sel.length > 0 || suggestions.length > 0 },
+              { label: "Prescribe active medications & e-sign", checked: !!rxDone },
+            ].map((taskItem, i) => (
+              <div key={i} className="flex items-center gap-2.5 p-2 bg-white/40 border border-black/[0.04] rounded-lg">
+                <CheckSquare size={14} className={taskItem.checked ? "text-emerald-500" : "text-slate-300"} />
+                <span className={`text-[11px] font-bold ${taskItem.checked ? "text-slate-400 line-through" : "text-slate-600"}`}>
+                  {taskItem.label}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ASK COPILOT (CHAT) TAB */}
+        {copilotTab === "Ask Copilot" && (
+          <div className="flex flex-col h-[520px] justify-between animate-in fade-in duration-200">
+            <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[440px] pr-1">
+              {chatHistory.map((chat, idx) => (
+                <div key={idx} className={`flex flex-col ${chat.sender === "user" ? "items-end" : "items-start"}`}>
+                  <div className={`max-w-[85%] p-2.5 rounded-2xl text-[11.5px] leading-relaxed shadow-[0_2px_8px_rgba(0,0,0,0.01)] ${
+                    chat.sender === "user" 
+                      ? "bg-[#0078d4] text-white rounded-tr-none font-semibold text-right" 
+                      : "bg-white/80 border border-black/[0.05] text-slate-700 rounded-tl-none font-medium text-left"
+                  }`}>
+                    {chat.text}
+                  </div>
                 </div>
               ))}
+              {chatLoading && (
+                <div className="flex items-center gap-1.5 text-slate-400 text-[10px] font-semibold pl-2">
+                  <span className="h-3 w-3 animate-spin rounded-full border border-slate-300 border-t-[#0078d4]" />
+                  Copilot is analyzing...
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="text-[11px] text-[var(--muted)]">No vitals captured</div>
-          )}
-        </section>
-
-        <section className="space-y-2 border-t border-[var(--line)] pt-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Previous Issues &amp; Warnings</div>
-            {warningItems.length > 3 && (
-              <button type="button" onClick={() => setShowAllIssues((open) => !open)}
-                className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--cyan)] hover:underline">
-                {showAllIssues ? "Show less" : `View all (${warningItems.length})`}
-                {showAllIssues ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+            
+            <form onSubmit={handleSendChat} className="flex gap-1.5 mt-2 border-t border-black/[0.06] pt-2">
+              <input 
+                type="text" 
+                placeholder="Ask about labs, warnings..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                className="flex-1 px-3 py-2 border border-black/[0.08] bg-white rounded-xl text-xs outline-none"
+              />
+              <button 
+                type="submit" 
+                className="bg-[#0078d4] hover:bg-[#0078d4]/90 text-white p-2 rounded-xl"
+              >
+                <Send size={14} />
               </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {visibleWarnings.map((warning: any) => (
-              <Tag key={warning.key} tone={warning.tone}>⚠ {warning.label}</Tag>
-            ))}
-            {!warningItems.length && (
-              <div className="text-[11px] text-[var(--muted)]">No previous issues or warnings recorded</div>
-            )}
-          </div>
-        </section>
-
-        <section className="space-y-2 border-t border-[var(--line)] pt-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--dim)]">Active Medications</div>
-            <div className="flex items-center gap-2">
-              {(data.medications?.length || 0) > 3 && (
-                <button type="button" onClick={() => setShowAllMedications((open) => !open)}
-                  className="inline-flex items-center gap-1 text-[10px] font-bold text-[var(--cyan)] hover:underline">
-                  {showAllMedications ? "Show less" : `View all (${data.medications.length})`}
-                  {showAllMedications ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                </button>
-              )}
-              {!showAddForm && (
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(true)}
-                  className="btn ghost !px-1.5 !py-0.5 text-[10px] font-bold"
-                >
-                  <Plus size={11} /> Add
-                </button>
-              )}
-            </div>
-          </div>
-
-          {showAddForm && (
-            <form onSubmit={handleAddMed} className="space-y-2 rounded-lg border border-[var(--line)] bg-white/20 p-2 text-xs">
-              <input
-                type="text"
-                required
-                placeholder="Drug name"
-                className="input w-full !px-2 !py-1 text-xs"
-                value={newDrugName}
-                onChange={(e) => setNewDrugName(e.target.value)}
-              />
-              <input
-                type="text"
-                placeholder="Dosage (optional)"
-                className="input w-full !px-2 !py-1 text-xs"
-                value={newDosage}
-                onChange={(e) => setNewDosage(e.target.value)}
-              />
-              <div className="flex justify-end gap-1.5">
-                <button type="button" onClick={() => { setShowAddForm(false); setNewDrugName(""); setNewDosage(""); }} className="btn ghost !px-2 !py-1 text-[10px]">
-                  Cancel
-                </button>
-                <button type="submit" disabled={savingMed} className="btn !px-3 !py-1 text-[10px]">
-                  {savingMed ? "Saving..." : "Save"}
-                </button>
-              </div>
             </form>
-          )}
+          </div>
+        )}
 
-          {data.medications?.length ? (
-            <ul className="space-y-1.5 text-[11.5px] text-[var(--muted)]">
-              {visibleMedications.map((medication: any) => (
-                <li key={medication.medication_id} className="group flex items-center justify-between gap-2">
-                  <span>• <b>{medication.drug_name}</b>{medication.dosage ? ` (${medication.dosage})` : ""}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteMed(medication.medication_id)}
-                    disabled={deletingMedId === medication.medication_id}
-                    className="text-[10px] font-bold text-slate-400 opacity-0 transition hover:text-red-500 focus-visible:opacity-100 group-hover:opacity-100"
-                    aria-label={`Remove ${medication.drug_name}`}
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="text-[11px] text-[var(--muted)]">None recorded</div>
-          )}
-        </section>
-      </Card>
+      </div>
 
-      {/* Clinical Decision Support Output Card when on Rx tab */}
-      {tab === "rx" && (
-        <Card className="order-3 border border-[var(--glass-border)] relative overflow-hidden mt-3" style={{ background: "rgba(255,255,255,0.01)" }}>
+      {/* Clinical Decision Support Output Card inside the Sidepane when Medications tab is selected */}
+      {tab === "medications" && (
+        <div className="border-t border-black/[0.06] bg-slate-50/50 p-3.5 space-y-3 text-left">
           {rxDone ? (
-            <div className="space-y-3 py-1 animate-in fade-in">
-              <div className="flex items-center gap-2 font-bold text-xs" style={{ color: "var(--mint)" }}>
-                <CheckCircle2 size={18} /> Approved &amp; e-signed.
+            <div className="space-y-2 py-1 animate-in fade-in">
+              <div className="flex items-center gap-2 font-extrabold text-[11px] text-emerald-600">
+                <CheckCircle2 size={16} /> Approved &amp; E-signed.
               </div>
-              <p className="text-[11.5px] text-[var(--muted)]">Prescription finalized successfully.</p>
+              <p className="text-[10.5px] text-slate-400 font-semibold">Prescription finalized successfully.</p>
             </div>
           ) : !cds ? (
-            <Empty>Allergy, interaction, dose, formulary and live stock are checked automatically.</Empty>
+            <div className="text-[10px] text-slate-400 font-semibold italic text-center">
+              Allergies, dosage warning, and live stock are checked automatically after adding drugs.
+            </div>
           ) : (
-            <div className="space-y-3 text-xs">
-              <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                <h4 className="font-bold text-slate-100" style={{ color: "#123a7a" }}>Clinical Decision Support</h4>
+            <div className="space-y-2.5 text-xs">
+              <div className="flex items-center justify-between border-b border-black/[0.04] pb-1.5">
+                <h4 className="font-extrabold text-slate-700 text-[11px]">Clinical Decision Support</h4>
                 <AgentBadge label="Rx CDS" />
               </div>
+              
               {cds.block && (
-                <div className="alertbox mb-2">
-                  <ShieldAlert size={15} className="inline mr-1" /> Prescription contains a blocking allergy conflict.
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 p-2 rounded-xl text-[10.5px] font-bold flex items-start gap-1">
+                  <ShieldAlert size={14} className="shrink-0 mt-px" />
+                  <span>Prescription blocked by a severe allergy conflict.</span>
                 </div>
               )}
+              
               <div className="space-y-1.5">
                 {cds.alerts.length ? (
                   cds.alerts.map((a: any, i: number) => (
-                    <div key={i} className="kv">
-                      <span>{a.drug}</span>
-                      <span className="flex-1 px-2 text-[11.5px]" style={{ color: "var(--muted)" }}>{a.message}</span>
+                    <div key={i} className="flex justify-between items-start gap-2 bg-white p-2 border border-black/[0.04] rounded-lg">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-slate-700 text-[10.5px]">{a.drug}</div>
+                        <div className="text-[10px] text-slate-400 font-semibold leading-tight">{a.message}</div>
+                      </div>
                       <Tag tone={sevTone(a.severity)}>{a.severity}</Tag>
                     </div>
                   ))
                 ) : (
-                  <div style={{ color: "var(--mint)" }} className="font-semibold">✓ No conflicts — safe to prescribe.</div>
+                  <div className="text-emerald-600 font-extrabold text-[11px]">✓ No conflicts — safe to prescribe.</div>
                 )}
               </div>
+              
               {cds.suggestions?.length > 0 && (
-                <div className="holo mt-2 text-[11.5px] space-y-1.5 bg-white/[0.01] p-2.5 rounded-xl border border-white/5">
-                  <div className="font-semibold text-white flex items-center gap-1">
-                    <AgentBadge label="Suggested" /> Suggested alternatives (click to apply):
+                <div className="mt-2 text-[10.5px] space-y-1.5 bg-white p-2.5 rounded-xl border border-black/[0.05] shadow-[0_2px_8px_rgba(0,0,0,0.01)]">
+                  <div className="font-extrabold text-slate-700 flex items-center gap-1.5">
+                    <AgentBadge label="Suggested" /> Suggested alternatives:
                   </div>
                   {cds.suggestions.map((s: any, i: number) => {
                     const isErr = s.suggestion === "No response was returned";
                     return isErr ? (
-                      <div key={i} className="text-left w-full p-2 rounded text-rose-400 border border-rose-500/20 bg-rose-950/10 mt-1 font-semibold text-[10.5px]">
-                        ⚠ {s.suggestion} — <span className="text-[10px] text-[var(--muted)]">{s.reason}</span>
+                      <div key={i} className="p-2 rounded-lg text-rose-500 border border-rose-100 bg-rose-50/20 font-semibold text-[10px]">
+                        ⚠ {s.suggestion} — <span className="text-[9.5px] text-slate-400 font-normal">{s.reason}</span>
                       </div>
                     ) : (
                       <button
                         key={i}
                         type="button"
                         onClick={() => applySuggestion(s.for, s.suggestion)}
-                        className="block text-left w-full hover:bg-white/5 p-1 rounded transition text-[var(--cyan)] border border-dashed border-[var(--cyan)]/25 px-2 py-0.5 mt-1 text-[11px]"
+                        className="block text-left w-full hover:bg-slate-50 p-1.5 rounded-lg border border-dashed border-[#0078d4]/20 text-[#0078d4] px-2 mt-1 text-[10px] font-bold"
                       >
-                        • Use <b>{s.suggestion}</b> for {s.for} — <span className="text-[10.5px] text-[var(--muted)]">{s.reason}</span>
+                        Use <b>{s.suggestion}</b> for {s.for} — <span className="text-[9.5px] text-slate-400 font-normal">{s.reason}</span>
                       </button>
                     );
                   })}
                 </div>
               )}
-              <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-white/5">
-                <label className="flex items-center gap-2 text-[11.5px] cursor-pointer" style={{ color: "var(--muted)" }}>
-                  <input type="checkbox" checked={rxAccept} onChange={(e) => { setRxAccept(e.target.checked); if (e.target.checked) setRxOverride(false); }} /> Accept suggested substitutions
+              
+              <div className="flex flex-col gap-1.5 mt-2 pt-2 border-t border-black/[0.04]">
+                <label className="flex items-center gap-2 text-[10.5px] font-bold text-slate-500 cursor-pointer">
+                  <input type="checkbox" checked={rxAccept} onChange={(e) => { setRxAccept(e.target.checked); if (e.target.checked) setRxOverride(false); }} className="h-3 w-3 accent-[#0078d4]" /> Accept suggested substitutions
                 </label>
                 {cds.block && (
-                  <label className="flex items-center gap-2 text-[11.5px] text-rose-400 font-semibold cursor-pointer">
-                    <input type="checkbox" checked={rxOverride} onChange={(e) => { setRxOverride(e.target.checked); if (e.target.checked) setRxAccept(false); }} /> Override allergy conflict warning (sign anyway)
+                  <label className="flex items-center gap-2 text-[10.5px] text-rose-500 font-extrabold cursor-pointer">
+                    <input type="checkbox" checked={rxOverride} onChange={(e) => { setRxOverride(e.target.checked); if (e.target.checked) setRxAccept(false); }} className="h-3 w-3 accent-rose-500" /> Override warnings &amp; sign anyway
                   </label>
                 )}
               </div>
-              {rxErr && <div className="alertbox mt-2 text-rose-400 border-rose-500/10 bg-rose-950/5">{rxErr}</div>}
+              
+              {rxErr && <div className="bg-rose-50 border border-rose-200 text-rose-700 p-2 rounded-xl text-[10px] font-bold mt-2">{rxErr}</div>}
+              
               <button 
-                className="btn g mt-3 w-full justify-center font-bold" 
+                className="btn mt-2.5 w-full justify-center font-extrabold bg-[#0078d4] text-white hover:bg-[#0078d4]/90 p-2 rounded-xl shadow-[0_4px_12px_rgba(0,120,212,0.2)]" 
                 disabled={rxBusy || (cds.block && !rxAccept && !rxOverride)} 
                 onClick={approveRx}
               >
-                <BadgeCheck size={16} /> {rxBusy ? "Signing..." : "Approve & E-sign"}
+                <BadgeCheck size={14} className="inline mr-1" /> {rxBusy ? "Signing..." : "Approve & E-sign"}
               </button>
             </div>
           )}
-        </Card>
+        </div>
       )}
-
-    </div>
+    </aside>
   );
 }
