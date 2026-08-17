@@ -6,7 +6,7 @@ import {
   LogOut, Clipboard, Camera, UserRound, ArrowLeft, CheckCircle2,
   AlertCircle, Download, Clock, MapPin, Ticket, Receipt, Info, Mail, Phone, Calendar, Trash2, Syringe, Droplet, CreditCard
 } from "lucide-react";
-import { api } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import { useJourney } from "../../lib/store";
 import { useRealtime } from "../../lib/realtime";
 import { getPortalPatient, savePortalPatient, clearPortalPatient } from "../../lib/patientAuth";
@@ -191,7 +191,7 @@ export default function PatientDashboard() {
   // same as the doctor-side Patient360 view of the identical endpoint —
   // otherwise a staff-driven change can sit stale on the patient's board
   // indefinitely instead of just for a few seconds.
-  const { data: p360, refetch: refetchP360, isFetched: isP360Fetched } = useQuery({
+  const { data: p360, refetch: refetchP360, isFetched: isP360Fetched, error: p360Error } = useQuery({
     queryKey: ["portal-p360", portalPatientId],
     queryFn: () => api.patient360(portalPatientId!),
     enabled: !!portalPatientId,
@@ -199,7 +199,20 @@ export default function PatientDashboard() {
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
+    retry: false,
   });
+
+  // Auto-capture consent in patient portal if it returns 403 Forbidden
+  useEffect(() => {
+    if (p360Error instanceof ApiError && p360Error.status === 403 && portalPatientId) {
+      console.log("Auto-capturing consent in patient portal...");
+      api.consent(portalPatientId).then(() => {
+        void refetchP360();
+      }).catch(err => {
+        console.error("Auto-consent failed:", err);
+      });
+    }
+  }, [p360Error, portalPatientId, refetchP360]);
 
   const { data: appointmentData, refetch: refetchAppointments, isFetched: areAppointmentsFetched } = useQuery({
     queryKey: ["portal-upcoming-appointments", portalPatientId],

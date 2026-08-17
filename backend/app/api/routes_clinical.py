@@ -351,6 +351,45 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
     return out
 
 
+@router.get("/prescriptions")
+def list_prescriptions(db: Session = Depends(get_db)) -> list[dict]:
+    stmt = select(models.Prescription).order_by(models.Prescription.created_ts.desc())
+    prescriptions = db.scalars(stmt).all()
+    results = []
+    for rx in prescriptions:
+        encounter = db.get(models.Encounter, rx.encounter_id)
+        patient = db.get(models.Patient, rx.patient_id)
+        if not patient or not encounter:
+            continue
+        items = db.scalars(select(models.PrescriptionItem).where(models.PrescriptionItem.rx_id == rx.rx_id)).all()
+        results.append({
+            "rx_id": rx.rx_id,
+            "encounter_id": rx.encounter_id,
+            "patient_id": rx.patient_id,
+            "patient_name": f"{patient.first_name} {patient.last_name}",
+            "status": rx.status,
+            "prescribed_by": rx.prescribed_by,
+            "approved_ts": rx.approved_ts.isoformat() if rx.approved_ts else None,
+            "created_ts": rx.created_ts.isoformat(),
+            "items": [
+                {
+                    "rx_item_id": it.rx_item_id,
+                    "drug_name": it.drug_name,
+                    "dose": it.dose,
+                    "frequency": it.frequency,
+                    "duration_days": it.duration_days,
+                    "instructions": it.instructions,
+                } for it in items
+            ],
+            "encounter": {
+                "encounter_id": encounter.encounter_id,
+                "doctor_id": encounter.doctor_id,
+                "visit_type": encounter.visit_type,
+            }
+        })
+    return results
+
+
 @router.post("/lab-orders/{lab_order_id}/submit-results")
 def submit_results(lab_order_id: str, body: LabResultSubmitRequest, db: Session = Depends(get_db)) -> dict:
     order = db.get(models.LabOrder, lab_order_id)

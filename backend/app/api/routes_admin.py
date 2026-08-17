@@ -70,6 +70,25 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
     return out
 
 
+@router.get("/admin/encounters/active")
+def list_active_encounters(db: Session = Depends(get_db)) -> list[dict]:
+    encs = db.scalars(
+        select(models.Encounter)
+        .where(models.Encounter.status != "DISCHARGED")
+    ).all()
+    return [
+        {
+            "encounter_id": e.encounter_id,
+            "patient_id": e.patient_id,
+            "doctor_id": e.doctor_id,
+            "status": e.status,
+            "department": e.department,
+            "visit_type": e.visit_type,
+        }
+        for e in encs
+    ]
+
+
 @router.post("/doctors/verify-pin")
 def verify_doctor_pin(body: schemas.DoctorVerifyPinRequest, db: Session = Depends(get_db)) -> dict:
     doc = db.get(models.Staff, body.doctor_id)

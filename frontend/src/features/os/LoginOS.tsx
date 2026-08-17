@@ -12,7 +12,7 @@ import { savePortalPatient } from "../../lib/patientAuth";
 import { useJourney } from "../../lib/store";
 import { api } from "../../lib/api";
 
-type RoleType = "Doctor" | "Admin" | "Patient" | "Nurse" | "Pharmacy" | "Lab Technician" | "Reception Desk";
+type RoleType = "Doctor" | "Admin" | "Patient" | "Nurse" | "Pharmacy" | "Lab Technician" | "Reception Desk" | "Care Team";
 
 const PRIMARY_ROLES: { label: RoleType; roleKey: string; icon: ComponentType<{ size?: number | string }> }[] = [
   { label: "Doctor", roleKey: "doctor", icon: Stethoscope },
@@ -31,6 +31,7 @@ const MORE_STAFF_ROLES: {
   { label: "Pharmacy", tabLabel: "Pharmacy", roleKey: "pharmacy", icon: Pill, desc: "Pharmacy Desk (/pharmacy)" },
   { label: "Lab Technician", tabLabel: "Lab Tech", roleKey: "lab", icon: FlaskConical, desc: "Lab Diagnostics & Reports (/lab)" },
   { label: "Reception Desk", tabLabel: "Reception", roleKey: "reception", icon: ClipboardList, desc: "Front Desk & Check-in (/reception)" },
+  { label: "Care Team", tabLabel: "Care Team", roleKey: "care_team", icon: Users, desc: "Care Team Portal (/care-team)" },
 ];
 
 const FEATURES = [
@@ -193,6 +194,12 @@ export default function LoginOS() {
     if (roleLower === "reception desk" || roleLower === "reception" || roleLower === "receptionist") {
       useJourney.getState().setRole("receptionist");
       navigate("/reception");
+      return;
+    }
+
+    if (roleLower === "care team" || roleLower === "care_team") {
+      useJourney.getState().setRole("care_team" as any);
+      navigate("/care-team");
       return;
     }
 

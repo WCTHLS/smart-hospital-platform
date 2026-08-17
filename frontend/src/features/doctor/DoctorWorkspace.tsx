@@ -1,5 +1,6 @@
 import { useEffect, useState, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { 
   FileText, Share2, Mic, FlaskConical, Pill, ArrowLeft, Sparkles, History, 
   Stethoscope, User, ShieldAlert, Phone, ChevronDown, ChevronUp, CheckCircle2, 
@@ -283,12 +284,16 @@ export default function DoctorWorkspace() {
   
   // AI summary trigger state
   const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   // Checklist tasks status
   const [task1Checked, setTask1Checked] = useState(false);
   const [task2Checked, setTask2Checked] = useState(false);
   const [task3Checked, setTask3Checked] = useState(false);
   const [task4Checked, setTask4Checked] = useState(false);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get("view");
 
   // Load Doctor Queue for dropdown patient switcher
   const selectedDoctorId = localStorage.getItem("selected_doctor_id") || "";
@@ -299,6 +304,37 @@ export default function DoctorWorkspace() {
     refetchInterval: 5000,
   });
 
+  // Fetch global lab orders for feeds
+  const { data: globalLabOrders } = useQuery({
+    queryKey: ["global-lab-orders"],
+    queryFn: () => api.labOrders(),
+    enabled: !journey.encounterId && (view === "labs" || view === "radiology"),
+    refetchInterval: 5000,
+  });
+
+  // Fetch global prescriptions for feed
+  const { data: globalPrescriptions } = useQuery({
+    queryKey: ["global-prescriptions"],
+    queryFn: () => api.prescriptions(),
+    enabled: !journey.encounterId && view === "prescriptions",
+    refetchInterval: 5000,
+  });
+
+  useEffect(() => {
+    if (journey.encounterId) {
+      if (view === "labs") {
+        setTab("labs");
+        setSearchParams({}, { replace: true });
+      } else if (view === "radiology") {
+        setTab("imaging");
+        setSearchParams({}, { replace: true });
+      } else if (view === "prescriptions") {
+        setTab("medications");
+        setSearchParams({}, { replace: true });
+      }
+    }
+  }, [view, journey.encounterId, setSearchParams]);
+
   const { data: encDetails } = useQuery({
     queryKey: ["encounter-details", journey.encounterId],
     queryFn: () => api.encounter(journey.encounterId!),
@@ -306,12 +342,15 @@ export default function DoctorWorkspace() {
   });
 
   // Fetch full Patient 360 profile data
-  const { data: p360Data, refetch: refetchP360 } = useQuery({
+  const { data: p360Data, refetch: refetchP360, error: p360Error } = useQuery({
     queryKey: ["p360", journey.patientId],
     queryFn: () => api.patient360(journey.patientId!),
     enabled: !!journey.patientId,
     refetchInterval: 5000,
+    retry: false,
   });
+
+  const isConsentRequired = p360Error instanceof ApiError && p360Error.status === 403;
 
   // Fetch Active Encounter consultation notes
   useQuery({
@@ -499,7 +538,276 @@ export default function DoctorWorkspace() {
     }
   };
 
+  // Helper to open patient and direct to correct EMR tab
+  const handleSelectPatientWithTab = (enc: any, targetTab: string) => {
+    handleSelectPatient(enc);
+    setTab(targetTab);
+    setSearchParams({}, { replace: true });
+  };
+
+  const renderGlobalLabsFeed = () => {
+    const patientIds = queue?.map((enc: any) => enc.patient.patient_id) || [];
+    const filteredOrders = globalLabOrders?.filter((o: any) => 
+      o.category !== "RADIOLOGY" && patientIds.includes(o.patient_id)
+    ) || [];
+
+    return (
+      <div className="space-y-4 text-left animate-in fade-in duration-300">
+        <div className="flex items-center justify-between pb-1 border-b border-black/[0.05]">
+          <div>
+            <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+              <FlaskConical className="text-[#107C10]" size={20} /> Laboratory Pathology Feed
+            </h2>
+            <p className="text-xs text-slate-400">Track all pathology tests ordered and resulted for your patients today.</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+          {filteredOrders.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 font-semibold">No active lab orders found for today.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-slate-800 text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-black/[0.08] pb-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                    <th className="text-left pb-2 pr-3">Token</th>
+                    <th className="text-left pb-2 pr-3">Patient Name</th>
+                    <th className="text-left pb-2 pr-3">Test Name</th>
+                    <th className="text-left pb-2 pr-3">Date</th>
+                    <th className="text-left pb-2 pr-3">Status</th>
+                    <th className="text-right pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.03]">
+                  {filteredOrders.map((o: any) => {
+                    const enc = queue?.find((e: any) => e.patient.patient_id === o.patient_id);
+                    return (
+                      <tr key={o.lab_order_id} className="hover:bg-slate-50/50 transition">
+                        <td className="py-3 pr-3 font-extrabold text-slate-700">
+                          {o.token_number ? `A-${o.token_number}` : "—"}
+                        </td>
+                        <td className="py-3 pr-3 font-bold text-[#0c3b63]">
+                          {o.patient_name}
+                        </td>
+                        <td className="py-3 pr-3 font-semibold text-slate-650">
+                          {o.test_name}
+                        </td>
+                        <td className="py-3 pr-3 text-slate-500">
+                          {o.ordered_ts ? new Date(o.ordered_ts).toLocaleDateString([], { day: '2-digit', month: 'short' }) : "—"}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold border ${
+                            o.status === "RESULTED"
+                              ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                              : "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                          }`}>
+                            {o.status === "RESULTED" ? "Resulted" : "Pending"}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => enc && handleSelectPatientWithTab(enc, "labs")}
+                            className="bg-[#107C10] hover:bg-[#107C10]/90 text-white font-extrabold text-[11px] py-1 px-3 rounded-lg transition"
+                          >
+                            View Result →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGlobalRadiologyFeed = () => {
+    const patientIds = queue?.map((enc: any) => enc.patient.patient_id) || [];
+    const filteredOrders = globalLabOrders?.filter((o: any) => 
+      o.category === "RADIOLOGY" && patientIds.includes(o.patient_id)
+    ) || [];
+
+    return (
+      <div className="space-y-4 text-left animate-in fade-in duration-300">
+        <div className="flex items-center justify-between pb-1 border-b border-black/[0.05]">
+          <div>
+            <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+              <ScanLine className="text-[#038387]" size={20} /> Radiology Imaging Feed
+            </h2>
+            <p className="text-xs text-slate-400">Review CT, MRI, and X-ray imaging reports and active PACS scans.</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+          {filteredOrders.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 font-semibold">No active imaging orders found.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-slate-800 text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-black/[0.08] pb-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                    <th className="text-left pb-2 pr-3">Token</th>
+                    <th className="text-left pb-2 pr-3">Patient Name</th>
+                    <th className="text-left pb-2 pr-3">Scan Type</th>
+                    <th className="text-left pb-2 pr-3">Date</th>
+                    <th className="text-left pb-2 pr-3">Severity</th>
+                    <th className="text-left pb-2 pr-3">Status</th>
+                    <th className="text-right pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.03]">
+                  {filteredOrders.map((o: any) => {
+                    const enc = queue?.find((e: any) => e.patient.patient_id === o.patient_id);
+                    const aiFlag = o.ai_analysis_summary?.includes("HIGH") ? "HIGH" : o.ai_analysis_summary?.includes("MODERATE") ? "MODERATE" : "NORMAL";
+                    return (
+                      <tr key={o.lab_order_id} className="hover:bg-slate-50/50 transition">
+                        <td className="py-3 pr-3 font-extrabold text-slate-700">
+                          {o.token_number ? `A-${o.token_number}` : "—"}
+                        </td>
+                        <td className="py-3 pr-3 font-bold text-[#0c3b63]">
+                          {o.patient_name}
+                        </td>
+                        <td className="py-3 pr-3 font-semibold text-slate-650">
+                          {o.test_name}
+                        </td>
+                        <td className="py-3 pr-3 text-slate-500">
+                          {o.ordered_ts ? new Date(o.ordered_ts).toLocaleDateString([], { day: '2-digit', month: 'short' }) : "—"}
+                        </td>
+                        <td className="py-3 pr-3">
+                          {o.status === "RESULTED" && (
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold border ${
+                              aiFlag === "HIGH"
+                                ? "bg-rose-500/10 text-rose-600 border-rose-500/20"
+                                : aiFlag === "MODERATE"
+                                ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                            }`}>
+                              {aiFlag}
+                            </span>
+                          )}
+                          {o.status !== "RESULTED" && <span className="text-slate-400">—</span>}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold border ${
+                            o.status === "RESULTED"
+                              ? "bg-sky-500/10 text-sky-600 border-sky-500/20"
+                              : "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                          }`}>
+                            {o.status === "RESULTED" ? "Resulted" : "Pending"}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => enc && handleSelectPatientWithTab(enc, "imaging")}
+                            className="bg-[#038387] hover:bg-[#038387]/90 text-white font-extrabold text-[11px] py-1 px-3 rounded-lg transition"
+                          >
+                            View PACS Scan →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGlobalPrescriptionsFeed = () => {
+    const patientIds = queue?.map((enc: any) => enc.patient.patient_id) || [];
+    const filteredPrescriptions = globalPrescriptions?.filter((rx: any) => 
+      patientIds.includes(rx.patient_id)
+    ) || [];
+
+    return (
+      <div className="space-y-4 text-left animate-in fade-in duration-300">
+        <div className="flex items-center justify-between pb-1 border-b border-black/[0.05]">
+          <div>
+            <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+              <Pill className="text-[#CA5010]" size={20} /> Clinical Prescriptions Feed
+            </h2>
+            <p className="text-xs text-slate-400">Review, modify, or authorize active patient prescriptions and pharmacotherapy orders.</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+          {filteredPrescriptions.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 font-semibold">No active prescriptions found.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-slate-800 text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-black/[0.08] pb-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                    <th className="text-left pb-2 pr-3">Patient Name</th>
+                    <th className="text-left pb-2 pr-3">Meds Summary</th>
+                    <th className="text-left pb-2 pr-3">Date</th>
+                    <th className="text-left pb-2 pr-3">Status</th>
+                    <th className="text-right pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.03]">
+                  {filteredPrescriptions.map((rx: any) => {
+                    const enc = queue?.find((e: any) => e.patient.patient_id === rx.patient_id);
+                    const medsSummary = rx.items?.map((it: any) => it.drug_name).join(", ") || "No items";
+                    return (
+                      <tr key={rx.rx_id} className="hover:bg-slate-50/50 transition">
+                        <td className="py-3 pr-3 font-bold text-[#0c3b63]">
+                          {rx.patient_name}
+                        </td>
+                        <td className="py-3 pr-3 font-semibold text-slate-650 max-w-[280px] truncate" title={medsSummary}>
+                          {medsSummary}
+                        </td>
+                        <td className="py-3 pr-3 text-slate-500">
+                          {rx.created_ts ? new Date(rx.created_ts).toLocaleDateString([], { day: '2-digit', month: 'short' }) : "—"}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold border ${
+                            rx.status === "APPROVED" || rx.status === "PREPAID" || rx.status === "DISPENSED"
+                              ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                              : "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                          }`}>
+                            {rx.status}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => enc && handleSelectPatientWithTab(enc, "medications")}
+                            className="bg-[#CA5010] hover:bg-[#CA5010]/90 text-white font-extrabold text-[11px] py-1 px-3 rounded-lg transition"
+                          >
+                            Review Rx →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   if (!journey.encounterId || !journey.patientId) {
+    if (view === "labs") {
+      return renderGlobalLabsFeed();
+    }
+    if (view === "radiology") {
+      return renderGlobalRadiologyFeed();
+    }
+    if (view === "prescriptions") {
+      return renderGlobalPrescriptionsFeed();
+    }
     return <DoctorQueue onSelectPatient={handleSelectPatient} />;
   }
 
@@ -698,8 +1006,41 @@ export default function DoctorWorkspace() {
               </div>
             </div>
 
-            {/* Demographics details + AI Summary Grid */}
-            <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr] border-b border-black/[0.05] pb-4">
+            {isConsentRequired ? (
+              <div className="my-8 flex flex-col items-center justify-center p-8 text-center rounded-2xl border border-rose-500/20 bg-rose-500/5 max-w-xl mx-auto space-y-4">
+                <div className="grid h-12 w-12 place-items-center rounded-full bg-rose-500/10 text-rose-600">
+                  <ShieldAlert size={24} className="animate-pulse" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-md font-extrabold text-slate-800">🔐 Consent Required to Access Record</h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                    Under hospital security protocols and patient privacy rules, you must capture active patient consent before accessing Protected Health Information (PHI).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await api.consent(journey.patientId!);
+                      void refetchP360();
+                    } catch (err) {
+                      console.error(err);
+                      alert("Failed to capture patient consent.");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  disabled={busy}
+                  className="bg-[#0078d4] hover:bg-[#0078d4]/90 text-white font-extrabold text-[12px] py-2 px-4 rounded-lg shadow-lg cursor-pointer inline-flex items-center gap-1.5 transition"
+                >
+                  {busy ? "Capturing..." : "Capture Consent & Unlock EMR"}
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Demographics details + AI Summary Grid */}
+                <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr] border-b border-black/[0.05] pb-4">
               
               {/* Left Column: Demographics Details Box */}
               <div className="flex gap-4 text-left items-start">
@@ -1206,6 +1547,8 @@ export default function DoctorWorkspace() {
                   </div>
                 )}
               </div>
+              </>
+            )}
             </div>
 
             {/* Bottom Row Grid: Digital Twin, Tasks Checklist, Activity Feed */}

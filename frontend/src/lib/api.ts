@@ -142,6 +142,7 @@ export const api = {
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
   labOrders: () => get<any>("/api/v1/lab-orders"),
+  prescriptions: () => get<any[]>("/api/v1/prescriptions"),
   submitLabResults: (lab_order_id: string, body: any) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/submit-results`, body),
   createRx: (body: any) => post<any>("/api/v1/prescriptions", body),
@@ -210,6 +211,7 @@ export const api = {
 
   // admin & auth
   adminDoctors: () => get<any[]>("/api/v1/admin/doctors"),
+  activeEncounters: () => get<any[]>("/api/v1/admin/encounters/active"),
   registerDoctor: (body: any) => post<any>("/api/v1/admin/doctors", body),
   updateDoctor: (doctor_id: string, body: any) => put<any>(`/api/v1/admin/doctors/${doctor_id}`, body),
   removeDoctor: (doctor_id: string) => del<any>(`/api/v1/admin/doctors/${doctor_id}`),
