@@ -5,8 +5,10 @@ Maps to services: Identity & Consent, Registration/EMPI, Patient 360, Intake & T
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+import hashlib
 import uuid
 from zoneinfo import ZoneInfo
+
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi.responses import HTMLResponse
@@ -613,6 +615,7 @@ def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get
                 detail=f"A patient account with email {clean_email} already exists. Please sign in or use a different email."
             )
 
+    pw_hash = hashlib.sha256(body.password.strip().encode()).hexdigest() if body.password else None
     patient = models.Patient(
         first_name=body.first_name,
         last_name=body.last_name,
@@ -622,8 +625,10 @@ def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get
         gender=body.gender,
         blood_group=_blood_group_value(body.blood_group) if body.blood_group else "UNK",
         address=body.address,
+        password_hash=pw_hash,
         mrn=_generate_unique_mrn(db),
     )
+
     db.add(patient)
     db.flush()
     _add_profile_details(db, patient, body.issues, body.documents)

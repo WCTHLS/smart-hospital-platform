@@ -57,10 +57,15 @@ def init_db() -> None:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE encounter ADD COLUMN appointment_id VARCHAR(36)"))
 
-    # Keep existing demo databases compatible with patient profile photos.
-    if "profile_photo" not in {column["name"] for column in inspect(engine).get_columns("patient")}:
+    # Keep existing demo databases compatible with patient profile photos and passwords.
+    patient_columns = {column["name"] for column in inspect(engine).get_columns("patient")}
+    if "profile_photo" not in patient_columns:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE patient ADD COLUMN profile_photo TEXT"))
+    if "password_hash" not in patient_columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE patient ADD COLUMN password_hash VARCHAR(200)"))
+
 
     # Uploaded patient documents are stored as data URLs and can exceed the old
     # VARCHAR(300) limit. SQLite TEXT affinity is dynamic; Postgres needs this DDL.
