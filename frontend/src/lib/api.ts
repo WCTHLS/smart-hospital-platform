@@ -58,6 +58,8 @@ export const api = {
   // journey
   checkin: (body: any) => post<any>("/api/v1/checkin", body),
   mobileProfiles: (mobile: string) => post<any>("/api/v1/checkin/mobile/profiles", { mobile }),
+  checkPatientAvailable: (mobile?: string, email?: string) =>
+    post<any>("/api/v1/patients/check-available", { mobile, email }),
   registerBasicPatient: (body: any) => post<any>("/api/v1/patients/register-basic", body),
   registerPatient: (body: any) => post<any>("/api/v1/patients/register", body),
   updatePatientProfile: (patient_id: string, body: any) =>

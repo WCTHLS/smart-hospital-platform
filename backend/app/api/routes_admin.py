@@ -48,7 +48,6 @@ def register_doctor(body: schemas.DoctorRegisterRequest, db: Session = Depends(g
 def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
     doctors = db.scalars(
         select(models.Staff)
-        .where(models.Staff.role.in_(["DOCTOR", "NURSE"]))
         .where(models.Staff.available.is_(True))
         .order_by(models.Staff.role.asc(), models.Staff.name.asc())
     ).all()
@@ -65,7 +64,7 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
             "room": d.room or "Room 1",
             "floor": d.floor or "Floor 1",
             "access_pin": d.access_pin or "1234",
-            "opd_fee": d.opd_fee or 500.0,
+            "opd_fee": d.opd_fee or 0.0,
             "available": d.available,
         })
     return out
