@@ -576,21 +576,64 @@ def portal_login(body: OsLoginRequest, db: Session = Depends(get_db)) -> dict:
             status_code=404,
             detail=f"No patient account found for '{username}'. Please check your Mobile/MRN or register below."
         )
-    profile = {"patientId": p.patient_id, "name": p.full_name, "mrn": p.mrn, "mobile": p.mobile, "scope": "patient"}
+    dob_val = p.dob.isoformat() if p.dob else None
+    profile = {
+        "patientId": p.patient_id,
+        "name": p.full_name,
+        "first_name": p.first_name,
+        "last_name": p.last_name,
+        "mrn": p.mrn,
+        "mobile": p.mobile,
+        "email": p.email,
+        "dob": dob_val,
+        "gender": p.gender,
+        "blood_group": p.blood_group,
+        "address": p.address,
+        "profile_photo": p.profile_photo,
+        "scope": "patient",
+    }
     token, expires_at = sign_os_token({"sub": p.patient_id, **profile})
     return {**profile, "token": token, "expiresAt": expires_at}
 
 
 @router.get("/portal/me")
-def portal_me(claims: dict = Depends(require_portal_patient)) -> dict:
-    """Validate the portal token and echo the patient's identity."""
+def portal_me(claims: dict = Depends(require_portal_patient), db: Session = Depends(get_db)) -> dict:
+    """Validate the portal token and echo the patient's full identity."""
+    patient_id = claims.get("patientId")
+    p = db.scalar(select(models.Patient).where(models.Patient.patient_id == patient_id)) if patient_id else None
+    if p:
+        dob_val = p.dob.isoformat() if p.dob else None
+        return {
+            "patientId": p.patient_id,
+            "name": p.full_name,
+            "first_name": p.first_name,
+            "last_name": p.last_name,
+            "mrn": p.mrn,
+            "mobile": p.mobile,
+            "email": p.email,
+            "dob": dob_val,
+            "gender": p.gender,
+            "blood_group": p.blood_group,
+            "address": p.address,
+            "profile_photo": p.profile_photo,
+            "expiresAt": claims.get("exp"),
+        }
     return {
         "patientId": claims.get("patientId"),
         "name": claims.get("name"),
+        "first_name": claims.get("first_name"),
+        "last_name": claims.get("last_name"),
         "mrn": claims.get("mrn"),
         "mobile": claims.get("mobile"),
+        "email": claims.get("email"),
+        "dob": claims.get("dob"),
+        "gender": claims.get("gender"),
+        "blood_group": claims.get("blood_group"),
+        "address": claims.get("address"),
+        "profile_photo": claims.get("profile_photo"),
         "expiresAt": claims.get("exp"),
     }
+
 
 
 @router.get("/portal/summary")

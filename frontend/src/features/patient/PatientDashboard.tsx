@@ -632,10 +632,11 @@ export default function PatientDashboard() {
                   return `${dobStr}${age}`;
                 })(),
               },
-              { label: "Gender", icon: UserRound, value: p360?.patient?.gender || "N/A" },
-              { label: "Blood Group", icon: Droplet, value: p360?.patient?.blood_group || "N/A", tone: "text-[var(--cyan)]" },
+              { label: "Gender", icon: UserRound, value: p360?.patient?.gender || portalSession?.gender || "N/A" },
+              { label: "Blood Group", icon: Droplet, value: p360?.patient?.blood_group || portalSession?.blood_group || "N/A", tone: "text-[var(--cyan)]" },
               { label: "MRN", icon: CreditCard, value: p360?.patient?.mrn || portalSession?.mrn || "N/A", mono: true },
-              { label: "Address", icon: MapPin, value: p360?.patient?.address || "12 MG Road, Pune, Maharashtra" },
+              { label: "Address", icon: MapPin, value: p360?.patient?.address || portalSession?.address || "N/A" },
+
             ].map((field) => (
               <div
                 key={field.label}
@@ -2076,8 +2077,9 @@ export default function PatientDashboard() {
               </div>
               <div className="py-1.5">
                 <span className="text-[var(--dim)] block mb-1">Residential Address</span>
-                <span className="font-medium text-slate-200 block bg-slate-900/60 p-2 rounded-xl border border-white/5">{p360?.patient?.address || "12 MG Road, Pune, Maharashtra"}</span>
+                <span className="font-medium text-slate-200 block bg-slate-900/60 p-2 rounded-xl border border-white/5">{p360?.patient?.address || portalSession?.address || "N/A"}</span>
               </div>
+
             </div>
             </>
             )}

@@ -9,12 +9,21 @@
 export interface PortalSession {
   patientId: string;
   name: string;
+  first_name?: string | null;
+  last_name?: string | null;
   mrn: string | null;
   mobile?: string | null;
+  email?: string | null;
+  dob?: string | null;
+  gender?: string | null;
+  blood_group?: string | null;
+  address?: string | null;
+  profile_photo?: string | null;
   token: string;
   /** Epoch seconds when the token expires. */
   expiresAt: number;
 }
+
 
 const STORAGE_KEY = "cliniq.portal.session";
 
