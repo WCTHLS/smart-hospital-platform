@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, ShieldAlert, BadgeCheck, Stethoscope, Landmark, Edit, X, Calendar, Clock, Search, Trash2 } from "lucide-react";
+import {
+  Users, Plus, ShieldAlert, BadgeCheck, Stethoscope, Landmark, Edit, X, Calendar, Clock,
+  Search, Trash2, FlaskConical, Pill, ClipboardList, User,
+} from "lucide-react";
 import { api } from "../../lib/api";
 import { Card, Tag, SectionTitle, Empty } from "../../components/ui";
 
@@ -26,7 +29,7 @@ export default function AdminPortal() {
   const qc = useQueryClient();
   const [adminTab, setAdminTab] = useState<"OPD" | "LAB">("OPD");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<"DOCTOR" | "NURSE">("DOCTOR");
+  const [role, setRole] = useState<"DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST">("DOCTOR");
   const [specialty, setSpecialty] = useState("General Medicine");
   const [experience, setExperience] = useState("");
   const [room, setRoom] = useState("");
@@ -85,11 +88,25 @@ export default function AdminPortal() {
     }
   }, [labSchedules]);
 
+  const [directoryRoleFilter, setDirectoryRoleFilter] = useState<"ALL" | "DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST">("ALL");
+
+  const doctorCount = doctors?.filter((d: any) => ((d.role || "DOCTOR").toUpperCase() === "DOCTOR")).length || 0;
+  const nurseCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "NURSE")).length || 0;
+  const labCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "LAB")).length || 0;
+  const pharmacistCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "PHARMACIST")).length || 0;
+  const receptionistCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "RECEPTIONIST")).length || 0;
+  const totalCount = doctors?.length || 0;
+
   const normalizedSearch = directorySearch.trim().toLowerCase();
-  const filteredDoctors = doctors?.filter((doctor: any) =>
-    [doctor.name, doctor.specialty, doctor.department, doctor.role, doctor.room, doctor.floor]
-      .some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch))
-  );
+  const filteredDoctors = doctors?.filter((doctor: any) => {
+    const docRole = (doctor.role || "DOCTOR").toUpperCase();
+    if (directoryRoleFilter !== "ALL" && docRole !== directoryRoleFilter) {
+      return false;
+    }
+    if (!normalizedSearch) return true;
+    return [doctor.name, doctor.specialty, doctor.department, doctor.role, doctor.room, doctor.floor]
+      .some((value) => String(value ?? "").toLowerCase().includes(normalizedSearch));
+  });
 
   const handleRemoveDoctor = async (doctor: any) => {
     if (!window.confirm(`Remove ${doctor.name} from the Clinical Directory? Their historical clinical records will be preserved.`)) return;
@@ -274,9 +291,31 @@ export default function AdminPortal() {
     setErrorMsg("");
     setSuccessMsg("");
 
-    const payloadDept = role === "NURSE" ? "Triage" : specialty;
-    const payloadSpec = role === "NURSE" ? "Triage Nursing" : specialty;
-    const payloadFee = role === "NURSE" ? 0.0 : parseFloat(fee || "0");
+    let payloadDept = specialty;
+    let payloadSpec = specialty;
+    let payloadFee = 0.0;
+
+    if (role === "DOCTOR") {
+      payloadDept = specialty;
+      payloadSpec = specialty;
+      payloadFee = parseFloat(fee || "500");
+    } else if (role === "NURSE") {
+      payloadDept = "Triage";
+      payloadSpec = "Triage Nursing";
+      payloadFee = 0.0;
+    } else if (role === "LAB") {
+      payloadDept = "Laboratory";
+      payloadSpec = specialty || "Pathology & Blood/Urine";
+      payloadFee = 0.0;
+    } else if (role === "PHARMACIST") {
+      payloadDept = "Pharmacy";
+      payloadSpec = "Central Pharmacy & Dispensing";
+      payloadFee = 0.0;
+    } else if (role === "RECEPTIONIST") {
+      payloadDept = "Reception";
+      payloadSpec = "Front Desk & Patient Check-in";
+      payloadFee = 0.0;
+    }
 
     try {
       if (editingDoctorId) {
@@ -304,7 +343,7 @@ export default function AdminPortal() {
           access_pin: pin,
           opd_fee: payloadFee,
         });
-        setSuccessMsg(`Successfully registered ${name}!`);
+        setSuccessMsg(`Successfully registered ${name} (${role})!`);
       }
 
       // Reset form
@@ -317,7 +356,7 @@ export default function AdminPortal() {
       setEditingDoctorId(null);
       qc.invalidateQueries({ queryKey: ["admin-doctors"] });
     } catch (err: any) {
-      setErrorMsg(err.message || "Failed to save doctor details.");
+      setErrorMsg(err.message || "Failed to save staff details.");
     } finally {
       setSubmitting(false);
     }
@@ -585,20 +624,53 @@ export default function AdminPortal() {
                     <select
                       className="input text-xs select"
                       value={role}
-                      onChange={(e) => setRole(e.target.value as "DOCTOR" | "NURSE")}
+                      onChange={(e) => {
+                        const newRole = e.target.value as any;
+                        setRole(newRole);
+                        if (newRole === "DOCTOR") {
+                          setSpecialty("General Medicine");
+                          setFee("500");
+                        } else if (newRole === "LAB") {
+                          setSpecialty("Pathology & Blood/Urine");
+                          setFee("0");
+                        } else {
+                          setFee("0");
+                        }
+                      }}
                     >
                       <option value="DOCTOR">Doctor</option>
                       <option value="NURSE">Nurse</option>
+                      <option value="LAB">Lab Technician</option>
+                      <option value="PHARMACIST">Pharmacist</option>
+                      <option value="RECEPTIONIST">Receptionist</option>
                     </select>
                   </div>
 
                   <div className="space-y-1">
                     <label className="block font-bold text-slate-300">
-                      {role === "NURSE" ? "Nurse Full Name *" : "Doctor Full Name *"}
+                      {role === "DOCTOR"
+                        ? "Doctor Full Name *"
+                        : role === "NURSE"
+                        ? "Nurse Full Name *"
+                        : role === "LAB"
+                        ? "Lab Technician Full Name *"
+                        : role === "PHARMACIST"
+                        ? "Pharmacist Full Name *"
+                        : "Receptionist Full Name *"}
                     </label>
                     <input
                       type="text"
-                      placeholder={role === "NURSE" ? "e.g. Priya Sharma" : "e.g. Dr. Ananya Mehta"}
+                      placeholder={
+                        role === "DOCTOR"
+                          ? "e.g. Dr. Ananya Mehta"
+                          : role === "NURSE"
+                          ? "e.g. Priya Sharma"
+                          : role === "LAB"
+                          ? "e.g. Vikram Lab Tech"
+                          : role === "PHARMACIST"
+                          ? "e.g. Sunil Pharmacist"
+                          : "e.g. Deepa Front Desk"
+                      }
                       className="input text-xs"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
@@ -606,7 +678,7 @@ export default function AdminPortal() {
                     />
                   </div>
 
-                  {role === "DOCTOR" ? (
+                  {role === "DOCTOR" && (
                     <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
                       <div className="space-y-1">
                         <label className="block font-bold text-slate-300">Specialty Department</label>
@@ -634,14 +706,16 @@ export default function AdminPortal() {
                         />
                       </div>
                     </div>
-                  ) : (
+                  )}
+
+                  {role === "NURSE" && (
                     <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
                       <div className="space-y-1">
-                        <label className="block font-bold text-[var(--dim)]">Role Specialty</label>
+                        <label className="block font-bold text-[var(--dim)]">Station Department</label>
                         <input
                           type="text"
                           className="input text-xs cursor-not-allowed opacity-60"
-                          value="Triage Nursing (Triage)"
+                          value="Triage Nursing (Triage Desk)"
                           disabled
                         />
                       </div>
@@ -661,12 +735,118 @@ export default function AdminPortal() {
                     </div>
                   )}
 
+                  {role === "LAB" && (
+                    <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Lab Diagnostic Section</label>
+                        <select
+                          className="input text-xs select"
+                          value={specialty}
+                          onChange={(e) => setSpecialty(e.target.value)}
+                        >
+                          <option value="Pathology & Blood/Urine">Pathology & Blood/Urine</option>
+                          <option value="Radiology & Scans/X-Ray">Radiology & Scans/X-Ray</option>
+                          <option value="Biochemistry & Hematology">Biochemistry & Hematology</option>
+                          <option value="Microbiology">Microbiology</option>
+                          <option value="General Lab Diagnostics">General Lab Diagnostics</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Experience (Years) *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="e.g. 5"
+                          className="input text-xs"
+                          value={experience}
+                          onChange={(e) => setExperience(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {role === "PHARMACIST" && (
+                    <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="block font-bold text-[var(--dim)]">Pharmacy Unit</label>
+                        <input
+                          type="text"
+                          className="input text-xs cursor-not-allowed opacity-60"
+                          value="Central Pharmacy & Dispensing"
+                          disabled
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Experience (Years) *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="e.g. 4"
+                          className="input text-xs"
+                          value={experience}
+                          onChange={(e) => setExperience(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {role === "RECEPTIONIST" && (
+                    <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="block font-bold text-[var(--dim)]">Front Office Unit</label>
+                        <input
+                          type="text"
+                          className="input text-xs cursor-not-allowed opacity-60"
+                          value="Front Desk & Patient Check-in"
+                          disabled
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Experience (Years) *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="e.g. 3"
+                          className="input text-xs"
+                          value={experience}
+                          onChange={(e) => setExperience(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
-                      <label className="block font-bold text-slate-300">Room Assignment *</label>
+                      <label className="block font-bold text-slate-300">
+                        {role === "DOCTOR"
+                          ? "Room Assignment *"
+                          : role === "NURSE"
+                          ? "Triage Station / Room *"
+                          : role === "LAB"
+                          ? "Lab Room / Counter *"
+                          : role === "PHARMACIST"
+                          ? "Pharmacy Counter / Window *"
+                          : "Reception Desk / Counter *"}
+                      </label>
                       <input
                         type="text"
-                        placeholder="e.g. Room 104"
+                        placeholder={
+                          role === "DOCTOR"
+                            ? "e.g. Room 104"
+                            : role === "NURSE"
+                            ? "e.g. Triage Room 1"
+                            : role === "LAB"
+                            ? "e.g. Lab Counter 2"
+                            : role === "PHARMACIST"
+                            ? "e.g. Pharmacy Window 1"
+                            : "e.g. Front Desk 1"
+                        }
                         className="input text-xs"
                         value={room}
                         onChange={(e) => setRoom(e.target.value)}
@@ -678,7 +858,7 @@ export default function AdminPortal() {
                       <label className="block font-bold text-slate-300">Floor Number *</label>
                       <input
                         type="text"
-                        placeholder="e.g. Floor 2"
+                        placeholder="e.g. Floor 2 / Ground Floor"
                         className="input text-xs"
                         value={floor}
                         onChange={(e) => setFloor(e.target.value)}
@@ -706,7 +886,7 @@ export default function AdminPortal() {
                         <input
                           type="text"
                           className="input text-xs cursor-not-allowed opacity-60"
-                          value="N/A (Free)"
+                          value="N/A (Staff Desk)"
                           disabled
                         />
                       </div>
@@ -717,8 +897,8 @@ export default function AdminPortal() {
                       <input
                         type="text"
                         pattern="[0-9A-Za-z]{4,8}"
-                        placeholder="4-8 characters"
-                        className="input text-xs"
+                        placeholder="4-8 characters (e.g. 1234)"
+                        className="input text-xs font-mono font-bold text-sky-400"
                         value={pin}
                         onChange={(e) => setPin(e.target.value)}
                         required
@@ -726,16 +906,15 @@ export default function AdminPortal() {
                     </div>
                   </div>
 
-                  {/* Feedbacks */}
                   {errorMsg && (
-                    <div className="p-2.5 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 flex items-center gap-1.5">
+                    <div className="p-2.5 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 flex items-center gap-1.5 animate-in fade-in duration-200">
                       <ShieldAlert size={14} className="shrink-0" />
                       <span>{errorMsg}</span>
                     </div>
                   )}
 
                   {successMsg && (
-                    <div className="p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 flex items-center gap-1.5">
+                    <div className="p-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 flex items-center gap-1.5 animate-in fade-in duration-200">
                       <BadgeCheck size={14} className="shrink-0" />
                       <span>{successMsg}</span>
                     </div>
@@ -755,9 +934,27 @@ export default function AdminPortal() {
                       type="submit"
                       disabled={submitting}
                       className="btn font-bold py-2 flex-[2] text-center"
-                      style={{ background: editingDoctorId ? "linear-gradient(135deg, #f59e0b, #d97706)" : "linear-gradient(135deg, #1a4fb4, #003966)", color: "white", border: "none" }}
+                      style={{
+                        background: editingDoctorId
+                          ? "linear-gradient(135deg, #f59e0b, #d97706)"
+                          : "linear-gradient(135deg, #1a4fb4, #003966)",
+                        color: "white",
+                        border: "none",
+                      }}
                     >
-                      {submitting ? "Saving..." : editingDoctorId ? "Save Changes" : "Register Doctor"}
+                      {submitting
+                        ? "Saving..."
+                        : editingDoctorId
+                        ? "Save Changes"
+                        : role === "DOCTOR"
+                        ? "Register Doctor"
+                        : role === "NURSE"
+                        ? "Register Nurse"
+                        : role === "LAB"
+                        ? "Register Lab Technician"
+                        : role === "PHARMACIST"
+                        ? "Register Pharmacist"
+                        : "Register Receptionist"}
                     </button>
                   </div>
                 </form>
@@ -874,17 +1071,62 @@ export default function AdminPortal() {
           )}
         </div>
 
-        {/* Doctor Directory List */}
+        {/* Doctor & Staff Directory List */}
         <div className="space-y-4">
-          <SectionTitle plain>Clinical Directory</SectionTitle>
-          <Card className="min-h-[400px]">
-            <div className="mb-4 flex items-center gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <SectionTitle plain>Clinical &amp; Staff Directory</SectionTitle>
+            <span className="text-[11px] text-[var(--muted)]">
+              Total staff registered: <b className="text-white font-bold">{totalCount}</b>
+            </span>
+          </div>
+
+          <Card className="min-h-[400px] space-y-4">
+            {/* Top Role Selector Filter Bar */}
+            <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-white/[0.03] border border-white/5">
+              {[
+                { id: "ALL", label: "All Staff", count: totalCount, icon: Users },
+                { id: "DOCTOR", label: "Doctors", count: doctorCount, icon: Stethoscope },
+                { id: "NURSE", label: "Nurses", count: nurseCount, icon: User },
+                { id: "LAB", label: "Lab Technicians", count: labCount, icon: FlaskConical },
+                { id: "PHARMACIST", label: "Pharmacists", count: pharmacistCount, icon: Pill },
+                { id: "RECEPTIONIST", label: "Receptionists", count: receptionistCount, icon: ClipboardList },
+              ].map((tab) => {
+                const isActive = directoryRoleFilter === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setDirectoryRoleFilter(tab.id as any)}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                      isActive
+                        ? "bg-sky-500/20 text-sky-400 border border-sky-500/30 shadow-sm"
+                        : "text-[var(--muted)] hover:text-white hover:bg-white/[0.02] border border-transparent"
+                    }`}
+                  >
+                    <tab.icon size={13} className={isActive ? "text-sky-400" : "opacity-70"} />
+                    <span>{tab.label}</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-mono leading-none ${
+                        isActive
+                          ? "bg-sky-500/30 text-sky-200 font-bold"
+                          : "bg-white/10 text-[var(--muted)]"
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search Input Bar */}
+            <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--dim)]" />
                 <input
                   type="search"
                   className="input w-full !pl-9 text-xs"
-                  placeholder="Search by name, specialty, role, room or floor"
+                  placeholder={`Search ${directoryRoleFilter === "ALL" ? "all staff" : directoryRoleFilter.toLowerCase() + "s"} by name, specialty, room or floor...`}
                   value={directorySearch}
                   onChange={(event) => setDirectorySearch(event.target.value)}
                 />
@@ -894,18 +1136,18 @@ export default function AdminPortal() {
               </button>
             </div>
             {isLoading ? (
-              <div className="text-center py-12 text-xs text-[var(--dim)]">Loading doctor records...</div>
+              <div className="text-center py-12 text-xs text-[var(--dim)]">Loading staff records...</div>
             ) : !doctors?.length ? (
-              <Empty>No doctors registered in the system yet.</Empty>
+              <Empty>No staff registered in the system yet.</Empty>
             ) : !filteredDoctors?.length ? (
-              <Empty>No practitioners match “{directorySearch}”.</Empty>
+              <Empty>No staff match “{directorySearch}”.</Empty>
             ) : (
               <div className="overflow-x-auto text-[12px]">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-white/5 text-[10px] uppercase tracking-wider text-[var(--dim)] font-bold">
-                      <th className="pb-3">Practitioner</th>
-                      <th className="pb-3">Specialty</th>
+                      <th className="pb-3">Staff Member</th>
+                      <th className="pb-3">Role / Specialty</th>
                       <th className="pb-3">Room / Location</th>
                       <th className="pb-3 text-right">OPD Fee</th>
                       <th className="pb-3 text-center">Login PIN</th>
@@ -913,63 +1155,100 @@ export default function AdminPortal() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredDoctors.map((d: any) => (
-                      <tr key={d.doctor_id} className={`border-b border-white/5 last:border-0 hover:bg-white/[0.01] transition-colors ${editingDoctorId === d.doctor_id || schedulingDoctor?.doctor_id === d.doctor_id ? "bg-white/[0.02]" : ""}`}>
-                        <td className="py-3.5 flex items-center gap-2">
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center font-extrabold text-[11px] ${d.role === "NURSE" ? "bg-rose-500/10 border border-rose-500/25 text-rose-400" : "bg-sky-600/10 border border-sky-600/25 text-sky-500"}`}>
-                            {d.name.split(" ").slice(-1)[0][0]}
-                          </div>
-                          <div>
-                            <div className="font-bold text-slate-200 flex items-center gap-1.5">
-                              {d.name}
-                              {d.role === "NURSE" && <Tag tone="blue">Nurse</Tag>}
+                    {filteredDoctors.map((d: any) => {
+                      const isDoctor = d.role === "DOCTOR" || !d.role;
+                      const isNurse = d.role === "NURSE";
+                      const isLab = d.role === "LAB";
+                      const isPharmacist = d.role === "PHARMACIST";
+                      const isReceptionist = d.role === "RECEPTIONIST";
+
+                      return (
+                        <tr
+                          key={d.doctor_id}
+                          className={`border-b border-white/5 last:border-0 hover:bg-white/[0.01] transition-colors ${
+                            editingDoctorId === d.doctor_id || schedulingDoctor?.doctor_id === d.doctor_id
+                              ? "bg-white/[0.02]"
+                              : ""
+                          }`}
+                        >
+                          <td className="py-3.5 flex items-center gap-2">
+                            <div
+                              className={`w-7 h-7 rounded-full flex items-center justify-center font-extrabold text-[11px] ${
+                                isDoctor
+                                  ? "bg-sky-600/10 border border-sky-600/25 text-sky-500"
+                                  : isNurse
+                                  ? "bg-rose-500/10 border border-rose-500/25 text-rose-400"
+                                  : isLab
+                                  ? "bg-cyan-500/10 border border-cyan-500/25 text-cyan-400"
+                                  : isPharmacist
+                                  ? "bg-purple-500/10 border border-purple-500/25 text-purple-400"
+                                  : "bg-teal-500/10 border border-teal-500/25 text-teal-400"
+                              }`}
+                            >
+                              {d.name.split(" ").slice(-1)[0][0]}
                             </div>
-                            <div className="text-[10px] text-[var(--muted)]">{d.experience_years} years exp</div>
-                          </div>
-                        </td>
-                        <td className="py-3.5 text-slate-300">
-                          <span className="flex items-center gap-1"><Stethoscope size={13} className="text-emerald-400" /> {d.specialty}</span>
-                        </td>
-                        <td className="py-3.5 text-slate-300">
-                          <div>{d.room}</div>
-                          <div className="text-[10px] text-[var(--muted)]">{d.floor}</div>
-                        </td>
-                        <td className="py-3.5 text-right font-mono font-bold text-slate-200">
-                          {d.role === "NURSE" ? "N/A" : `₹${d.opd_fee}`}
-                        </td>
-                        <td className="py-3.5 text-center font-mono font-bold text-sky-500">
-                          {d.access_pin}
-                        </td>
-                        <td className="py-3.5 text-center">
-                          <div className="flex gap-2 justify-center">
-                            <button
-                              onClick={() => handleStartEdit(d)}
-                              className="btn ghost !py-1 !px-2 text-[10.5px] font-bold inline-flex items-center gap-0.5 text-slate-300 hover:text-white"
-                            >
-                              <Edit size={10.5} /> Profile
-                            </button>
-                            {d.role !== "NURSE" && (
+                            <div>
+                              <div className="font-bold text-slate-200 flex items-center gap-1.5">
+                                {d.name}
+                                {isNurse && <Tag tone="blue">Nurse</Tag>}
+                                {isLab && <Tag tone="violet">Lab Tech</Tag>}
+                                {isPharmacist && <Tag tone="amber">Pharmacist</Tag>}
+                                {isReceptionist && <Tag tone="green">Reception</Tag>}
+                              </div>
+                              <div className="text-[10px] text-[var(--muted)]">{d.experience_years} years exp</div>
+                            </div>
+                          </td>
+                          <td className="py-3.5 text-slate-300">
+                            <span className="flex items-center gap-1">
+                              {isDoctor && <Stethoscope size={13} className="text-emerald-400" />}
+                              {isNurse && <User size={13} className="text-rose-400" />}
+                              {isLab && <FlaskConical size={13} className="text-cyan-400" />}
+                              {isPharmacist && <Pill size={13} className="text-purple-400" />}
+                              {isReceptionist && <ClipboardList size={13} className="text-teal-400" />}
+                              {d.specialty}
+                            </span>
+                          </td>
+                          <td className="py-3.5 text-slate-300">
+                            <div>{d.room}</div>
+                            <div className="text-[10px] text-[var(--muted)]">{d.floor}</div>
+                          </td>
+                          <td className="py-3.5 text-right font-mono font-bold text-slate-200">
+                            {isDoctor ? `₹${d.opd_fee}` : "N/A"}
+                          </td>
+                          <td className="py-3.5 text-center font-mono font-bold text-sky-500">
+                            {d.access_pin}
+                          </td>
+                          <td className="py-3.5 text-center">
+                            <div className="flex gap-2 justify-center">
                               <button
-                                onClick={() => handleOpenRoster(d)}
-                                className="btn ghost !py-1 !px-2 text-[10.5px] font-bold inline-flex items-center gap-0.5 text-[var(--cyan)] hover:text-sky-400"
+                                onClick={() => handleStartEdit(d)}
+                                className="btn ghost !py-1 !px-2 text-[10.5px] font-bold inline-flex items-center gap-0.5 text-slate-300 hover:text-white"
                               >
-                                <Calendar size={10.5} /> Roster
+                                <Edit size={10.5} /> Profile
                               </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveDoctor(d)}
-                              disabled={removingDoctorId === d.doctor_id}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-500/25 bg-rose-500/10 text-rose-400 transition-colors hover:border-rose-400/40 hover:bg-rose-500/20 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
-                              aria-label={`Remove ${d.name}`}
-                              title={removingDoctorId === d.doctor_id ? "Removing practitioner" : `Remove ${d.name}`}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                              {isDoctor && (
+                                <button
+                                  onClick={() => handleOpenRoster(d)}
+                                  className="btn ghost !py-1 !px-2 text-[10.5px] font-bold inline-flex items-center gap-0.5 text-[var(--cyan)] hover:text-sky-400"
+                                >
+                                  <Calendar size={10.5} /> Roster
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveDoctor(d)}
+                                disabled={removingDoctorId === d.doctor_id}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-500/25 bg-rose-500/10 text-rose-400 transition-colors hover:border-rose-400/40 hover:bg-rose-500/20 hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label={`Remove ${d.name}`}
+                                title={removingDoctorId === d.doctor_id ? "Removing practitioner" : `Remove ${d.name}`}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

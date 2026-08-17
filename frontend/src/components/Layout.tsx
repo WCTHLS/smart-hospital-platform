@@ -1,27 +1,18 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ReactNode, useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart,
-  Smartphone, BellRing, ShieldAlert, FlaskConical, Pill, Menu, PanelLeftClose,
-  Syringe, ChevronDown, Scan,
+  HeartPulse, MonitorDot, ShieldAlert, BellRing, Menu, PanelLeftClose,
+  ChevronDown, LogOut, User,
 } from "lucide-react";
-import { api } from "../lib/api";
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
+import { getOsSession, clearOsSession, osInitials } from "../features/os/osSession";
+import { getPortalPatient, clearPortalPatient } from "../lib/patientAuth";
 
-const NAV = [
-  { to: "/", label: "Home", icon: Activity, end: true },
-  { to: "/triage", label: "Triage Desk", icon: HeartPulse, roles: ["nurse"] },
-  { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, roles: ["doctor"] },
-  { to: "/oncology", label: "Oncology & Cancer Care", icon: Syringe, roles: ["doctor"] },
-  { to: "/lab", label: "Laboratory Dashboard", icon: FlaskConical, roles: ["lab"] },
-  { to: "/radiology", label: "Radiology Command Center", icon: Scan, roles: ["lab"] },
-  { to: "/pharmacy", label: "Pharmacy Desk", icon: Pill, roles: ["pharmacist"] },
-  { to: "/reception", label: "Reception Desk", icon: ClipboardList, roles: ["receptionist"] },
-  { to: "/command", label: "Command Center", icon: MonitorDot, roles: ["admin"] },
-  { to: "/admin", label: "Admin Workspace", icon: ShieldAlert, roles: ["admin"] },
+const ADMIN_NAV = [
+  { to: "/admin", label: "Admin Workspace", icon: ShieldAlert },
+  { to: "/command", label: "Command Center", icon: MonitorDot },
 ];
 
 function criticalText(e: LiveEvent): string {
@@ -59,16 +50,36 @@ export default function Layout({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const nav = useNavigate();
   const connected = useRealtime((s) => s.connected);
-  const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
-  const [patientMenuOpen, setPatientMenuOpen] = useState(() => loc.pathname.startsWith("/patient"));
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   const activeRole = journey.activeRole;
+  const osSession = getOsSession();
+  const portalPatient = getPortalPatient();
 
-  // Sidebar always shows every workspace link, independent of the active role
-  // selected via the right-side workspace dropdown.
-  const visibleNav = NAV;
+  const isPatient = Boolean(portalPatient || loc.pathname.startsWith("/patient"));
+  const isDoctor = Boolean(osSession?.role === "DOCTOR" || loc.pathname === "/copilot" || loc.pathname === "/oncology");
+  const isNurse = Boolean(osSession?.role === "NURSE" || loc.pathname === "/triage");
+  const isLab = Boolean(osSession?.role === "LAB" || loc.pathname === "/lab" || loc.pathname === "/radiology");
+  const isPharmacy = Boolean(osSession?.role === "PHARMACIST" || loc.pathname === "/pharmacy");
+  const isReception = Boolean(osSession?.role === "RECEPTIONIST" || loc.pathname === "/reception");
+  const isAdmin = Boolean(osSession?.role === "ADMIN" || loc.pathname === "/admin" || loc.pathname === "/command");
 
-  // Sync store activeRole with browser URL path (useful on refresh or direct navigation)
+  // Single-role dedicated pages (Patient, Doctor, Nurse, Lab, Pharmacy, Reception) have NO sidebar.
+  // Only Admin has an optional admin navigation sidebar.
+  const hasSidebar = isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command");
+
+  const currentUser = osSession ? {
+    name: osSession.name,
+    role: osSession.roleLabel || osSession.role,
+    initials: osInitials(osSession.name),
+  } : portalPatient ? {
+    name: portalPatient.name,
+    role: "Patient",
+    initials: portalPatient.name.slice(0, 2).toUpperCase(),
+  } : null;
+
+  // Sync store activeRole with browser URL path
   useEffect(() => {
     const path = loc.pathname;
     if ((path === "/copilot" || path === "/oncology") && activeRole !== "doctor") {
@@ -92,29 +103,70 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (window.innerWidth < 1024) setSidebarOpen(false);
   };
 
+  const handleLogout = () => {
+    clearOsSession();
+    clearPortalPatient();
+    localStorage.removeItem("selected_doctor_id");
+    localStorage.removeItem("selected_triage_staff_id");
+    journey.reset();
+    setUserDropdownOpen(false);
+    nav("/login", { replace: true });
+  };
+
+  const handleLogoClick = () => {
+    if (isPatient) {
+      nav("/patient");
+    } else if (isDoctor) {
+      nav("/copilot");
+    } else if (isNurse) {
+      nav("/triage");
+    } else if (isAdmin) {
+      nav("/admin");
+    } else {
+      nav("/login");
+    }
+  };
+
+  const getHeaderTitle = () => {
+    if (isPatient) return "Patient Dashboard";
+    if (loc.pathname === "/copilot") return "Doctor Workspace";
+    if (loc.pathname === "/oncology") return "Oncology & Cancer Care";
+    if (isNurse) return "Triage Desk";
+    if (loc.pathname === "/lab") return "Lab Workspace";
+    if (loc.pathname === "/radiology") return "Radiology Command Center";
+    if (isPharmacy) return "Pharmacy Desk";
+    if (isReception) return "Reception Desk";
+    if (loc.pathname === "/admin") return "Admin Workspace";
+    if (loc.pathname === "/command") return "Command Center";
+    return "Smart Hospital Platform";
+  };
+
   return (
-    <div className="min-h-screen overflow-x-hidden">
+    <div className="min-h-screen overflow-x-hidden bg-[#f8fafc]">
       <header className="fixed inset-x-0 top-0 z-30 flex h-16 items-center justify-between gap-2 border-b px-3 sm:gap-3 sm:px-5 lg:px-6"
         style={{
           borderColor: "var(--line)",
-          backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.72), rgba(255,255,255,.72))",
+          backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.85), rgba(255,255,255,.85))",
           backdropFilter: "blur(28px) saturate(180%)",
           boxShadow: "inset 0 -1px 0 rgba(20,33,61,.06)",
         }}>
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen((open) => !open)}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border text-[var(--muted)] transition hover:border-[var(--line2)] hover:bg-black/5 hover:text-[var(--ink)]"
-            style={{ borderColor: "var(--glass-border)" }}
-            aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
-            aria-expanded={sidebarOpen}
-          >
-            {sidebarOpen ? <PanelLeftClose size={18} /> : <Menu size={19} />}
-          </button>
-          <button type="button" className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => nav("/")} aria-label="Go to home">
+          {hasSidebar && (
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((open) => !open)}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border text-[var(--muted)] transition hover:border-[var(--line2)] hover:bg-black/5 hover:text-[var(--ink)]"
+              style={{ borderColor: "var(--glass-border)" }}
+              aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
+              aria-expanded={sidebarOpen}
+            >
+              {sidebarOpen ? <PanelLeftClose size={18} /> : <Menu size={19} />}
+            </button>
+          )}
+
+          <button type="button" className="flex min-w-0 items-center gap-2.5 text-left" onClick={handleLogoClick} aria-label="Hospital logo">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
-              style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))", boxShadow: "0 0 18px rgba(37,100,207,.5)" }}>
+              style={{ background: "linear-gradient(150deg,#3a96e0,#0078d4)", boxShadow: "0 6px 14px rgba(0,120,212,.24)" }}>
               <HeartPulse size={18} color="#ffffff" />
             </span>
             <span className="hidden min-[470px]:block">
@@ -122,34 +174,94 @@ export default function Layout({ children }: { children: ReactNode }) {
               <span className="block text-[10px] text-[var(--dim)]">Smart Hospital OS</span>
             </span>
           </button>
+
           <div className="ml-1 hidden min-w-0 truncate border-l border-[var(--line)] pl-3 text-[11px] uppercase tracking-[0.16em] text-[var(--dim)] xl:block">
-            {loc.pathname.startsWith("/patient")
-              ? "Patient Dashboard"
-              : NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
+            {getHeaderTitle()}
           </div>
         </div>
-        <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
+
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold sm:text-[11px]"
             style={{ color: connected ? "#15803d" : "#92400e" }}>
             <span className="inline-block h-2 w-2 rounded-full"
               style={{ background: connected ? "var(--mint)" : "var(--amber)", boxShadow: `0 0 8px ${connected ? "var(--mint)" : "var(--amber)"}` }} />
             <span className="hidden sm:inline">{connected ? "CONNECTED" : "CONNECTING"}</span>
           </span>
+
+          {currentUser ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setUserDropdownOpen((o) => !o)}
+                className="flex items-center gap-2 rounded-xl border border-black/[0.08] bg-white/90 px-2.5 py-1.5 text-left transition hover:bg-white shadow-sm"
+              >
+                <span className="grid h-7 w-7 place-items-center rounded-lg bg-[#0078d4] text-[11px] font-bold text-white shadow-sm">
+                  {currentUser.initials}
+                </span>
+                <span className="hidden md:block">
+                  <span className="block text-[12px] font-bold text-slate-800 leading-tight">{currentUser.name}</span>
+                  <span className="block text-[10px] text-slate-400 leading-none">{currentUser.role}</span>
+                </span>
+                <ChevronDown size={14} className="text-slate-400" />
+              </button>
+
+              {userDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-48 rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-xl z-50">
+                  <div className="px-3 py-2 border-b border-slate-100">
+                    <p className="text-[12px] font-bold text-slate-800">{currentUser.name}</p>
+                    <p className="text-[11px] text-slate-500">{currentUser.role}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserDropdownOpen(false);
+                      nav("/login");
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 transition"
+                  >
+                    <User size={15} /> Switch Role / Login
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-rose-600 hover:bg-rose-50 transition"
+                  >
+                    <LogOut size={15} /> Sign Out
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => nav("/login")}
+              className="flex items-center gap-1.5 rounded-xl bg-[#0078d4] px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-[#106ebe]"
+            >
+              <User size={14} /> Sign In
+            </button>
+          )}
         </div>
       </header>
 
-      {sidebarOpen && <button type="button" className="fixed inset-x-0 bottom-0 top-16 z-10 bg-black/55 lg:hidden" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
+      {hasSidebar && sidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-x-0 bottom-0 top-16 z-10 bg-black/55 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-label="Close navigation"
+        />
+      )}
 
-      {/* Sidebar */}
-      <aside className={`fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
-        style={{
-          borderRight: "1px solid var(--line)",
-          backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
-          backdropFilter: "blur(28px) saturate(180%)",
-        }}>
-        {visibleNav.map((n, index) => (
-          <div key={n.to}>
-            <NavLink to={n.to} end={n.end} onClick={closeSidebarOnMobile}
+      {/* Sidebar (Admin only) */}
+      {hasSidebar && (
+        <aside className={`fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+          style={{
+            borderRight: "1px solid var(--line)",
+            backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
+            backdropFilter: "blur(28px) saturate(180%)",
+          }}>
+          {ADMIN_NAV.map((n) => (
+            <NavLink to={n.to} key={n.to} onClick={closeSidebarOnMobile}
               className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
               style={({ isActive }: any) => ({
                 color: isActive ? "#123a7a" : "var(--muted)",
@@ -160,69 +272,23 @@ export default function Layout({ children }: { children: ReactNode }) {
               <n.icon size={17} />
               {n.label}
             </NavLink>
+          ))}
 
-            {index === 0 && (
-              <div className="mt-1">
-                <button
-                  type="button"
-                  onClick={() => setPatientMenuOpen((open) => !open)}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13.5px] font-semibold transition"
-                  style={{
-                    color: loc.pathname.startsWith("/patient") ? "#123a7a" : "var(--muted)",
-                    background: loc.pathname.startsWith("/patient")
-                      ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))"
-                      : "transparent",
-                    border: loc.pathname.startsWith("/patient") ? "1px solid var(--line2)" : "1px solid transparent",
-                  }}
-                  aria-expanded={patientMenuOpen}
-                >
-                  <Smartphone size={17} />
-                  <span className="flex-1">Patient Portal</span>
-                  <ChevronDown size={15} className={`transition-transform ${patientMenuOpen ? "rotate-180" : ""}`} />
-                </button>
-
-                {patientMenuOpen && (
-                  <div className="ml-5 mt-1 space-y-1 border-l border-[var(--line)] pl-2">
-                    <NavLink to="/patient" end onClick={closeSidebarOnMobile}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold transition"
-                      style={({ isActive }) => ({ color: isActive ? "#123a7a" : "var(--muted)", background: isActive ? "rgba(37,100,207,.1)" : "transparent" })}>
-                      <Smartphone size={15} /> Dashboard
-                    </NavLink>
-                    <NavLink to="/patient/checkin" onClick={closeSidebarOnMobile}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold transition"
-                      style={({ isActive }) => ({ color: isActive ? "#123a7a" : "var(--muted)", background: isActive ? "rgba(37,100,207,.1)" : "transparent" })}>
-                      <MessageSquareHeart size={15} /> Check-in
-                    </NavLink>
-                  </div>
-                )}
-              </div>
-            )}
+          <div className="mt-auto space-y-2">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+            >
+              <LogOut size={15} />
+              <span>Sign Out</span>
+            </button>
           </div>
-        ))}
-
-        <div className="mt-auto space-y-2">
-          {journey.patientName && (
-            <div className="card p-3 text-[12px] relative group">
-              <div className="mb-1 flex items-center justify-between font-bold" style={{ color: "#123a7a" }}>
-                <span className="flex items-center gap-1"><ClipboardList size={13} /> Active Session</span>
-                <button
-                  onClick={() => journey.reset()}
-                  className="text-[10px] text-red-400 hover:text-red-300 font-bold uppercase transition opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                  title="Clear patient session"
-                >
-                  Reset
-                </button>
-              </div>
-              <div style={{ color: "var(--ink)" }} className="font-semibold">{journey.patientName}</div>
-              <div style={{ color: "var(--dim)" }}>{journey.department || "—"}</div>
-              {journey.token && <div className="mt-1"><span className="tag violet">Token {journey.token}</span></div>}
-            </div>
-          )}
-        </div>
-      </aside>
+        </aside>
+      )}
 
       {/* Main */}
-      <div className={`min-w-0 pt-16 transition-[margin] duration-200 ${sidebarOpen ? "lg:ml-[236px]" : "ml-0"}`}>
+      <div className={`min-w-0 pt-16 transition-[margin] duration-200 ${hasSidebar && sidebarOpen ? "lg:ml-[236px]" : "ml-0"}`}>
         <motion.main key={loc.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25 }} className="mx-auto w-full min-w-0 max-w-[2560px] px-3 py-4 pb-6 sm:px-5 sm:py-5 lg:px-6 lg:py-6 2xl:px-8">
           {children}

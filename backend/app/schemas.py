@@ -115,6 +115,11 @@ class PatientRegistrationRequest(BaseModel):
         return value.strip()
 
 
+class PatientCheckAvailableRequest(BaseModel):
+    mobile: str | None = None
+    email: str | None = None
+
+
 class PatientProfileUpdateRequest(BaseModel):
     email: str
     gender: str

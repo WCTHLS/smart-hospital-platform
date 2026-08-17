@@ -19,6 +19,7 @@ from app.api import (
     routes_command,
     routes_journey,
     routes_oncology,
+    routes_os,
     routes_ws,
 )
 from app.core.config import settings
@@ -52,6 +53,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -68,6 +70,7 @@ app.include_router(routes_ai.router)
 app.include_router(routes_ws.router)
 app.include_router(routes_admin.router)
 app.include_router(routes_oncology.router)
+app.include_router(routes_os.router)
 
 
 @app.get("/health", tags=["meta"])
