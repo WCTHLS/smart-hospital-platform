@@ -159,8 +159,16 @@ export default function LoginOS() {
         savePortalPatient({
           patient_id: sessionData.patientId,
           name: sessionData.name || uname,
+          first_name: sessionData.first_name || (sessionData.name ? sessionData.name.split(" ")[0] : uname),
+          last_name: sessionData.last_name || "",
           mrn: sessionData.mrn || undefined,
           mobile: sessionData.mobile || undefined,
+          email: sessionData.email || undefined,
+          dob: sessionData.dob || undefined,
+          gender: sessionData.gender || undefined,
+          blood_group: sessionData.blood_group || undefined,
+          address: sessionData.address || undefined,
+          profile_photo: sessionData.profile_photo || undefined,
         });
       } else {
         savePortalPatient({
@@ -171,6 +179,7 @@ export default function LoginOS() {
       navigate("/patient");
       return;
     }
+
 
     if (roleLower === "admin") {
       useJourney.getState().setRole("admin");
