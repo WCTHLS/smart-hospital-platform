@@ -1396,6 +1396,7 @@ export default function PatientDashboard() {
 
                     const allResulted = labOrders.every((o: any) => o.status === "RESULTED");
                     const activeLab = currentEpisode.labs?.find((l: any) => l.status !== "DISCHARGED");
+                    const hasPaid = labOrders.some((o: any) => o.status === "CONFIRMED" || o.status === "CHECKED_IN" || o.status === "SAMPLE_COLLECTED" || o.status === "RESULTED");
                     
                     let statusText = "Pending Lab Booking";
                     let stepColorClass = "bg-slate-700 text-slate-400 border-slate-700/20";
@@ -1409,8 +1410,12 @@ export default function PatientDashboard() {
                       statusText = `Checked-in (${activeLab.token?.number || "L-101"})`;
                       stepColorClass = "bg-sky-600 text-white border-sky-600/20 shadow-[0_0_10px_rgba(37,100,207,0.3)] animate-pulse";
                       marker = "⚡";
+                    } else if (hasPaid) {
+                      statusText = "Slot Booked & Paid";
+                      stepColorClass = "bg-blue-600 text-white border-blue-600/20 shadow-[0_0_10px_rgba(37,99,235,0.3)] animate-pulse";
+                      marker = "📅";
                     }
-
+ 
                     return (
                       <div className="flex-1 relative flex gap-3.5 items-start">
                         <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${stepColorClass} shrink-0 mt-0.5 border-4`}>

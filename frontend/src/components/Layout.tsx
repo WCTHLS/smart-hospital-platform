@@ -60,7 +60,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const isPatient = Boolean(portalPatient || loc.pathname.startsWith("/patient"));
   const isDoctor = Boolean(osSession?.role === "DOCTOR" || loc.pathname === "/copilot" || loc.pathname === "/oncology");
   const isNurse = Boolean(osSession?.role === "NURSE" || loc.pathname === "/triage");
-  const isLab = Boolean(osSession?.role === "LAB" || loc.pathname === "/lab");
+  const isLab = Boolean(osSession?.role === "LAB" || loc.pathname === "/lab" || loc.pathname === "/radiology");
   const isPharmacy = Boolean(osSession?.role === "PHARMACIST" || loc.pathname === "/pharmacy");
   const isReception = Boolean(osSession?.role === "RECEPTIONIST" || loc.pathname === "/reception");
   const isAdmin = Boolean(osSession?.role === "ADMIN" || loc.pathname === "/admin" || loc.pathname === "/command");
@@ -84,7 +84,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     const path = loc.pathname;
     if ((path === "/copilot" || path === "/oncology") && activeRole !== "doctor") {
       journey.setRole("doctor");
-    } else if (path === "/lab" && activeRole !== "lab") {
+    } else if ((path === "/lab" || path === "/radiology") && activeRole !== "lab") {
       journey.setRole("lab");
     } else if (path === "/triage" && activeRole !== "nurse") {
       journey.setRole("nurse");
@@ -132,7 +132,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (loc.pathname === "/copilot") return "Doctor Workspace";
     if (loc.pathname === "/oncology") return "Oncology & Cancer Care";
     if (isNurse) return "Triage Desk";
-    if (isLab) return "Lab Workspace";
+    if (loc.pathname === "/lab") return "Lab Workspace";
+    if (loc.pathname === "/radiology") return "Radiology Command Center";
     if (isPharmacy) return "Pharmacy Desk";
     if (isReception) return "Reception Desk";
     if (loc.pathname === "/admin") return "Admin Workspace";

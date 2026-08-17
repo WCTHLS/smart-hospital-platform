@@ -83,3 +83,12 @@ def init_db() -> None:
         column_type = "TIMESTAMP WITH TIME ZONE" if engine.dialect.name == "postgresql" else "TIMESTAMP"
         with engine.begin() as connection:
             connection.execute(text(f"ALTER TABLE lab_order ADD COLUMN sample_collected_ts {column_type}"))
+
+    # Keep existing demo databases compatible with scheduling date and time slot.
+    columns = {column["name"] for column in inspect(engine).get_columns("lab_order")}
+    if "booking_date" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE lab_order ADD COLUMN booking_date VARCHAR(10)"))
+    if "booking_slot" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE lab_order ADD COLUMN booking_slot VARCHAR(20)"))

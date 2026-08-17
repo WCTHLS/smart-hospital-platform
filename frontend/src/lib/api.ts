@@ -136,6 +136,8 @@ export const api = {
     post<any>(`/api/v1/lab-orders/${lab_order_id}/confirm`),
   collectLabSample: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/collect-sample`),
+  clearLabAttachment: (lab_order_id: string) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/clear-attachment`),
   labCheckIn: (body: any) => post<any>("/api/v1/labs/check-in", body),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
@@ -184,6 +186,8 @@ export const api = {
     razorpay_order_id: string;
     razorpay_signature: string;
     lab_order_ids: string[];
+    booking_date?: string;
+    booking_slot?: string;
   }) => post<any>("/api/v1/payments/razorpay/verify-lab-payment", body),
   createRazorpayPrescriptionOrder: (body: {
     patient_id: string;

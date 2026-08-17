@@ -5,6 +5,9 @@
 		},
 		{
 			"path": "../ClaimGPT-feature"
+		},
+		{
+			"path": "../cliniq"
 		}
 	],
 	"settings": {}

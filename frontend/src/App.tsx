@@ -10,6 +10,7 @@ const PatientCheckIn = lazy(() => import("./features/patient/PatientCheckIn"));
 const TriageWorkspace = lazy(() => import("./features/triage/TriageWorkspace"));
 const DoctorWorkspace = lazy(() => import("./features/doctor/DoctorWorkspace"));
 const LabWorkspace = lazy(() => import("./features/lab/LabWorkspace"));
+const RadiologyWorkspace = lazy(() => import("./features/radiology/RadiologyWorkspace"));
 const PatientDashboard = lazy(() => import("./features/patient/PatientDashboard"));
 const CommandCenter = lazy(() => import("./features/admin/CommandCenter"));
 const AdminPortal = lazy(() => import("./features/admin/AdminPortal"));
@@ -59,6 +60,7 @@ export default function App() {
                     <Route path="/copilot" element={<DoctorWorkspace />} />
                     <Route path="/oncology" element={<OncologyWorkspace />} />
                     <Route path="/lab" element={<LabWorkspace />} />
+                    <Route path="/radiology" element={<RadiologyWorkspace />} />
                     <Route path="/reception" element={<ReceptionWorkspace />} />
                     <Route path="/pharmacy" element={<PharmacyWorkspace />} />
                     <Route path="/patient/login" element={<PatientLogin />} />
