@@ -233,97 +233,114 @@ export default function Prescription({
             No medications added yet. Click "+ Add" or use the preset buttons to start.
           </div>
         ) : (
-          items.map((it, i) => {
-            const searchVal = it.drug_name.toLowerCase().trim();
-            const drugSuggestions = searchVal.length >= 2
-              ? (stock || [])
-                  .filter((s: any) => s.drug_name.toLowerCase().trimStart().startsWith(searchVal))
-                  .sort((a: any, b: any) => a.drug_name.localeCompare(b.drug_name))
-                  .slice(0, 8)
-              : [];
-            const matched = stock?.find((s: any) => {
-              const nameLower = s.drug_name.toLowerCase().trim();
-              return nameLower === searchVal;
-            });
-            const available = matched ? matched.available : 0;
+          <div className="space-y-2">
+            {/* Input Column Headers */}
+            <div className="hidden sm:grid gap-2 sm:grid-cols-[minmax(0,1fr)_105px_95px_110px_36px] px-3 text-[10.5px] font-extrabold text-slate-400 uppercase tracking-wider text-left">
+              <div>Medicine Name</div>
+              <div>Dose</div>
+              <div>Frequency</div>
+              <div>Duration (Days)</div>
+              <div></div>
+            </div>
+            {items.map((it, i) => {
+              const searchVal = it.drug_name.toLowerCase().trim();
+              const drugSuggestions = searchVal.length >= 2
+                ? (stock || [])
+                    .filter((s: any) => s.drug_name.toLowerCase().trimStart().startsWith(searchVal))
+                    .sort((a: any, b: any) => a.drug_name.localeCompare(b.drug_name))
+                    .slice(0, 8)
+                : [];
+              const matched = stock?.find((s: any) => {
+                const nameLower = s.drug_name.toLowerCase().trim();
+                return nameLower === searchVal;
+              });
+              const available = matched ? matched.available : 0;
 
-            return (
-              <div key={i} className="mb-3 p-3 rounded-xl border" style={{ borderColor: "var(--glass-border)", background: "rgba(255,255,255,0.01)" }}>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_70px_70px_60px_28px]">
-                  <div className="relative min-w-0">
-                    <input
-                      className="input w-full"
-                      value={it.drug_name}
-                      placeholder="Type 2 letters to search"
-                      autoComplete="off"
-                      role="combobox"
-                      aria-autocomplete="list"
-                      aria-expanded={activeDrugInput === i && drugSuggestions.length > 0}
-                      onFocus={() => setActiveDrugInput(i)}
-                      onBlur={() => setActiveDrugInput((active) => active === i ? null : active)}
-                      onChange={(e) => {
-                        setItem(i, "drug_name", e.target.value);
-                        setActiveDrugInput(i);
-                      }}
-                    />
-                    {activeDrugInput === i && drugSuggestions.length > 0 && (
-                      <div
-                        role="listbox"
-                        className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-xl border border-[var(--line2)] bg-white shadow-xl"
-                      >
-                        {drugSuggestions.map((suggestion: any) => (
-                          <button
-                            type="button"
-                            role="option"
-                            key={suggestion.drug_name}
-                            className="flex w-full items-center justify-between gap-3 border-b border-[var(--line)] px-3 py-2 text-left text-xs last:border-b-0 hover:bg-[rgba(37,100,207,0.08)]"
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                              selectDrug(i, suggestion.drug_name);
-                            }}
-                          >
-                            <span className="min-w-0">
-                              <span className="block truncate font-semibold text-[var(--ink)]">{suggestion.drug_name}</span>
-                              <span className="block truncate text-[10px] text-[var(--muted)]">{suggestion.salt || suggestion.drug_class || "Medicine"}</span>
-                            </span>
-                            <span className={suggestion.available > 0 ? "shrink-0 font-semibold text-emerald-700" : "shrink-0 font-semibold text-rose-700"}>
-                              {suggestion.available > 0 ? `${suggestion.available} available` : "Out of stock"}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+              return (
+                <div key={i} className="mb-3 p-3 rounded-xl border border-black/[0.06] bg-slate-50/20 text-left">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_105px_95px_110px_36px]">
+                    <div className="relative min-w-0">
+                      <input
+                        className="input w-full"
+                        value={it.drug_name}
+                        placeholder="Type 2 letters to search"
+                        autoComplete="off"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-expanded={activeDrugInput === i && drugSuggestions.length > 0}
+                        onFocus={() => setActiveDrugInput(i)}
+                        onBlur={() => setActiveDrugInput((active) => active === i ? null : active)}
+                        onChange={(e) => {
+                          setItem(i, "drug_name", e.target.value);
+                          setActiveDrugInput(i);
+                        }}
+                      />
+                      {activeDrugInput === i && drugSuggestions.length > 0 && (
+                        <div
+                          role="listbox"
+                          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-60 overflow-y-auto rounded-xl border border-[var(--line2)] bg-white shadow-xl"
+                        >
+                          {drugSuggestions.map((suggestion: any) => (
+                            <button
+                              type="button"
+                              role="option"
+                              key={suggestion.drug_name}
+                              className="flex w-full items-center justify-between gap-3 border-b border-[var(--line)] px-3 py-2 text-left text-xs last:border-b-0 hover:bg-[rgba(37,100,207,0.08)]"
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                selectDrug(i, suggestion.drug_name);
+                              }}
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate font-semibold text-[var(--ink)]">{suggestion.drug_name}</span>
+                                <span className="block truncate text-[10px] text-[var(--muted)]">{suggestion.salt || suggestion.drug_class || "Medicine"}</span>
+                              </span>
+                              <span className={suggestion.available > 0 ? "shrink-0 font-semibold text-emerald-700" : "shrink-0 font-semibold text-rose-700"}>
+                                {suggestion.available > 0 ? `${suggestion.available} available` : "Out of stock"}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <input className="input" value={it.dose} placeholder="Dose" onChange={(e) => setItem(i, "dose", e.target.value)} />
+                    <input className="input" value={it.frequency} placeholder="Freq" onChange={(e) => setItem(i, "frequency", e.target.value)} />
+                    <input className="input" type="number" value={it.duration_days ?? ""} placeholder="Days" onChange={(e) => setItem(i, "duration_days", e.target.value)} />
+                    <button 
+                      type="button" 
+                      className="flex items-center justify-center rounded-lg border border-black/[0.08] hover:bg-rose-50 hover:border-rose-200 text-rose-600 transition shadow-[0_1px_2px_rgba(0,0,0,0.01)]" 
+                      onClick={() => del(i)}
+                      title="Remove medicine"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
-                  <input className="input" value={it.dose} placeholder="Dose" onChange={(e) => setItem(i, "dose", e.target.value)} />
-                  <input className="input" value={it.frequency} placeholder="Freq" onChange={(e) => setItem(i, "frequency", e.target.value)} />
-                  <input className="input" type="number" value={it.duration_days ?? ""} placeholder="Days" onChange={(e) => setItem(i, "duration_days", e.target.value)} />
-                  <button type="button" className="chip text-rose-400 border-rose-500/10 hover:bg-rose-950/15" onClick={() => del(i)}><Trash2 size={14} /></button>
+                  <input
+                    className="input w-full mt-2"
+                    value={it.instructions ?? ""}
+                    placeholder="Instructions (e.g. after food, avoid alcohol)"
+                    onChange={(e) => setItem(i, "instructions", e.target.value)}
+                  />
+                  
+                  {it.drug_name.trim() && (
+                    <div className="mt-1.5 px-1 flex items-center justify-between text-[11px]">
+                      {matched ? (
+                        <span className={available > 0 ? "text-[var(--mint)] font-medium" : "text-rose-400 font-semibold"}>
+                          {available > 0 ? `✓ In stock: ${available} left` : "⚠ OUT OF STOCK"} 
+                          <span className="text-[var(--dim)] ml-1.5">({matched.salt})</span>
+                        </span>
+                      ) : (
+                        <span className="text-amber-400 font-semibold">⚠ Not found in stock</span>
+                      )}
+                      {matched && !matched.formulary && (
+                        <span className="text-amber-500 font-bold uppercase text-[9px] tracking-wider">Non-Formulary</span>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <input
-                  className="input w-full mt-2"
-                  value={it.instructions ?? ""}
-                  placeholder="Instructions (e.g. after food, avoid alcohol)"
-                  onChange={(e) => setItem(i, "instructions", e.target.value)}
-                />
-                
-                {it.drug_name.trim() && (
-                  <div className="mt-1.5 px-1 flex items-center justify-between text-[11px]">
-                    {matched ? (
-                      <span className={available > 0 ? "text-[var(--mint)] font-medium" : "text-rose-400 font-semibold"}>
-                        {available > 0 ? `✓ In stock: ${available} left` : "⚠ OUT OF STOCK"} 
-                        <span className="text-[var(--dim)] ml-1.5">({matched.salt})</span>
-                      </span>
-                    ) : (
-                      <span className="text-amber-400 font-semibold">⚠ Not found in stock</span>
-                    )}
-                    {matched && !matched.formulary && (
-                      <span className="text-amber-500 font-bold uppercase text-[9px] tracking-wider">Non-Formulary</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
 
         {err && <div className="alertbox mt-2 text-rose-400 border-rose-500/10 bg-rose-950/5">{err}</div>}
@@ -331,9 +348,9 @@ export default function Prescription({
         <div className="flex gap-2 mt-4 pt-2 border-t border-white/5">
           <button type="button" className="btn ghost" onClick={() => add()}><Plus size={15} /> Add Medication</button>
           {items.length > 0 ? (
-            <button type="button" className="btn flex-1 justify-center" disabled={busy} onClick={() => runCds(items)}><Pill size={15} /> {busy ? "Analyzing..." : "Analyze & Run CDS"}</button>
+            <button type="button" className="btn flex-1 justify-center text-white-force" disabled={busy} onClick={() => runCds(items)}><Pill size={15} /> {busy ? "Analyzing..." : "Analyze & Run CDS"}</button>
           ) : (
-            <button type="button" className="btn flex-1 g justify-center" disabled={busy} onClick={approveNoMeds}><BadgeCheck size={16} /> E-Sign (No Meds)</button>
+            <button type="button" className="btn flex-1 justify-center text-white-force" disabled={busy} onClick={approveNoMeds}><BadgeCheck size={16} /> E-Sign (No Meds)</button>
           )}
         </div>
 
@@ -395,7 +412,7 @@ export default function Prescription({
           </div>
           <button
             type="button"
-            className="btn w-full justify-center"
+            className="btn w-full justify-center text-white-force"
             disabled={discharging}
             onClick={completeAndDischarge}
           >

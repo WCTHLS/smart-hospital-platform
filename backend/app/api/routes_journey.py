@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.ai import agents
 from app.ai.knowledge import route_specialty
-from app.api.routes_clinical import _check_and_discharge_lab_visit
+from app.api.routes_clinical import _check_and_discharge_lab_visit, _lab_category
 from app.core.database import get_db
 from app.core.events import Topics, bus
 from app.core.security import audit, require_active_consent
@@ -1177,11 +1177,13 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             {
                 "lab_order_id": order.lab_order_id,
                 "test": order.test_name,
+                "category": _lab_category(order.test_name),
                 "analyte": result.analyte if result else "Lab Findings",
                 "value": result.value if result else (order.notes or "Result completed"),
                 "unit": result.unit if result else "",
                 "flag": result.abnormal_flag if result else "N",
                 "date": (result.resulted_ts if result else order.ordered_ts).date().isoformat(),
+                "resulted_ts": (result.resulted_ts if result else (order.sample_collected_ts if order.sample_collected_ts else order.ordered_ts)).isoformat(),
                 "attachment_name": order.attachment_name,
                 "attachment_uri": order.attachment_uri,
             }
@@ -1189,6 +1191,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         ],
         "encounters": [
             {"encounter_id": e.encounter_id, "date": e.arrival_ts.date().isoformat(),
+             "arrival_ts": e.arrival_ts.isoformat(),
              "department": e.department, "status": e.status,
              "visit_type": e.visit_type,
              "reason": encounter_appointments[e.appointment_id].reason
@@ -2526,6 +2529,8 @@ def lab_check_in(body: LabCheckInRequest, db: Session = Depends(get_db)) -> dict
         .where(models.LabOrder.patient_id == body.patient_id)
         .where(models.LabOrder.status == "CONFIRMED")
     ).all()
+    for o in confirmed_orders:
+        o.status = "CHECKED_IN"
     confirmed_ids = [o.lab_order_id for o in confirmed_orders]
     notes_value = ",".join(confirmed_ids) if confirmed_ids else None
 

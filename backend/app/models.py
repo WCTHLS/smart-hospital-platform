@@ -274,6 +274,8 @@ class LabOrder(Base):
     price: Mapped[float | None] = mapped_column(Float)
     ordered_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     sample_collected_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    booking_date: Mapped[str | None] = mapped_column(String(10))
+    booking_slot: Mapped[str | None] = mapped_column(String(20))
     
     # Lab findings & attachments
     notes: Mapped[str | None] = mapped_column(Text) # Human technician notes

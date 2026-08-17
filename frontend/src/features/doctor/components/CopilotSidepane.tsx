@@ -415,7 +415,7 @@ export default function CopilotSidepane({
               {rxErr && <div className="bg-rose-50 border border-rose-200 text-rose-700 p-2 rounded-xl text-[10px] font-bold mt-2">{rxErr}</div>}
               
               <button 
-                className="btn mt-2.5 w-full justify-center font-extrabold bg-[#0078d4] text-white hover:bg-[#0078d4]/90 p-2 rounded-xl shadow-[0_4px_12px_rgba(0,120,212,0.2)]" 
+                className="btn mt-2.5 w-full justify-center font-extrabold bg-[#0078d4] text-white-force hover:bg-[#0078d4]/90 p-2 rounded-xl shadow-[0_4px_12px_rgba(0,120,212,0.2)]" 
                 disabled={rxBusy || (cds.block && !rxAccept && !rxOverride)} 
                 onClick={approveRx}
               >

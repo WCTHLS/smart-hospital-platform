@@ -1,7 +1,7 @@
 import { useEffect, useState, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { 
-  FileText, Mic, FlaskConical, Pill, ArrowLeft, Sparkles, History, 
+  FileText, Share2, Mic, FlaskConical, Pill, ArrowLeft, Sparkles, History, 
   Stethoscope, User, ShieldAlert, Phone, ChevronDown, ChevronUp, CheckCircle2, 
   Plus, AlertTriangle, ExternalLink, ScanLine, MoreHorizontal, UserCheck, 
   Activity, Clock, BookOpen, HeartPulse, ShieldCheck, Download, Filter, Eye, 
@@ -43,11 +43,24 @@ const KPI_CARDS = [
   { label: "Today's Revenue", value: "8.6M", sub: "View Analytics", color: "#16a34a", icon: BookOpen },
 ];
 
-function Spark({ color = "#0078d4" }: { color?: string }) {
+function Spark({ color = "#0078d4", seed = "vital" }: { color?: string; seed?: string }) {
+  // Generate a deterministic unique-looking sparkline path based on the value/seed
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const points = [];
+  const step = 8.25;
+  for (let i = 0; i <= 8; i++) {
+    const x = i * step;
+    // Generate a smooth-looking Y value between 4 and 16 using sinusoids
+    const y = Math.abs(Math.sin(hash + i) * 11) + 4.5;
+    points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+  }
   return (
     <svg width="66" height="20" viewBox="0 0 66 20" fill="none" className="shrink-0 mx-auto mt-1">
       <polyline
-        points="0,14 10,10 18,13 26,6 34,9 42,4 50,8 58,5 66,7"
+        points={points.join(" ")}
         stroke={color} strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.85"
       />
     </svg>
@@ -256,6 +269,7 @@ export default function DoctorWorkspace() {
   const [rxErr, setRxErr] = useState<string | null>(null);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [discharging, setDischarging] = useState(false);
+  const [selectedDoc, setSelectedDoc] = useState<any>(null);
 
   // Active consultation notes & advice state
   const [adviceNotes, setAdviceNotes] = useState("");
@@ -493,8 +507,121 @@ export default function DoctorWorkspace() {
   const allergyText = p360Data?.allergies?.map((a: any) => a.substance) ?? [];
   const activeProblems = p360Data?.issues ?? [];
   const activeMedications = p360Data?.medications ?? [];
-  const recentLabs = p360Data?.recent_results?.filter((r: any) => r.analyte !== "Lab Findings") ?? [];
-  const recentImaging = p360Data?.recent_results?.filter((r: any) => r.analyte === "Lab Findings" || r.test.toLowerCase().includes("x-ray") || r.test.toLowerCase().includes("scan") || r.test.toLowerCase().includes("angio") || r.test.toLowerCase().includes("echo")) ?? [];
+  const recentLabs = p360Data?.recent_results?.filter((r: any) => r.category !== "RADIOLOGY") ?? [];
+  const recentImaging = p360Data?.recent_results?.filter((r: any) => r.category === "RADIOLOGY") ?? [];
+
+  const buildTimelineEvents = () => {
+    const events: any[] = [];
+
+    // 1. Add Encounters (Admission / Check-in)
+    if (p360Data?.encounters) {
+      p360Data.encounters.forEach((e: any) => {
+        const timestamp = e.arrival_ts ? new Date(e.arrival_ts) : null;
+        if (!timestamp) return;
+        
+        events.push({
+          id: `enc-${e.encounter_id}`,
+          timestamp,
+          title: e.visit_type === "LAB" ? "Lab Check-in" : "Patient Admission",
+          status: e.status === "DISCHARGED" || e.status === "COMPLETED" ? "Completed" : "Active",
+          statusColor: e.status === "DISCHARGED" || e.status === "COMPLETED" ? "#16a34a" : "#0078d4",
+          icon: e.visit_type === "LAB" ? FlaskConical : User,
+          colorClass: e.visit_type === "LAB" ? "bg-amber-600/10 text-amber-600 border-amber-600/25" : "bg-[#16a34a]/10 text-[#16a34a] border border-[#16a34a]/25",
+          content: (
+            <span>
+              Checked in to <b>{e.department || "General"} Department</b> (Reason: {e.reason || "Consultation / Test"}).
+            </span>
+          ),
+        });
+      });
+    }
+
+    // 2. Add Lab Results / Updates
+    if (p360Data?.recent_results) {
+      const groupedOrders: Record<string, any> = {};
+      p360Data.recent_results.forEach((r: any) => {
+        if (!groupedOrders[r.lab_order_id]) {
+          groupedOrders[r.lab_order_id] = {
+            test: r.test,
+            category: r.category,
+            date: r.date,
+            resulted_ts: r.resulted_ts,
+            analytes: [],
+            flag: r.flag,
+          };
+        }
+        groupedOrders[r.lab_order_id].analytes.push(r);
+        if (r.flag !== "N") groupedOrders[r.lab_order_id].flag = r.flag;
+      });
+
+      Object.entries(groupedOrders).forEach(([orderId, order]: [string, any]) => {
+        const timestamp = order.resulted_ts ? new Date(order.resulted_ts) : null;
+        if (!timestamp) return;
+
+        const isRadiology = order.category === "RADIOLOGY";
+        const isAbnormal = order.flag && order.flag !== "N";
+
+        events.push({
+          id: `result-${orderId}`,
+          timestamp,
+          title: isRadiology ? "Imaging Report Signed" : "Laboratory Findings Updated",
+          status: isAbnormal ? "Abnormal" : "Completed",
+          statusColor: isAbnormal ? "#CA5010" : "#16a34a",
+          icon: isRadiology ? ScanLine : FlaskConical,
+          colorClass: isRadiology ? "bg-indigo-600/10 text-indigo-600 border-indigo-600/25" : "bg-sky-600/10 text-sky-600 border-sky-600/25",
+          content: (
+            <div className="space-y-1 mt-0.5">
+              <div>Test: <b>{order.test}</b></div>
+              {order.analytes.map((a: any, idx: number) => {
+                if (a.analyte === "Lab Findings" || a.analyte === "Findings Class") {
+                  return (
+                    <div key={idx} className="text-slate-500 font-semibold text-[10.5px] leading-relaxed">
+                      <b>Notes:</b> {a.value}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={idx} className="text-[10.5px]">
+                    • {a.analyte}: <b>{a.value} {a.unit}</b> {a.flag !== "N" ? `(${a.flag})` : ""}
+                  </div>
+                );
+              })}
+            </div>
+          ),
+        });
+      });
+    }
+
+    // 3. Add Prescriptions
+    if (p360Data?.medications) {
+      p360Data.medications.forEach((m: any) => {
+        const timestamp = m.created_ts ? new Date(m.created_ts) : null;
+        if (!timestamp) return;
+
+        events.push({
+          id: `med-timeline-${m.medication_id}`,
+          timestamp,
+          title: "Prescription Authorized",
+          status: m.status === "ACTIVE" ? "E-Signed" : "Cancelled",
+          statusColor: m.status === "ACTIVE" ? "#16a34a" : "#D13438",
+          icon: Pill,
+          colorClass: "bg-emerald-600/10 text-emerald-600 border border-emerald-600/25",
+          content: (
+            <span>
+              E-Signed: <b>{m.drug_name} {m.dosage}</b>
+            </span>
+          ),
+        });
+      });
+    }
+
+    // Sort by timestamp desc
+    events.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+
+    return events;
+  };
+
+  const timelineEvents = buildTimelineEvents();
   
   const riskLevel = p360Data?.riskLevel ?? "Moderate";
   const riskColor = riskLevel === "High" ? "#D13438" : riskLevel === "Moderate" ? "#CA5010" : "#16a34a";
@@ -520,7 +647,7 @@ export default function DoctorWorkspace() {
           
           {/* TOP: Command Center KPI row */}
           <div className="text-left">
-            <h2 className="text-[14px] font-extrabold text-[#0c3b63] mb-2.5">Command Center</h2>
+            <h2 className="text-[15.5px] font-extrabold text-[#0c3b63] mb-2">Command Center</h2>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
               {KPI_CARDS.map((k) => (
                 <div key={k.label} className="rounded-2xl border border-black/[0.07] bg-white relative overflow-hidden p-3 shadow-[0_2px_8px_rgba(0,0,0,0.01)]">
@@ -534,259 +661,186 @@ export default function DoctorWorkspace() {
                 </div>
               ))}
             </div>
-          </div>
-
-          {/* MIDDLE: Patient 360 - Digital Twin Section */}
-          <div className="text-left mt-6">
-            <div className="flex items-center gap-2 mb-2">
-              <h2 className="text-[14px] font-extrabold text-[#0c3b63]">Patient 360 - Digital Twin</h2>
-              <span className="text-[9px] bg-rose-500/10 text-rose-600 font-extrabold px-2 py-0.5 rounded-full border border-rose-500/25">High Risk</span>
+                    {/* MIDDLE: Patient 360 - Digital Twin Section */}
+          <div className={`${cardClass} mt-4 text-left shadow-[0_4px_16px_rgba(0,0,0,0.015)]`}>
+            
+            {/* Title Header Row with Actions */}
+            <div className="mb-4 flex items-center justify-between pb-3 border-b border-black/[0.05]">
+              <div className="flex items-center gap-2">
+                <h2 className="text-[15.5px] font-extrabold text-[#0c3b63]">Patient 360 – Digital Twin</h2>
+                <span className="flex items-center gap-1 rounded-full bg-rose-500/10 px-2 py-0.5 text-[9.5px] font-extrabold text-rose-600 border border-rose-500/25">
+                  <AlertTriangle size={11} /> High Risk
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button type="button" className="flex items-center gap-1 rounded-lg border border-black/[0.08] bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[11.5px] font-extrabold text-slate-600 transition shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                  <FileText size={13} className="text-slate-400" /> Open Chart
+                </button>
+                <button type="button" className="flex items-center gap-1 rounded-lg border border-black/[0.08] bg-white hover:bg-slate-50 px-2.5 py-1.5 text-[11.5px] font-extrabold text-slate-600 transition shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                  <Share2 size={13} className="text-slate-400" /> Share
+                </button>
+                <button type="button" className="grid h-7 w-7 place-items-center rounded-lg border border-black/[0.08] bg-white hover:bg-slate-50 text-slate-400 shadow-[0_1px_2px_rgba(0,0,0,0.02)]"><MoreHorizontal size={16} /></button>
+                <span className="text-slate-200 font-extrabold h-4 w-px mx-1" />
+                <button 
+                  type="button" 
+                  onClick={handleBackToQueue}
+                  className="border border-black/[0.08] bg-white text-slate-700 text-[11px] font-extrabold px-3 py-1.5 rounded-lg hover:bg-slate-50 flex items-center gap-1 transition shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+                >
+                  <ArrowLeft size={11} className="text-slate-450" /> Back
+                </button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowHistoryModal(true)}
+                  className="border border-black/[0.08] bg-white text-slate-700 text-[11px] font-extrabold px-3 py-1.5 rounded-lg hover:bg-slate-50 flex items-center gap-1 transition shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
+                >
+                  <History size={11} className="text-slate-450" /> Audit Log
+                </button>
+              </div>
             </div>
 
-            {/* Row 1 Grid: Patient Profile (Left) and AI Patient Summary (Right) */}
-            <div className="flex flex-wrap gap-4 items-stretch">
+            {/* Demographics details + AI Summary Grid */}
+            <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr] border-b border-black/[0.05] pb-4">
               
-              {/* Patient Header Details Card */}
-              <div className={`${cardClass} flex-1 min-w-[500px] relative overflow-hidden`}>
-                <div className="grid gap-4 xl:grid-cols-[1.5fr_2fr_auto] items-start">
+              {/* Left Column: Demographics Details Box */}
+              <div className="flex gap-4 text-left items-start">
+                <div className="grid h-[92px] w-[92px] shrink-0 place-items-center rounded-2xl border border-black/[0.06] bg-slate-50 text-[30px] font-extrabold text-[#0078d4] shadow-inner">
+                  {initials}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <span className="text-[20px] font-extrabold text-slate-850">{journey.patientName}</span>
+                    
+                    {/* Patient switcher dropdown */}
+                    <select 
+                      value={journey.encounterId || ""} 
+                      onChange={(e) => {
+                        const enc = queue?.find((x: any) => x.encounter_id === e.target.value);
+                        if (enc) handleSelectPatient(enc);
+                      }}
+                      className="cursor-pointer rounded-md border border-black/[0.08] bg-white py-1 pl-2 pr-6 text-[12px] font-bold text-slate-500 outline-none focus:border-[#0078d4] shadow-[0_1px_2px_rgba(0,0,0,0.01)]"
+                    >
+                      <option value="" disabled>Switch patient...</option>
+                      {queue?.map((enc: any) => (
+                        <option key={enc.encounter_id} value={enc.encounter_id}>
+                          {enc.patient.name} {enc.token?.number ? `· Token ${enc.token.number}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   
-                  {/* Left Column: Avatar + Name Details */}
-                  <div className="flex items-start gap-3.5 min-w-[240px]">
-                    <div className="grid h-[72px] w-[72px] shrink-0 place-items-center rounded-2xl text-[22px] font-extrabold text-white shadow-[0_8px_18px_rgba(0,120,212,.18)]" style={{ background: "linear-gradient(150deg,#3a96e0,#0078d4)" }}>
-                      {initials}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[17px] font-extrabold text-slate-850 leading-tight truncate">{journey.patientName}</span>
-                        <span className="text-[9.5px] font-extrabold px-1.5 py-0.5 rounded-full border shrink-0" style={{ background: `${riskColor}12`, color: riskColor, borderColor: `${riskColor}28` }}>
-                          {riskLevel}
-                        </span>
-                      </div>
-                      
-                      {/* Patient Queue Switcher */}
-                      <div className="relative mt-1">
-                        <select 
-                          value={journey.encounterId || ""} 
-                          onChange={(e) => {
-                            const enc = queue?.find((x: any) => x.encounter_id === e.target.value);
-                            if (enc) handleSelectPatient(enc);
-                          }}
-                          className="w-full max-w-[210px] cursor-pointer rounded-lg border border-black/[0.08] bg-white py-0.5 pl-2 pr-6 text-[11px] font-extrabold text-slate-500 outline-none focus:border-[#0078d4]"
-                        >
-                          <option value="" disabled>Switch patient...</option>
-                          {queue?.map((enc: any) => (
-                            <option key={enc.encounter_id} value={enc.encounter_id}>
-                              {enc.patient.name} {enc.token?.number ? `· Token ${enc.token.number}` : ""}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="mt-1 text-[11px] font-bold text-slate-500 leading-tight">
-                        {[
-                          encDetails?.patient?.age != null ? `${encDetails.patient.age} Y` : null,
-                          encDetails?.patient?.gender,
-                          encDetails?.patient?.mrn ? `MRN: ${encDetails.patient.mrn}` : null,
-                        ].filter(Boolean).join(" · ")}
-                      </div>
-
-                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] font-semibold text-slate-400">
-                        {p360Data?.patient?.mobile && <span className="flex items-center gap-0.5"><Phone size={10.5} /> {p360Data.patient.mobile}</span>}
-                        {p360Data?.patient?.blood_group && (
-                          <>
-                            <span className="text-slate-200">·</span>
-                            <span>Blood {p360Data.patient.blood_group}</span>
-                          </>
-                        )}
-                        {p360Data?.patient?.insurance_provider && (
-                          <>
-                            <span className="text-slate-200">·</span>
-                            <span>{p360Data.patient.insurance_provider}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
+                  <div className="mt-0.5 text-[14px] font-bold text-slate-500 leading-tight">
+                    {[
+                      encDetails?.patient?.age != null ? `${encDetails.patient.age} Y` : null,
+                      encDetails?.patient?.gender === "Female" ? "Female" : "Male",
+                      encDetails?.patient?.mrn ? `MRN: ${encDetails.patient.mrn}` : null,
+                    ].filter(Boolean).join(" · ")}
                   </div>
-
-                  {/* Middle Column: Core Info Grid */}
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 text-left min-w-[320px]">
+                  
+                  <div className="text-[13px] text-slate-400 font-semibold mt-0.5">
+                    Phone: {p360Data?.patient?.mobile || "No Mobile"}
+                  </div>
+ 
+                  {/* Core variables sub-grid */}
+                  <div className="mt-3.5 grid grid-cols-2 gap-x-4 gap-y-2 border-t border-black/[0.04] pt-3">
                     <div>
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Admitted / Arrival</div>
-                      <div className="text-[12px] font-bold text-slate-700">{encDetails?.arrival ? new Date(encDetails.arrival).toLocaleDateString([], { day: '2-digit', month: 'short' }) : "Today"}</div>
-                      <div className="text-[9.5px] font-semibold text-slate-400">{encDetails?.arrival ? new Date(encDetails.arrival).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}</div>
+                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Blood Group</div>
+                      <div className="text-[14px] font-bold text-slate-700 mt-0.5">{p360Data?.patient?.blood_group || "B+"}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Attending Physician</div>
-                      <div className="text-[12px] font-bold text-slate-700 truncate">{journey.doctorName || encDetails?._doctorName || "Dr. Ahmed Ali"}</div>
-                      <div className="text-[9.5px] font-semibold text-slate-400">{journey.department || "Cardiology"}</div>
+                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Allergies</div>
+                      <div className="text-[14px] font-bold text-rose-600 mt-0.5 truncate max-w-[180px]">{allergyText.length > 0 ? allergyText[0] : "None"}</div>
+                      <div className="text-[11.5px] text-rose-500 font-semibold truncate max-w-[160px]">{allergyText.slice(1).join(", ") || "No warnings"}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Allergies</div>
-                      <div className="text-[12px] font-bold text-rose-600 truncate">{allergyText.length > 0 ? allergyText[0] : "None"}</div>
-                      <div className="text-[9.5px] font-semibold text-rose-500 truncate max-w-[90px]">{allergyText.slice(1).join(", ") || "No warnings"}</div>
+                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Insurance</div>
+                      <div className="text-[14px] font-bold text-slate-700 mt-0.5 truncate max-w-[180px]">{p360Data?.patient?.insurance_provider || "Jubilee Health"}</div>
                     </div>
                     <div>
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">Encounter Status</div>
-                      <div className="text-[12px] font-bold text-slate-700 flex items-center gap-1.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block animate-pulse" />
-                        Active consultation
-                      </div>
-                      <div className="text-[9.5px] font-semibold text-slate-400">Token #{journey.token || "N/A"}</div>
+                      <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Location</div>
+                      <div className="text-[14px] font-bold text-slate-700 mt-0.5">ICU-07</div>
+                      <div className="text-[11.5px] text-[#0078d4] font-bold">Bed 01</div>
                     </div>
-                  </div>
-
-                  {/* Right Column: Action Buttons */}
-                  <div className="flex flex-col gap-1.5 shrink-0">
-                    <button 
-                      type="button" 
-                      onClick={handleBackToQueue}
-                      className="border border-black/[0.1] bg-white text-slate-650 text-[11px] font-bold px-3 py-1.5 rounded-lg hover:bg-slate-50 flex items-center gap-1.5 transition"
-                    >
-                      <ArrowLeft size={12} className="text-slate-450" /> Back to Queue
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={() => setShowHistoryModal(true)}
-                      className="border border-black/[0.1] bg-white text-slate-650 text-[11px] font-bold px-3 py-1.5 rounded-lg hover:bg-slate-50 flex items-center gap-1.5 transition"
-                    >
-                      <History size={12} className="text-slate-450" /> Audit Log
-                    </button>
-                  </div>
-
-                </div>
-              </div>
-
-              {/* AI Patient Summary Card (Top Right) */}
-              <div className={`${cardClass} w-[340px] shrink-0 text-left`}>
-                <div className="mb-2 flex items-center justify-between pb-1 border-b border-black/[0.04]">
-                  <span className="flex items-center gap-1.5 text-[11.5px] font-bold text-[#0c3b63]"><Sparkles size={13} className="text-[#0a5aa8]" /> AI Patient Summary</span>
-                  <button onClick={handleGenerateSummary} disabled={generatingSummary} className="text-[10px] text-[#0078d4] font-bold">
-                    {generatingSummary ? "..." : "Refresh"}
-                  </button>
-                </div>
-                <p className="text-[11.5px] leading-relaxed text-slate-600 h-[64px] overflow-y-auto pr-1 font-semibold">
-                  {p360Data?.ai_summary?.result?.summary || "Summary has not been generated for this patient yet. Click Refresh."}
-                </p>
-                <div className="mt-2.5 grid grid-cols-2 gap-2 border-t border-black/[0.03] pt-2">
-                  <div>
-                    <div className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Risk Score</div>
-                    <div className="text-[13px] font-extrabold mt-0.5 text-rose-600">85% <span className="text-[9.5px] text-slate-400 font-bold">High</span></div>
-                  </div>
-                  <div>
-                    <div className="text-[9px] font-extrabold uppercase tracking-wider text-slate-400">Readmission Risk</div>
-                    <div className="text-[13px] font-extrabold mt-0.5 text-amber-600">36% <span className="text-[9.5px] text-slate-400 font-bold">Moderate</span></div>
                   </div>
                 </div>
               </div>
-
+ 
+              {/* Right Column: AI Patient Summary Box */}
+              <div className="rounded-xl border border-[#0078d4]/15 bg-[#0078d4]/5 p-3 flex flex-col justify-between text-left">
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between pb-1 border-b border-[#0078d4]/10">
+                    <span className="flex items-center gap-1.5 text-[13.5px] font-bold text-[#0a5aa8]"><Sparkles size={13} /> AI Patient Summary</span>
+                    <button onClick={handleGenerateSummary} disabled={generatingSummary} className="text-[11.5px] text-[#0078d4] font-bold">
+                      {generatingSummary ? "..." : "Refresh"}
+                    </button>
+                  </div>
+                  <p className="text-[13px] leading-relaxed text-slate-655 font-semibold">
+                    {p360Data?.ai_summary?.result?.summary || "Summary has not been generated for this patient yet. Click Refresh."}
+                  </p>
+                </div>
+                <div className="mt-2.5 grid grid-cols-2 gap-2">
+                  <div className="rounded-lg bg-white/70 p-2 border border-black/[0.03]">
+                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Risk Score</div>
+                    <div className="text-[14px] font-bold text-rose-600 mt-0.5">{riskLevel === "High" ? "High (85%)" : "Moderate (45%)"}</div>
+                  </div>
+                  <div className="rounded-lg bg-white/70 p-2 border border-black/[0.03]">
+                    <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Readmission Risk</div>
+                    <div className="text-[14px] font-bold text-amber-600 mt-0.5">Moderate (36%)</div>
+                  </div>
+                </div>
+              </div>
+ 
             </div>
-
+ 
             {/* Tab Bar & Content (Spans Full Width under header row) */}
-            <div className="mt-4 space-y-4">
-              <div className="flex gap-x-4 gap-y-1 overflow-x-auto border-b border-black/[0.07] pb-1.5 text-left">
-                {NEW_TABS.map((t) => (
-                  <button 
-                    key={t.id} 
-                    type="button" 
-                    onClick={() => setTab(t.id)}
-                    className="relative shrink-0 whitespace-nowrap pb-1.5 text-[12.5px] font-extrabold transition outline-none"
-                    style={{ color: tab === t.id ? "#0078d4" : "#64748b" }}
-                  >
-                    {t.label}
-                    {tab === t.id && <span className="absolute inset-x-0 -bottom-px h-[2px] rounded bg-[#0078d4]" />}
-                  </button>
-                ))}
-              </div>
-
-              {/* Tab contents */}
-              <div className="min-w-0">
+            <div className="mt-4 flex gap-x-4 gap-y-1 overflow-x-auto border-b border-black/[0.07] pb-1.5 text-left">
+              {NEW_TABS.map((t) => (
+                <button 
+                  key={t.id} 
+                  type="button" 
+                  onClick={() => setTab(t.id)}
+                  className="relative shrink-0 whitespace-nowrap pb-1.5 text-[15px] font-extrabold transition outline-none"
+                  style={{ color: tab === t.id ? "#0078d4" : "#64748b" }}
+                >
+                  {t.label}
+                  {tab === t.id && <span className="absolute inset-x-0 -bottom-px h-[2px] rounded bg-[#0078d4]" />}
+                </button>
+              ))}
+            </div>
+ 
+            <div className="mt-4 min-w-0">
                 {/* TIMELINE TAB */}
                 {tab === "timeline" && (
                   <div className="space-y-4 animate-in fade-in duration-200 text-left">
                     <div className="flex items-center justify-between pb-1 border-b border-black/[0.04]">
-                      <h4 className="text-[12.5px] font-extrabold text-[#0c3b63]">Clinical Timeline &amp; Events</h4>
-                      <FilterChip label="View Full Timeline" />
+                      <h4 className="text-[15.5px] font-extrabold text-[#0c3b63]">Clinical Timeline &amp; Events</h4>
                     </div>
-
-                    <div className="space-y-4 mt-2">
-                      {/* Milestone 1: Admission */}
-                      <div className="flex gap-3">
-                        <div className="flex w-14 shrink-0 flex-col items-end pt-1.5 text-right text-[10px] font-bold text-slate-400">
-                          <div>Today</div>
-                          <div>09:30 AM</div>
-                        </div>
-                        <div className="flex flex-col items-center">
-                          <span className="grid h-6 w-6 place-items-center rounded-full bg-[#16a34a]/10 text-[#16a34a] border border-[#16a34a]/25"><User size={12} /></span>
-                          <span className="w-px flex-1 bg-black/[0.08] my-1" />
-                        </div>
-                        <div className={`${cardClass} p-3 flex-1`}>
-                          <div className="flex justify-between items-center"><span className="text-[11.5px] font-extrabold text-slate-700">Patient Admission</span><LocalPill tone="#16a34a">Completed</LocalPill></div>
-                          <p className="mt-1 text-[11px] text-slate-500 font-semibold leading-normal">
-                            <b>Chief Complaint:</b> "{journey.chiefComplaint || "Routine evaluation"}"<br />
-                            <b>Attending Physician:</b> {journey.doctorName || "Dr. Ahmed Ali"} · Cardiology
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Milestone 2: Labs */}
-                      {recentLabs.length > 0 && (
-                        <div className="flex gap-3">
-                          <div className="flex w-14 shrink-0 flex-col items-end pt-1.5 text-right text-[10px] font-bold text-slate-400">
-                            <div>Today</div>
-                            <div>11:20 AM</div>
+ 
+                    <div className="max-h-[380px] overflow-y-auto pr-1.5 space-y-4 mt-2 custom-scrollbar">
+                      {timelineEvents.map((ev: any) => (
+                        <div key={ev.id} className="flex gap-3">
+                          <div className="flex w-14 shrink-0 flex-col items-end pt-1.5 text-right text-[11.5px] font-bold text-slate-400">
+                            <div>{ev.timestamp.toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                            <div>{ev.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                           </div>
                           <div className="flex flex-col items-center">
-                            <span className="grid h-6 w-6 place-items-center rounded-full bg-amber-600/10 text-amber-600 border border-amber-600/25"><FlaskConical size={12} /></span>
+                            <span className={`grid h-6 w-6 place-items-center rounded-full ${ev.colorClass}`}>
+                              <ev.icon size={12} />
+                            </span>
                             <span className="w-px flex-1 bg-black/[0.08] my-1" />
                           </div>
                           <div className={`${cardClass} p-3 flex-1`}>
-                            <div className="flex justify-between items-center"><span className="text-[11.5px] font-extrabold text-slate-700">Laboratory Findings</span><LocalPill tone="#CA5010">Abnormal</LocalPill></div>
-                            <div className="mt-1 text-[11px] text-slate-500 font-semibold space-y-0.5">
-                              {recentLabs.slice(0, 2).map((l: any, i: number) => (
-                                <div key={i}>• {l.test}: <b>{l.value} {l.unit}</b> ({l.flag === "N" ? "Normal" : l.flag})</div>
-                              ))}
+                            <div className="flex justify-between items-center">
+                              <span className="text-[13.5px] font-extrabold text-slate-700">{ev.title}</span>
+                              <LocalPill tone={ev.statusColor}>{ev.status}</LocalPill>
                             </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Milestone 3: Prescription */}
-                      {rxDone && (
-                        <div className="flex gap-3">
-                          <div className="flex w-14 shrink-0 flex-col items-end pt-1.5 text-right text-[10px] font-bold text-slate-400">
-                            <div>Today</div>
-                            <div>12:10 PM</div>
-                          </div>
-                          <div className="flex flex-col items-center">
-                            <span className="grid h-6 w-6 place-items-center rounded-full bg-emerald-600/10 text-emerald-600 border border-emerald-600/25"><Pill size={12} /></span>
-                            <span className="w-px flex-1 bg-black/[0.08] my-1" />
-                          </div>
-                          <div className={`${cardClass} p-3 flex-1`}>
-                            <div className="flex justify-between items-center"><span className="text-[11.5px] font-extrabold text-slate-700">Prescription Authorized</span><LocalPill tone="#16a34a">E-Signed</LocalPill></div>
-                            <p className="mt-1 text-[11px] text-slate-500 font-semibold leading-normal">
-                              E-Signed by {journey.doctorName || "Dr. Ahmed Ali"}. Dispensed for triage checkout.
+                            <p className="mt-1 text-[12.5px] text-slate-500 font-semibold leading-normal">
+                              {ev.content}
                             </p>
                           </div>
                         </div>
-                      )}
-
-                      {/* Milestone 4: Notes recorded */}
-                      {adviceNotes && (
-                        <div className="flex gap-3">
-                          <div className="flex w-14 shrink-0 flex-col items-end pt-1.5 text-right text-[10px] font-bold text-slate-400">
-                            <div>Today</div>
-                            <div>Active</div>
-                          </div>
-                          <div className="flex flex-col items-center">
-                            <span className="grid h-6 w-6 place-items-center rounded-full bg-[#0078d4]/10 text-[#0078d4] border border-[#0078d4]/25"><FileText size={12} /></span>
-                          </div>
-                          <div className={`${cardClass} p-3 flex-1`}>
-                            <div className="flex justify-between items-center"><span className="text-[11.5px] font-extrabold text-slate-700">Consultation Notes Saved</span><LocalPill tone="#0078d4">Active Draft</LocalPill></div>
-                            <p className="mt-1 text-[11px] text-slate-500 font-semibold truncate leading-normal">
-                              "{adviceNotes.slice(0, 80)}..."
-                            </p>
-                          </div>
-                        </div>
+                      ))}
+                      {timelineEvents.length === 0 && (
+                        <div className="text-center py-6 text-slate-400 font-semibold italic">No timeline events recorded.</div>
                       )}
                     </div>
                   </div>
@@ -827,7 +881,7 @@ export default function DoctorWorkspace() {
                             <div key={v.label} className="flex items-center justify-between text-[11.5px] font-semibold text-slate-600">
                               <span className="text-slate-400 font-bold w-10">{v.label}</span>
                               <span className="text-slate-700 flex-1">{v.value}</span>
-                              <Spark color={v.color} />
+                              <Spark color={v.color} seed={`${v.label}-${v.value}`} />
                             </div>
                           ))}
                         </div>
@@ -902,7 +956,7 @@ export default function DoctorWorkspace() {
                 {tab === "vitals" && (
                   <div className="space-y-4 animate-in fade-in duration-200">
                     {p360Data?.latest_vitals ? (
-                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      <div className="grid gap-2.5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
                         {[
                           { label: "Blood Pressure", value: p360Data.latest_vitals.bp || "—", unit: "mmHg", color: "#0078d4" },
                           { label: "Heart Rate", value: p360Data.latest_vitals.heart_rate != null ? String(p360Data.latest_vitals.heart_rate) : "—", unit: "bpm", color: "#D13438" },
@@ -916,7 +970,7 @@ export default function DoctorWorkspace() {
                               <span className="text-[20px] font-extrabold text-slate-800" style={{ fontVariantNumeric: "tabular-nums" }}>{v.value}</span>
                               <span className="text-[11px] text-slate-400 font-semibold">{v.unit}</span>
                             </div>
-                            <Spark color={v.color} />
+                            <Spark color={v.color} seed={`${v.label}-${v.value}`} />
                           </div>
                         ))}
                       </div>
@@ -1086,7 +1140,11 @@ export default function DoctorWorkspace() {
 
                     <div className="grid gap-3 sm:grid-cols-2">
                       {p360Data?.documents?.map((d: any) => (
-                        <div key={d.document_id} className="flex items-start gap-3 rounded-xl border border-black/[0.05] bg-white p-3 shadow-[0_2px_8px_rgba(0,0,0,0.01)] text-xs text-left">
+                        <div 
+                          key={d.document_id} 
+                          onClick={() => setSelectedDoc(d)}
+                          className="flex items-start gap-3 rounded-xl border border-black/[0.05] bg-white p-3 shadow-[0_2px_8px_rgba(0,0,0,0.01)] text-xs text-left cursor-pointer hover:bg-slate-50 hover:border-[#0078d4]/30 transition shadow-sm"
+                        >
                           <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[#0078d4]/10 text-[#0078d4]"><FileText size={16} /></div>
                           <div className="min-w-0 flex-1">
                             <div className="font-extrabold text-slate-700 leading-tight truncate">{d.title}</div>
@@ -1360,6 +1418,67 @@ export default function DoctorWorkspace() {
               >
                 Done
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Preview Modal */}
+      {selectedDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setSelectedDoc(null)}>
+          <div 
+            className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden border border-black/15 flex flex-col text-slate-800 shadow-[0_20px_40px_rgba(0,0,0,0.15)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-black/10 px-5 py-4 bg-slate-50">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="grid h-8 w-8 place-items-center rounded-lg bg-[#0078d4]/10 text-[#0078d4] shrink-0">
+                  <FileText size={16} />
+                </div>
+                <div className="text-left min-w-0">
+                  <h3 className="text-sm font-extrabold text-slate-800 truncate">{selectedDoc.title}</h3>
+                  <p className="text-[10px] text-slate-400 font-bold">{selectedDoc.date} · {selectedDoc.doc_type}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedDoc(null)}
+                className="border border-black/[0.08] hover:bg-slate-100 py-1 px-2.5 text-xs font-bold rounded-lg text-slate-400 transition"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 p-4 bg-slate-100 overflow-y-auto max-h-[70vh] min-h-[500px]">
+              <iframe 
+                src={selectedDoc.uri} 
+                title={selectedDoc.title}
+                className="w-full h-[550px] rounded-xl bg-white border border-black/[0.08]"
+              />
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between border-t border-black/10 px-5 py-3.5 bg-slate-50">
+              <span className="text-[10.5px] text-slate-400 font-semibold truncate">
+                💡 Document URL: <a href={selectedDoc.uri} target="_blank" rel="noopener noreferrer" className="text-[#0078d4] hover:underline font-bold">{selectedDoc.uri}</a>
+              </span>
+              <div className="flex gap-2">
+                <a 
+                  href={selectedDoc.uri} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="bg-[#0078d4] hover:bg-[#0078d4]/90 text-white-force font-bold text-xs py-1.5 px-4 rounded-lg inline-flex items-center gap-1.5 shadow-[0_2px_8px_rgba(0,120,212,0.15)] transition"
+                >
+                  Open in New Tab
+                </a>
+                <button 
+                  onClick={() => setSelectedDoc(null)}
+                  className="bg-white hover:bg-slate-150 border border-black/[0.08] text-slate-650 font-bold text-xs py-1.5 px-4 rounded-lg transition"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </div>

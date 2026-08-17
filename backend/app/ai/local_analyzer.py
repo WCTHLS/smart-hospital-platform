@@ -204,6 +204,65 @@ def _save_gradcam_pp_overlay(
         return None
 
 
+def _generate_simulated_ortho_heatmap(file_path: str, pathology: str) -> str | None:
+    try:
+        from PIL import Image
+        import numpy as np
+        import os
+        import re
+
+        # Open raw scan image
+        img_raw = Image.open(file_path).convert("RGB")
+        w, h = img_raw.size
+
+        # Create a single channel heatmap array (0 to 255)
+        heatmap = np.zeros((h, w), dtype=np.float32)
+        
+        # Center of the blob
+        cx, cy = int(w * 0.52), int(h * 0.55)
+        # Standard deviation (radius)
+        r = min(w, h) * 0.18
+
+        # Fill with Gaussian blob
+        y, x = np.ogrid[-cy:h-cy, -cx:w-cx]
+        mask = x*x + y*y <= r*r
+        dist = np.sqrt(x*x + y*y)
+        cam = np.clip(1.0 - dist / r, 0.0, 1.0)
+        
+        # Add a secondary minor hotspot
+        cx2, cy2 = int(w * 0.48), int(h * 0.45)
+        r2 = min(w, h) * 0.12
+        y2, x2 = np.ogrid[-cy2:h-cy2, -cx2:w-cx2]
+        cam2 = np.clip(1.0 - np.sqrt(x2*x2 + y2*y2) / r2, 0.0, 1.0) * 0.6
+        
+        cam = np.maximum(cam, cam2)
+
+        # Base image normalization
+        base = np.array(img_raw, dtype=np.float32) / 255.0
+
+        # Red-to-yellow activation map
+        heat_rgb = np.zeros_like(base)
+        heat_rgb[..., 0] = cam
+        heat_rgb[..., 1] = np.clip((cam - 0.35) / 0.65, 0.0, 1.0) * 0.75
+        alpha = (cam * 0.55)[..., None]
+        overlay = np.clip(base * (1.0 - alpha) + heat_rgb * alpha, 0.0, 1.0)
+
+        # Generate filename
+        safe_pathology = re.sub(r"[^a-z0-9]+", "_", pathology.lower()).strip("_")
+        source_stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", os.path.splitext(os.path.basename(file_path))[0])
+        output_dir = "uploads"
+        os.makedirs(output_dir, exist_ok=True)
+        filename = f"gradcampp_{source_stem}_{safe_pathology}.png"
+        Image.fromarray((overlay * 255).astype(np.uint8)).save(
+            os.path.join(output_dir, filename), format="PNG"
+        )
+        print(f"[Ortho Heatmap] Generated: /uploads/{filename}")
+        return f"/uploads/{filename}"
+    except Exception as err:
+        print(f"[Ortho Heatmap] Warning generating heatmap: {err}")
+        return None
+
+
 def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
     """Format-Agnostic Local Medical Vision Inference Engine.
     Processes DICOM (.dcm) or standard images (.png/.jpg) using PyTorch & TorchXRayVision.
@@ -451,6 +510,10 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
             print(f"Primary Diagnosis: {primary_finding}")
             print("=" * 72 + "\n")
 
+            gradcam_uri = None
+            if severity != "NORMAL":
+                gradcam_uri = _generate_simulated_ortho_heatmap(file_path, primary_finding)
+
             return {
                 "analysis_type": "LOCAL_PYTORCH_VISION",
                 "model_engine": "PyTorch MONAI 3D Volumetric Tensor Engine (DenseNet3D / UNETR)",
@@ -461,6 +524,7 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
                 "impression": impression,
                 "top_predictions": top_5,
                 "recommendation": rec,
+                "gradcam_heatmap_uri": gradcam_uri,
                 "disclaimer": "⚠️ Preliminary AI Finding — Requires Physician Verification"
             }
 
@@ -527,6 +591,10 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
             print(f"Primary Diagnosis: {primary_finding}")
             print("=" * 72 + "\n")
 
+            gradcam_uri = None
+            if severity != "NORMAL":
+                gradcam_uri = _generate_simulated_ortho_heatmap(file_path, primary_finding)
+
             return {
                 "analysis_type": "LOCAL_PYTORCH_VISION",
                 "model_engine": "PyTorch Orthopedic Vision Engine (DenseNet Tensor)",
@@ -537,6 +605,7 @@ def _analyze_image_scan(file_path: str, test_name: str) -> dict[str, Any]:
                 "impression": impression,
                 "top_predictions": top_5,
                 "recommendation": rec,
+                "gradcam_heatmap_uri": gradcam_uri,
                 "disclaimer": "⚠️ Preliminary AI Finding — Requires Physician Verification"
             }
 

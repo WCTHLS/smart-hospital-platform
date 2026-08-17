@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight, HeartPulse, Stethoscope, Syringe, FlaskConical, ClipboardList,
-  Pill, MonitorDot, ShieldAlert, MessageSquareHeart, ChevronRight,
+  Pill, MonitorDot, ShieldAlert, MessageSquareHeart, ChevronRight, Scan,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { Card, Metric } from "../components/ui";
@@ -12,7 +12,8 @@ const WORKSPACES = [
   { to: "/triage", label: "Triage Desk", icon: HeartPulse, desc: "Nurse-led vitals capture and ESI-based prioritization." },
   { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, desc: "Consult queue, AI-assisted notes and prescriptions." },
   { to: "/oncology", label: "Oncology & Cancer Care", icon: Syringe, desc: "Diagnosis staging, chemotherapy and tumor board tracking." },
-  { to: "/lab", label: "Lab Workspace", icon: FlaskConical, desc: "Order intake, sample collection and result entry." },
+  { to: "/lab", label: "Laboratory Dashboard", icon: FlaskConical, desc: "Order intake, pathology sample collection and result entry." },
+  { to: "/radiology", label: "Radiology Command Center", icon: Scan, desc: "CT/MRI worklist, interactive PACS viewer, findings reporting." },
   { to: "/reception", label: "Reception Desk", icon: ClipboardList, desc: "Appointments, registration and front-desk operations." },
   { to: "/pharmacy", label: "Pharmacy Desk", icon: Pill, desc: "Prescription verification and medication dispensing." },
   { to: "/command", label: "Command Center", icon: MonitorDot, desc: "Hospital-wide operational and compliance overview." },

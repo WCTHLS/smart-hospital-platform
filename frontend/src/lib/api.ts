@@ -134,6 +134,8 @@ export const api = {
     post<any>(`/api/v1/lab-orders/${lab_order_id}/confirm`),
   collectLabSample: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/collect-sample`),
+  clearLabAttachment: (lab_order_id: string) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/clear-attachment`),
   labCheckIn: (body: any) => post<any>("/api/v1/labs/check-in", body),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
