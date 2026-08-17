@@ -123,7 +123,7 @@ export default function Layout({ children }: { children: ReactNode }) {
           </button>
           <div className="ml-1 hidden min-w-0 truncate border-l border-[var(--line)] pl-3 text-[11px] uppercase tracking-[0.16em] text-[var(--dim)] xl:block">
             {loc.pathname.startsWith("/patient")
-              ? "Patient Dashboard"
+              ? "Patient Portal"
               : NAV.find((n) => n.to === loc.pathname)?.label || "Patient Journey Platform"}
           </div>
         </div>
@@ -161,40 +161,17 @@ export default function Layout({ children }: { children: ReactNode }) {
             </NavLink>
 
             {index === 0 && (
-              <div className="mt-1">
-                <button
-                  type="button"
-                  onClick={() => setPatientMenuOpen((open) => !open)}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[13.5px] font-semibold transition"
-                  style={{
-                    color: loc.pathname.startsWith("/patient") ? "#123a7a" : "var(--muted)",
-                    background: loc.pathname.startsWith("/patient")
-                      ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))"
-                      : "transparent",
-                    border: loc.pathname.startsWith("/patient") ? "1px solid var(--line2)" : "1px solid transparent",
-                  }}
-                  aria-expanded={patientMenuOpen}
-                >
-                  <Smartphone size={17} />
-                  <span className="flex-1">Patient Portal</span>
-                  <ChevronDown size={15} className={`transition-transform ${patientMenuOpen ? "rotate-180" : ""}`} />
-                </button>
-
-                {patientMenuOpen && (
-                  <div className="ml-5 mt-1 space-y-1 border-l border-[var(--line)] pl-2">
-                    <NavLink to="/patient" end onClick={closeSidebarOnMobile}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold transition"
-                      style={({ isActive }) => ({ color: isActive ? "#123a7a" : "var(--muted)", background: isActive ? "rgba(37,100,207,.1)" : "transparent" })}>
-                      <Smartphone size={15} /> Dashboard
-                    </NavLink>
-                    <NavLink to="/patient/checkin" onClick={closeSidebarOnMobile}
-                      className="flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold transition"
-                      style={({ isActive }) => ({ color: isActive ? "#123a7a" : "var(--muted)", background: isActive ? "rgba(37,100,207,.1)" : "transparent" })}>
-                      <MessageSquareHeart size={15} /> Check-in
-                    </NavLink>
-                  </div>
-                )}
-              </div>
+              <NavLink to="/patient" onClick={closeSidebarOnMobile}
+                className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition mt-1"
+                style={({ isActive }: any) => ({
+                  color: isActive ? "#123a7a" : "var(--muted)",
+                  background: isActive ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))" : "transparent",
+                  border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
+                  boxShadow: isActive ? "0 0 14px rgba(37,100,207,.12)" : "none",
+                })}>
+                <Smartphone size={17} />
+                Patient Portal
+              </NavLink>
             )}
           </div>
         ))}

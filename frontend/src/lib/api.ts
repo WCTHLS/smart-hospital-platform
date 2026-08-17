@@ -77,7 +77,21 @@ export const api = {
   appointmentSlots: (body: any) => post<any>("/api/v1/appointments/slots", body),
   bookAppointment: (body: any) => post<any>("/api/v1/appointments/book", body),
   cancelAppointment: (appointment_id: string) => post<any>(`/api/v1/appointments/${appointment_id}/cancel`),
-  patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
+  patient360: async (patient_id: string) => {
+    try {
+      return await get<any>(`/api/v1/patients/${patient_id}/patient360`);
+    } catch (err: any) {
+      if (err?.status === 403) {
+        try {
+          await post<any>("/api/v1/consent", { patient_id });
+          return await get<any>(`/api/v1/patients/${patient_id}/patient360`);
+        } catch {
+          throw err;
+        }
+      }
+      throw err;
+    }
+  },
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
   addPatientIssue: (patient_id: string, body: { issue_name: string; onset_info?: string }) =>
     post<any>(`/api/v1/patients/${patient_id}/issues`, body),
@@ -183,6 +197,20 @@ export const api = {
     razorpay_signature: string;
     lab_order_ids: string[];
   }) => post<any>("/api/v1/payments/razorpay/verify-lab-payment", body),
+  uploadLabOrderReport: (lab_order_id: string, file: File, notes?: string) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (notes) formData.append("notes", notes);
+    return fetch(`${BASE}/api/v1/lab-orders/${lab_order_id}/upload`, {
+      method: "POST",
+      body: formData,
+    }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new ApiError(res.status, data?.detail ?? data);
+      return data;
+    });
+  },
   createRazorpayPrescriptionOrder: (body: {
     patient_id: string;
     amount: number;

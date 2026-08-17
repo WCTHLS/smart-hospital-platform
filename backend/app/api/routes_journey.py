@@ -218,6 +218,7 @@ def _patient_brief(p: models.Patient) -> dict:
         "email": p.email,
         "address": p.address,
         "profile_photo": p.profile_photo,
+        "summary": p.summary,
     }
 
 
@@ -287,7 +288,12 @@ def _appointment_local_date(value: datetime) -> date:
     return aware.astimezone(ZoneInfo("Asia/Kolkata")).date()
 
 
-def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | None) -> dict:
+def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | None, db: Session | None = None) -> dict:
+    appt_status = appointment.status
+    if db and appointment.encounter_id:
+        enc = db.get(models.Encounter, appointment.encounter_id)
+        if enc and enc.status:
+            appt_status = enc.status
     return {
         "appointment_id": appointment.appointment_id,
         "encounter_id": appointment.encounter_id,
@@ -306,7 +312,7 @@ def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | N
         "appointment_type": appointment.appointment_type,
         "scheduled_start": appointment.scheduled_start.isoformat(),
         "scheduled_end": appointment.scheduled_end.isoformat(),
-        "status": appointment.status,
+        "status": appt_status,
         "channel": appointment.channel,
         "opd_fee": doctor.opd_fee if doctor else None,
     }
@@ -706,14 +712,21 @@ def today_appointments(patient_id: str, db: Session = Depends(get_db)) -> dict:
     appointments = db.scalars(
         select(models.Appointment)
         .where(models.Appointment.patient_id == patient_id)
-        .where(models.Appointment.status == "BOOKED")
         .where(models.Appointment.scheduled_start >= day_start)
         .where(models.Appointment.scheduled_start < day_end)
         .order_by(models.Appointment.scheduled_start)
     ).all()
+    if not appointments:
+        # Fallback to patient's active or upcoming appointments so they are always visible for check-in
+        appointments = db.scalars(
+            select(models.Appointment)
+            .where(models.Appointment.patient_id == patient_id)
+            .order_by(models.Appointment.scheduled_start.desc())
+            .limit(10)
+        ).all()
     return {
         "appointments": [
-            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id))
+            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id), db)
             for appointment in appointments
         ]
     }
@@ -728,13 +741,19 @@ def upcoming_appointments(patient_id: str, db: Session = Depends(get_db)) -> dic
     appointments = db.scalars(
         select(models.Appointment)
         .where(models.Appointment.patient_id == patient_id)
-        .where(models.Appointment.status == "BOOKED")
         .where(models.Appointment.scheduled_start >= day_start)
         .order_by(models.Appointment.scheduled_start)
     ).all()
+    if not appointments:
+        appointments = db.scalars(
+            select(models.Appointment)
+            .where(models.Appointment.patient_id == patient_id)
+            .order_by(models.Appointment.scheduled_start.desc())
+            .limit(10)
+        ).all()
     return {
         "appointments": [
-            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id))
+            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id), db)
             for appointment in appointments
         ]
     }
@@ -1134,6 +1153,190 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
                 "followups": []
             })
 
+    # Care team (doctors who treated this patient from DB)
+    treating_staff_map = {}
+    for enc in encounters:
+        if enc.doctor_id and enc.doctor_id not in treating_staff_map:
+            treating_staff_map[enc.doctor_id] = {
+                "staff_id": enc.doctor_id,
+                "last_date": enc.arrival_ts.date().isoformat() if enc.arrival_ts else None,
+                "department": enc.department,
+            }
+        elif enc.doctor_id and enc.arrival_ts:
+            curr_date = enc.arrival_ts.date().isoformat()
+            if not treating_staff_map[enc.doctor_id]["last_date"] or curr_date > treating_staff_map[enc.doctor_id]["last_date"]:
+                treating_staff_map[enc.doctor_id]["last_date"] = curr_date
+
+    for appt in encounter_appointments.values():
+        if appt.doctor_id and appt.doctor_id not in treating_staff_map:
+            treating_staff_map[appt.doctor_id] = {
+                "staff_id": appt.doctor_id,
+                "last_date": appt.scheduled_start.date().isoformat() if appt.scheduled_start else None,
+                "department": appt.department,
+                "specialty": appt.specialty,
+            }
+
+    for note in notes:
+        doc_id = note.authored_by or note.approved_by
+        if doc_id and doc_id not in treating_staff_map:
+            treating_staff_map[doc_id] = {
+                "staff_id": doc_id,
+                "last_date": note.created_ts.date().isoformat() if note.created_ts else None,
+            }
+
+    staff_objs = db.scalars(
+        select(models.Staff).where(models.Staff.staff_id.in_(list(treating_staff_map.keys()) or [""]))
+    ).all()
+    staff_by_id = {s.staff_id: s for s in staff_objs}
+
+    care_team_list = []
+    for sid, info in treating_staff_map.items():
+        s = staff_by_id.get(sid)
+        if s:
+            care_team_list.append({
+                "staff_id": s.staff_id,
+                "name": s.name if s.name.startswith("Dr.") else f"Dr. {s.name}",
+                "role": s.specialty or s.department or s.role,
+                "department": s.department,
+                "specialty": s.specialty,
+                "room": s.room,
+                "floor": s.floor,
+                "last_date": info.get("last_date"),
+                "badge": "Attending Physician" if (primary_encs and primary_encs[0].doctor_id == sid) else "Consultant",
+            })
+
+    # Radiology and imaging scans
+    radiology_reports = db.scalars(
+        select(models.RadiologyReport)
+        .where(models.RadiologyReport.patient_id == patient_id)
+        .order_by(models.RadiologyReport.reported_ts.desc())
+    ).all()
+
+    # All lab orders for this patient
+    all_lab_orders = db.scalars(
+        select(models.LabOrder)
+        .where(models.LabOrder.patient_id == patient_id)
+        .order_by(models.LabOrder.ordered_ts.desc())
+    ).all()
+
+    imaging_keywords = ("mri", "ct ", "ct-", "ct_", "ct scan", "scan", "x-ray", "xray", "x ray", "ultrasound", "usg", "pet", "angiograph", "echocardiogram", "echo", "mammograph", "dexa", "fluoroscopy", "radiology", "doppler", "tomography")
+
+    scans_list = []
+    for rr in radiology_reports:
+        scans_list.append({
+            "report_id": rr.report_id,
+            "name": f"{rr.modality or 'Imaging'} - {rr.body_region or 'Diagnostic'}" if rr.modality else "Radiology Scan",
+            "modality": rr.modality or "Imaging",
+            "body_region": rr.body_region,
+            "date": rr.reported_ts.strftime("%d %b %Y, %I:%M %p") if rr.reported_ts else "",
+            "finding": rr.impression or rr.findings or "Scan Completed",
+            "status": "Report Ready" if (rr.findings or rr.impression) else "Completed",
+            "attachment_uri": rr.attachment_uri,
+        })
+
+    lab_reports_list = []
+    pending_orders_list = []
+    for order in all_lab_orders:
+        t_name = (order.test_name or "").lower()
+        p_name = (order.panel or "").lower()
+        is_imaging = any(k in t_name or k in p_name for k in imaging_keywords) or (order.panel and order.panel.upper() in ["RADIOLOGY", "IMAGING", "SCANS", "SCAN"])
+
+        res_matches = [r for o, r in recent_results if o.lab_order_id == order.lab_order_id and r]
+        primary_res = res_matches[0] if res_matches else None
+        price = order.price if order.price else (1200.0 if is_imaging else 350.0)
+        norm_status = "COMPLETED" if order.status in ["RESULTED", "COMPLETED", "DISCHARGED"] else order.status
+
+        item_data = {
+            "lab_order_id": order.lab_order_id,
+            "order_id": order.lab_order_id,
+            "name": order.test_name or "Diagnostic Test",
+            "test": order.test_name or "Diagnostic Test",
+            "panel": order.panel or ("Imaging & Radiology" if is_imaging else "Clinical Laboratory"),
+            "price": price,
+            "status": norm_status,
+            "raw_status": order.status,
+            "date": (order.sample_collected_ts or order.ordered_ts).strftime("%d %b %Y, %I:%M %p") if order.ordered_ts else "",
+            "value": f"{primary_res.value} {primary_res.unit or ''}".strip() if (primary_res and primary_res.value is not None) else (order.notes or ("Report Ready" if norm_status == "COMPLETED" else "Action Required (Pending)")),
+            "flag": primary_res.abnormal_flag if primary_res else "N",
+            "finding": order.notes or (f"{primary_res.value} {primary_res.unit or ''}" if primary_res else ("Report Ready" if norm_status == "COMPLETED" else "Pending Payment / Booking")),
+            "attachment_name": order.attachment_name,
+            "attachment_uri": order.attachment_uri,
+            "is_imaging": is_imaging,
+        }
+
+        if norm_status in ["CREATED", "PENDING"]:
+            pending_orders_list.append(item_data)
+
+        if is_imaging:
+            scans_list.append({
+                "report_id": order.lab_order_id,
+                "lab_order_id": order.lab_order_id,
+                "order_id": order.lab_order_id,
+                "name": order.test_name or "Imaging Scan",
+                "modality": order.panel or "Radiology / Imaging",
+                "price": price,
+                "date": item_data["date"],
+                "finding": order.notes or ("Imaging Scan Completed" if norm_status == "COMPLETED" else "Pending Payment / Booking"),
+                "status": norm_status,
+                "raw_status": order.status,
+                "attachment_name": order.attachment_name,
+                "attachment_uri": order.attachment_uri,
+                "is_imaging": True,
+            })
+        else:
+            lab_reports_list.append(item_data)
+
+    # Also check scan documents
+    for doc in recent_documents:
+        if doc.doc_type == "SCAN":
+            scans_list.append({
+                "report_id": doc.document_id,
+                "name": doc.title or "Imaging Scan",
+                "modality": "Scan",
+                "date": doc.created_ts.strftime("%d %b %Y, %I:%M %p") if doc.created_ts else "",
+                "finding": "Uploaded Document",
+                "status": "Report Ready",
+                "attachment_uri": doc.uri,
+            })
+
+    # Active medications detailed from PatientMedication + Prescription Items
+    medications_detailed = []
+    seen_drugs = set()
+    for m in active_meds_rows:
+        seen_drugs.add(m.drug_name.lower())
+        medications_detailed.append({
+            "medication_id": m.medication_id,
+            "name": m.drug_name,
+            "dose": m.dosage or "Standard Dose",
+            "freq": "As Prescribed",
+            "route": "Oral",
+            "purpose": "Prescribed Medication",
+            "status": m.status,
+            "created_ts": m.created_ts.isoformat() if m.created_ts else None,
+        })
+
+    # Check prescriptions for active items
+    active_prescriptions = db.scalars(
+        select(models.Prescription)
+        .where(models.Prescription.patient_id == patient_id)
+        .where(models.Prescription.status.in_(["APPROVED", "DISPENSED", "ACTIVE"]))
+        .order_by(models.Prescription.created_ts.desc())
+    ).all()
+    for rx in active_prescriptions:
+        for itm in rx.items:
+            if itm.drug_name.lower() not in seen_drugs:
+                seen_drugs.add(itm.drug_name.lower())
+                medications_detailed.append({
+                    "medication_id": itm.rx_item_id,
+                    "name": itm.drug_name,
+                    "dose": itm.dose or "Standard Dose",
+                    "freq": itm.frequency or "Once Daily",
+                    "route": itm.route or "Oral",
+                    "purpose": itm.instructions or "Prescribed Treatment",
+                    "status": "ACTIVE",
+                    "created_ts": rx.created_ts.isoformat() if rx.created_ts else None,
+                })
+
     audit(db, actor_id="copilot", actor_role="SYSTEM", action="PATIENT360_READ",
           entity_type="patient", entity_id=patient_id, consent_id=consent_id)
     db.commit()
@@ -1150,17 +1353,24 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
     ]
     formatted_notes = [{"date": n.created_ts.date().isoformat(), "text": n.final_text} for n in notes]
     vitals_payload = None if not latest_vitals else {
-        "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}",
-        "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
-        "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
-        "weight_kg": latest_vitals.weight_kg, "height_cm": latest_vitals.height_cm,
-        "captured_ts": latest_vitals.captured_ts.isoformat(),
+        "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}" if (latest_vitals.bp_systolic and latest_vitals.bp_diastolic) else None,
+        "bp_systolic": latest_vitals.bp_systolic,
+        "bp_diastolic": latest_vitals.bp_diastolic,
+        "spo2": latest_vitals.spo2,
+        "heart_rate": latest_vitals.heart_rate,
+        "respiratory_rate": latest_vitals.respiratory_rate,
+        "temperature": latest_vitals.temperature,
+        "bmi": latest_vitals.bmi,
+        "weight_kg": latest_vitals.weight_kg,
+        "height_cm": latest_vitals.height_cm,
+        "captured_ts": latest_vitals.captured_ts.isoformat() if latest_vitals.captured_ts else None,
     }
 
+    summary_text = patient.summary or (formatted_notes[0]["text"] if formatted_notes else None)
     summary_res = None
-    if patient.summary:
+    if summary_text:
         summary_res = {
-            "result": {"summary": patient.summary},
+            "result": {"summary": summary_text},
             "agent": "Patient History Summary",
             "source": "database"
         }
@@ -1170,9 +1380,15 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "allergies": allergies_list,
         "issues": issues_list,
         "active_medications": active_meds,
-        "medications": medications_list,
+        "medications": medications_detailed if medications_detailed else medications_list,
         "latest_vitals": vitals_payload,
         "recent_notes": formatted_notes,
+        "care_team": care_team_list,
+        "past_doctors": care_team_list,
+        "lab_reports": lab_reports_list,
+        "scans_diagnostics": scans_list,
+        "pending_lab_orders": pending_orders_list,
+        "clinical_summary": summary_text,
         "recent_results": [
             {
                 "lab_order_id": order.lab_order_id,
@@ -1452,6 +1668,22 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
     encounter.doctor_id = doctor.staff_id if doctor else None
     encounter.status = "EMERGENCY" if tr["red_flag"] and tr["acuity_level"] == "1" else "TRIAGED"
 
+    # Synchronize linked appointment status to TRIAGED
+    if encounter.appointment_id:
+        linked_appt = db.get(models.Appointment, encounter.appointment_id)
+        if linked_appt:
+            linked_appt.status = encounter.status
+            if encounter.doctor_id:
+                linked_appt.doctor_id = encounter.doctor_id
+            if encounter.department:
+                linked_appt.specialty = encounter.department
+    if appointment:
+        appointment.status = encounter.status
+        if encounter.doctor_id:
+            appointment.doctor_id = encounter.doctor_id
+        if encounter.department:
+            appointment.specialty = encounter.department
+
     waiting = db.scalar(
         select(func.count()).select_from(models.Token).where(models.Token.status == "WAITING")
     ) or 0
@@ -1547,6 +1779,13 @@ def override_triage(
         if body.acuity_level == "1" and triage.red_flag
         else "TRIAGED"
     )
+
+    if encounter.appointment_id:
+        linked_appt = db.get(models.Appointment, encounter.appointment_id)
+        if linked_appt:
+            linked_appt.status = encounter.status
+            linked_appt.doctor_id = doctor.staff_id
+            linked_appt.specialty = body.specialty
 
     token = db.scalar(
         select(models.Token)

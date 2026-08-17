@@ -90,6 +90,10 @@ def ambient_note(encounter_id: str, body: AmbientRequest, db: Session = Depends(
     )
     db.add(note)
     encounter.status = "IN_CONSULT"
+    if encounter.appointment_id:
+        linked_appt = db.get(models.Appointment, encounter.appointment_id)
+        if linked_appt:
+            linked_appt.status = "IN_CONSULT"
     db.commit()
     return {"note_id": note.note_id, **result}
 
@@ -420,6 +424,7 @@ def submit_results(lab_order_id: str, body: LabResultSubmitRequest, db: Session 
 def upload_lab_attachment(
     lab_order_id: str,
     file: UploadFile = File(...),
+    notes: str | None = None,
     db: Session = Depends(get_db)
 ) -> dict:
     order = db.get(models.LabOrder, lab_order_id)
@@ -430,7 +435,6 @@ def upload_lab_attachment(
     os.makedirs(upload_dir, exist_ok=True)
     
     file_ext = os.path.splitext(file.filename or "")[1]
-    # Unique URLs prevent the browser from showing a cached previous scan after replacement.
     safe_filename = f"lab_{lab_order_id}_{secrets.token_hex(6)}{file_ext}"
     file_path = os.path.join(upload_dir, safe_filename)
     
@@ -440,9 +444,29 @@ def upload_lab_attachment(
     attachment_uri = f"/uploads/{safe_filename}"
     order.attachment_name = file.filename
     order.attachment_uri = attachment_uri
+    order.status = "RESULTED"
+    order.notes = notes or "External report uploaded by patient"
     order.ai_analysis_summary = None
+
+    # Upsert LabResult record for full clinical synchronization
+    existing_res = db.scalar(select(models.LabResult).where(models.LabResult.lab_order_id == lab_order_id))
+    if not existing_res:
+        db.add(models.LabResult(
+            lab_order_id=lab_order_id,
+            test_code=order.test_code or "EXT",
+            test_name=order.test_name,
+            value="Report Attached (External)",
+            unit="",
+            reference_range="See Uploaded File",
+            abnormal_flag="N",
+            status="FINAL",
+        ))
+    else:
+        existing_res.value = "Report Attached (External)"
+        existing_res.status = "FINAL"
+
     db.commit()
-    return {"filename": file.filename, "uri": attachment_uri}
+    return {"filename": file.filename, "uri": attachment_uri, "status": "RESULTED"}
 
 
 @router.get("/encounters/{encounter_id}/lab")
