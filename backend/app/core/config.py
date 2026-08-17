@@ -58,7 +58,7 @@ class Settings(BaseSettings):
         return self.razorpay_enabled and self.razorpay_configured
 
     # CORS
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000,http://127.0.0.1:3000"
 
     @property
     def is_sqlite(self) -> bool:
@@ -67,12 +67,27 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         value = self.cors_origins.strip()
+        defaults = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5174",
+            "http://127.0.0.1:5174",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ]
         if not value:
-            return []
+            return defaults
         if value.startswith("["):
             parsed = json.loads(value)
-            return [str(origin).strip() for origin in parsed if str(origin).strip()]
-        return [origin.strip() for origin in value.split(",") if origin.strip()]
+            origins = [str(origin).strip() for origin in parsed if str(origin).strip()]
+        else:
+            origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+        for d in defaults:
+            if d not in origins:
+                origins.append(d)
+        return origins
 
     @property
     def twilio_verify_configured(self) -> bool:

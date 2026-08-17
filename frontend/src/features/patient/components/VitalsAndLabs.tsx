@@ -52,7 +52,7 @@ export default function VitalsAndLabs({ latestVitals, orders }: VitalsAndLabsPro
                     <FileText size={12} className="shrink-0" /> {o.attachment_name || "Diagnostic Report"}
                   </span>
                   <a 
-                    href={o.attachment_uri.startsWith("http") ? o.attachment_uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`} 
+                    href={o.attachment_uri.startsWith("http") || o.attachment_uri.startsWith("/imaging") ? o.attachment_uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`} 
                     target="_blank" 
                     rel="noopener noreferrer" 
                     className="inline-flex items-center gap-1 text-[11px] text-[var(--cyan)] hover:underline font-semibold shrink-0"

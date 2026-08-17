@@ -831,11 +831,10 @@ export default function PatientDashboard() {
                       {liveVitals.map((v: any) => (
                         <div
                           key={v.short}
-                          className={`rounded-xl border p-2 text-center flex flex-col justify-between transition ${
-                            v.isAbnormal
+                          className={`rounded-xl border p-2 text-center flex flex-col justify-between transition ${v.isAbnormal
                               ? "bg-red-50/90 border-red-200 text-red-700 shadow-sm"
                               : "border-black/[0.05] bg-slate-50/60 text-slate-800"
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center justify-between">
                             <span className={`text-[10px] font-bold uppercase ${v.isAbnormal ? "text-red-500" : "text-slate-400"}`}>{v.short}</span>
@@ -904,14 +903,13 @@ export default function PatientDashboard() {
                       {labReports.slice(0, 5).map((l: any, idx: number) => {
                         const isPending = l.status === "CREATED" || l.status === "PENDING" || l.raw_status === "CREATED" || l.raw_status === "PENDING";
                         return (
-                          <div 
-                            key={l.lab_order_id || idx} 
+                          <div
+                            key={l.lab_order_id || idx}
                             onClick={() => setTab("My Lab Reports")}
-                            className={`flex items-center justify-between p-1.5 rounded-lg cursor-pointer transition border ${
-                              isPending
+                            className={`flex items-center justify-between p-1.5 rounded-lg cursor-pointer transition border ${isPending
                                 ? "bg-amber-50/90 border-amber-300 hover:bg-amber-100/80 shadow-xs"
                                 : "bg-transparent border-transparent hover:bg-slate-50"
-                            }`}
+                              }`}
                             title="Click to view in My Lab Reports"
                           >
                             <div className="min-w-0 pr-2">
@@ -957,14 +955,13 @@ export default function PatientDashboard() {
                       {scansAndDiagnostics.slice(0, 4).map((im: any, idx: number) => {
                         const isPending = im.status === "CREATED" || im.status === "PENDING" || im.raw_status === "CREATED" || im.raw_status === "PENDING";
                         return (
-                          <div 
-                            key={im.report_id || idx} 
+                          <div
+                            key={im.report_id || idx}
                             onClick={() => setTab("Scans & Imaging")}
-                            className={`flex items-center gap-2 p-1.5 rounded-lg cursor-pointer transition border ${
-                              isPending
+                            className={`flex items-center gap-2 p-1.5 rounded-lg cursor-pointer transition border ${isPending
                                 ? "bg-amber-50/90 border-amber-300 hover:bg-amber-100/80 shadow-xs"
                                 : "bg-transparent border-transparent hover:bg-slate-50"
-                            }`}
+                              }`}
                             title="Click to view in Scans & Imaging"
                           >
                             <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-900 text-slate-300">
@@ -1510,11 +1507,10 @@ export default function PatientDashboard() {
                                   key={s.scheduled_start}
                                   type="button"
                                   onClick={() => setSelectedSlot(s)}
-                                  className={`shrink-0 py-1.5 px-3 rounded-lg text-[11.5px] font-bold border transition whitespace-nowrap ${
-                                    isSelected
+                                  className={`shrink-0 py-1.5 px-3 rounded-lg text-[11.5px] font-bold border transition whitespace-nowrap ${isSelected
                                       ? "bg-[#0078d4] border-[#0078d4] text-white shadow-sm"
                                       : "border-slate-200 hover:border-[#0078d4] text-slate-700 bg-slate-50/70 hover:bg-white"
-                                  }`}
+                                    }`}
                                 >
                                   {timeStr}
                                 </button>
@@ -1698,13 +1694,12 @@ export default function PatientDashboard() {
                       return (
                         <div
                           key={l.lab_order_id || i}
-                          className={`p-4 rounded-xl border transition ${
-                            isPending
+                          className={`p-4 rounded-xl border transition ${isPending
                               ? "bg-amber-50/60 border-amber-300"
                               : isAbnormal
                                 ? "bg-red-50/30 border-red-200"
                                 : "bg-white border-slate-200 hover:border-[#0078d4]/50"
-                          } shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3`}
+                            } shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3`}
                         >
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -1820,11 +1815,10 @@ export default function PatientDashboard() {
                       return (
                         <div
                           key={im.report_id || idx}
-                          className={`p-4 rounded-xl border transition ${
-                            isPending
+                          className={`p-4 rounded-xl border transition ${isPending
                               ? "bg-amber-50/60 border-amber-300"
                               : "bg-white border-slate-200 hover:border-[#0078d4]/50"
-                          } shadow-xs flex flex-col justify-between gap-3`}
+                            } shadow-xs flex flex-col justify-between gap-3`}
                         >
                           <div className="flex items-start gap-3">
                             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-900 text-slate-300">
@@ -2097,11 +2091,10 @@ export default function PatientDashboard() {
                   {chatMessages.map((msg, i) => (
                     <div
                       key={i}
-                      className={`p-2.5 rounded-xl text-[11.5px] ${
-                        msg.role === "user"
+                      className={`p-2.5 rounded-xl text-[11.5px] ${msg.role === "user"
                           ? "bg-[#0078d4] text-white ml-6"
                           : "bg-slate-100 text-slate-700 mr-6"
-                      }`}
+                        }`}
                     >
                       <p className="leading-relaxed">{msg.text}</p>
                       <div className={`text-[9px] mt-1 ${msg.role === "user" ? "text-blue-100" : "text-slate-400"}`}>
@@ -2255,9 +2248,8 @@ export default function PatientDashboard() {
                                 key={s.scheduled_start}
                                 type="button"
                                 onClick={() => setSelectedSlot(s)}
-                                className={`shrink-0 py-1 px-2.5 rounded-lg text-[11px] font-bold border transition whitespace-nowrap ${
-                                  isSelected ? "bg-[#0078d4] border-[#0078d4] text-white shadow-sm" : "border-slate-200 text-slate-700 bg-slate-50 hover:bg-white"
-                                }`}
+                                className={`shrink-0 py-1 px-2.5 rounded-lg text-[11px] font-bold border transition whitespace-nowrap ${isSelected ? "bg-[#0078d4] border-[#0078d4] text-white shadow-sm" : "border-slate-200 text-slate-700 bg-slate-50 hover:bg-white"
+                                  }`}
                               >
                                 {timeStr}
                               </button>

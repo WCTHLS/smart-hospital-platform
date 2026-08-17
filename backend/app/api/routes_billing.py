@@ -186,14 +186,15 @@ class RazorpayLabOrderRequest(BaseModel):
     amount: float
     lab_order_ids: list[str]
 
-
 class RazorpayLabVerifyRequest(BaseModel):
     razorpay_payment_id: str
     razorpay_order_id: str
     razorpay_signature: str
     lab_order_ids: list[str]
-
-
+    booking_date: str | None = None
+    booking_slot: str | None = None
+ 
+ 
 @router.post("/payments/razorpay/create-lab-order")
 def create_razorpay_lab_order(body: RazorpayLabOrderRequest, db: Session = Depends(get_db)) -> dict:
     patient = db.get(models.Patient, body.patient_id)
@@ -250,8 +251,8 @@ def create_razorpay_lab_order(body: RazorpayLabOrderRequest, db: Session = Depen
             "contact": f"+91{patient.mobile}" if patient.mobile and len(patient.mobile) == 10 else patient.mobile,
         },
     }
-
-
+ 
+ 
 @router.post("/payments/razorpay/verify-lab-payment")
 def verify_razorpay_lab_payment(body: RazorpayLabVerifyRequest, db: Session = Depends(get_db)) -> dict:
     values = (body.razorpay_payment_id, body.razorpay_order_id, body.razorpay_signature)
@@ -278,11 +279,15 @@ def verify_razorpay_lab_payment(body: RazorpayLabVerifyRequest, db: Session = De
     payment_order.payment_id = body.razorpay_payment_id
     payment_order.payment_signature = body.razorpay_signature
     
-    # Confirm each lab order
+    # Confirm each lab order and set booking date/slot
     for order_id in body.lab_order_ids:
         order = db.get(models.LabOrder, order_id)
         if order:
             order.status = "CONFIRMED"
+            if body.booking_date:
+                order.booking_date = body.booking_date
+            if body.booking_slot:
+                order.booking_slot = body.booking_slot
             
     db.commit()
     return {"success": True}

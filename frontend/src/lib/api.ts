@@ -58,6 +58,8 @@ export const api = {
   // journey
   checkin: (body: any) => post<any>("/api/v1/checkin", body),
   mobileProfiles: (mobile: string) => post<any>("/api/v1/checkin/mobile/profiles", { mobile }),
+  checkPatientAvailable: (mobile?: string, email?: string) =>
+    post<any>("/api/v1/patients/check-available", { mobile, email }),
   registerBasicPatient: (body: any) => post<any>("/api/v1/patients/register-basic", body),
   registerPatient: (body: any) => post<any>("/api/v1/patients/register", body),
   updatePatientProfile: (patient_id: string, body: any) =>
@@ -148,6 +150,8 @@ export const api = {
     post<any>(`/api/v1/lab-orders/${lab_order_id}/confirm`),
   collectLabSample: (lab_order_id: string) =>
     post<any>(`/api/v1/lab-orders/${lab_order_id}/collect-sample`),
+  clearLabAttachment: (lab_order_id: string) =>
+    post<any>(`/api/v1/lab-orders/${lab_order_id}/clear-attachment`),
   labCheckIn: (body: any) => post<any>("/api/v1/labs/check-in", body),
   encounterLab: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab`),
   suggestLabOrders: (encounter_id: string) => get<any>(`/api/v1/encounters/${encounter_id}/lab/suggest`),
@@ -196,6 +200,8 @@ export const api = {
     razorpay_order_id: string;
     razorpay_signature: string;
     lab_order_ids: string[];
+    booking_date?: string;
+    booking_slot?: string;
   }) => post<any>("/api/v1/payments/razorpay/verify-lab-payment", body),
   uploadLabOrderReport: (lab_order_id: string, file: File, notes?: string) => {
     const formData = new FormData();

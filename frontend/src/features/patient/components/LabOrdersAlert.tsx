@@ -242,6 +242,8 @@ export default function LabOrdersAlert({
       await api.verifyRazorpayLabPayment({
         ...payment,
         lab_order_ids: validStringIds,
+        booking_date: selectedDate || todayIso(),
+        booking_slot: selectedSlot || "09:00 AM",
       });
 
       setStep("success");

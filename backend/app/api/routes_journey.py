@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app import models
 from app.ai import agents
 from app.ai.knowledge import route_specialty
-from app.api.routes_clinical import _check_and_discharge_lab_visit
+from app.api.routes_clinical import _check_and_discharge_lab_visit, _lab_category
 from app.core.database import get_db
 from app.core.events import Topics, bus
 from app.core.security import audit, require_active_consent
@@ -31,6 +31,7 @@ from app.schemas import (
     OtpSendRequest,
     OtpVerifyRequest,
     PatientBasicRegistrationRequest,
+    PatientCheckAvailableRequest,
     PatientPhotoUpdateRequest,
     PatientProfileUpdateRequest,
     PatientRegistrationRequest,
@@ -575,14 +576,55 @@ def get_mobile_profiles(body: MobileProfilesRequest, db: Session = Depends(get_d
     return {"profiles": [_patient_match(p) for p in patients]}
 
 
+@router.post("/patients/check-available")
+def check_patient_available(body: PatientCheckAvailableRequest, db: Session = Depends(get_db)) -> dict:
+    if body.mobile and body.mobile.strip():
+        clean_mob = body.mobile.strip()
+        existing = db.scalar(select(models.Patient).where(models.Patient.mobile == clean_mob))
+        if existing:
+            return {
+                "available": False,
+                "field": "mobile",
+                "message": f"Mobile number {clean_mob} is already registered ({existing.full_name}). Please sign in instead."
+            }
+    if body.email and body.email.strip():
+        clean_email = body.email.strip().lower()
+        existing_email = db.scalar(select(models.Patient).where(func.lower(models.Patient.email) == clean_email))
+        if existing_email:
+            return {
+                "available": False,
+                "field": "email",
+                "message": f"Email address {clean_email} is already registered ({existing_email.full_name}). Please sign in or use a different email."
+            }
+    return {"available": True}
+
+
 @router.post("/patients/register")
 def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get_db)) -> dict:
+    if body.mobile and body.mobile.strip():
+        clean_mob = body.mobile.strip()
+        existing_mob = db.scalar(select(models.Patient).where(models.Patient.mobile == clean_mob))
+        if existing_mob:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A patient account with mobile number {clean_mob} already exists ({existing_mob.full_name}). Please sign in instead."
+            )
+
+    if body.email and body.email.strip():
+        clean_email = body.email.strip().lower()
+        existing_email = db.scalar(select(models.Patient).where(func.lower(models.Patient.email) == clean_email))
+        if existing_email:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A patient account with email {clean_email} already exists. Please sign in or use a different email."
+            )
+
     patient = models.Patient(
         first_name=body.first_name,
         last_name=body.last_name,
         dob=body.dob,
-        mobile=body.mobile,
-        email=body.email,
+        mobile=body.mobile.strip() if body.mobile else None,
+        email=body.email.strip().lower() if body.email else None,
         gender=body.gender,
         blood_group=_blood_group_value(body.blood_group) if body.blood_group else "UNK",
         address=body.address,
@@ -606,11 +648,20 @@ def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get
 
 @router.post("/patients/register-basic")
 def register_basic_patient(body: PatientBasicRegistrationRequest, db: Session = Depends(get_db)) -> dict:
+    if body.mobile and body.mobile.strip():
+        clean_mob = body.mobile.strip()
+        existing_mob = db.scalar(select(models.Patient).where(models.Patient.mobile == clean_mob))
+        if existing_mob:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A patient with mobile number {clean_mob} already exists ({existing_mob.full_name})."
+            )
+
     patient = models.Patient(
         first_name=body.first_name,
         last_name=body.last_name,
         dob=body.dob,
-        mobile=body.mobile,
+        mobile=body.mobile.strip() if body.mobile else None,
         mrn=_generate_unique_mrn(db),
     )
     db.add(patient)
@@ -1393,11 +1444,13 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             {
                 "lab_order_id": order.lab_order_id,
                 "test": order.test_name,
+                "category": _lab_category(order.test_name),
                 "analyte": result.analyte if result else "Lab Findings",
                 "value": result.value if result else (order.notes or "Result completed"),
                 "unit": result.unit if result else "",
                 "flag": result.abnormal_flag if result else "N",
                 "date": (result.resulted_ts if result else order.ordered_ts).date().isoformat(),
+                "resulted_ts": (result.resulted_ts if result else (order.sample_collected_ts if order.sample_collected_ts else order.ordered_ts)).isoformat(),
                 "attachment_name": order.attachment_name,
                 "attachment_uri": order.attachment_uri,
             }
@@ -1405,6 +1458,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         ],
         "encounters": [
             {"encounter_id": e.encounter_id, "date": e.arrival_ts.date().isoformat(),
+             "arrival_ts": e.arrival_ts.isoformat(),
              "department": e.department, "status": e.status,
              "visit_type": e.visit_type,
              "reason": encounter_appointments[e.appointment_id].reason
@@ -2765,6 +2819,8 @@ def lab_check_in(body: LabCheckInRequest, db: Session = Depends(get_db)) -> dict
         .where(models.LabOrder.patient_id == body.patient_id)
         .where(models.LabOrder.status == "CONFIRMED")
     ).all()
+    for o in confirmed_orders:
+        o.status = "CHECKED_IN"
     confirmed_ids = [o.lab_order_id for o in confirmed_orders]
     notes_value = ",".join(confirmed_ids) if confirmed_ids else None
 

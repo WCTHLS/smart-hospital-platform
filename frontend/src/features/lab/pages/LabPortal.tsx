@@ -141,9 +141,12 @@ export default function LabPortal() {
   };
 
   const pending = orders?.filter((o: any) => {
-    const isPending = o.status === "CONFIRMED";
+    const isPending = o.status === "CONFIRMED" || o.status === "CHECKED_IN";
+    if (!isPending) return false;
+    const todayStr = new Date().toLocaleDateString('sv').split('T')[0];
+    if (o.booking_date && o.booking_date !== todayStr) return false;
     const category = o.category || "PATHOLOGY";
-    return isPending && (deptFilter === "ALL" || category === deptFilter);
+    return deptFilter === "ALL" || category === deptFilter;
   }) || [];
 
   const completed = orders?.filter((o: any) => {
@@ -221,8 +224,17 @@ export default function LabPortal() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Clock size={12} className="text-amber-400" />
-                      <Tag tone="amber">PENDING</Tag>
+                      {o.status === "CHECKED_IN" ? (
+                        <>
+                          <CheckCircle2 size={12} className="text-emerald-400" />
+                          <Tag tone="mint">CHECKED IN</Tag>
+                        </>
+                      ) : (
+                        <>
+                          <Clock size={12} className="text-amber-400" />
+                          <Tag tone="amber">PENDING</Tag>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -250,7 +262,7 @@ export default function LabPortal() {
                       </div>
                       {o.attachment_uri && (
                         <a
-                          href={`${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`}
+                          href={o.attachment_uri.startsWith("http") || o.attachment_uri.startsWith("/imaging") ? o.attachment_uri : `${import.meta.env.VITE_API_BASE_URL ?? ""}${o.attachment_uri}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-[10px] text-[var(--cyan)] hover:underline inline-flex items-center gap-0.5 mt-1"
