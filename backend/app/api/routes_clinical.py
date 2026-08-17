@@ -230,7 +230,7 @@ def _check_and_discharge_lab_visit(db: Session, patient_id: str, encounter_id: s
                 select(func.count())
                 .select_from(models.LabOrder)
                 .where(models.LabOrder.encounter_id == target_enc_id)
-                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "SAMPLE_COLLECTED"]))
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "CHECKED_IN", "SAMPLE_COLLECTED"]))
             ) or 0
         elif lab_enc.notes and "," in lab_enc.notes:
             order_ids = lab_enc.notes.split(",")
@@ -238,7 +238,7 @@ def _check_and_discharge_lab_visit(db: Session, patient_id: str, encounter_id: s
                 select(func.count())
                 .select_from(models.LabOrder)
                 .where(models.LabOrder.lab_order_id.in_(order_ids))
-                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "SAMPLE_COLLECTED"]))
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "CHECKED_IN", "SAMPLE_COLLECTED"]))
             ) or 0
         else:
             pending_count = 0
@@ -345,6 +345,8 @@ def list_lab_orders(db: Session = Depends(get_db)) -> list[dict]:
             "results": res_list,
             "category": _lab_category(order.test_name),
             "token_number": token_number,
+            "booking_date": order.booking_date,
+            "booking_slot": order.booking_slot,
         })
     return out
 
@@ -443,6 +445,18 @@ def upload_lab_attachment(
     order.ai_analysis_summary = None
     db.commit()
     return {"filename": file.filename, "uri": attachment_uri}
+ 
+ 
+@router.post("/lab-orders/{lab_order_id}/clear-attachment")
+def clear_lab_attachment(lab_order_id: str, db: Session = Depends(get_db)) -> dict:
+    order = db.get(models.LabOrder, lab_order_id)
+    if not order:
+        raise HTTPException(404, "Lab order not found")
+    order.attachment_name = None
+    order.attachment_uri = None
+    order.ai_analysis_summary = None
+    db.commit()
+    return {"status": "success"}
 
 
 @router.get("/encounters/{encounter_id}/lab")
@@ -950,7 +964,7 @@ def collect_lab_sample(lab_order_id: str, db: Session = Depends(get_db)) -> dict
     order = db.get(models.LabOrder, lab_order_id)
     if not order:
         raise HTTPException(404, "Lab order not found")
-    if order.status != "CONFIRMED":
+    if order.status not in ["CONFIRMED", "CHECKED_IN"]:
         raise HTTPException(400, "Sample can only be marked collected once payment is confirmed.")
     order.status = "SAMPLE_COLLECTED"
     order.sample_collected_ts = datetime.now(timezone.utc)

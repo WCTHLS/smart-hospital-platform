@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity, HeartPulse, Stethoscope, ClipboardList, MonitorDot, MessageSquareHeart,
   Smartphone, BellRing, ShieldAlert, FlaskConical, Pill, Menu, PanelLeftClose,
-  Syringe, ChevronDown,
+  Syringe, ChevronDown, Scan,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useJourney } from "../lib/store";
@@ -16,7 +16,8 @@ const NAV = [
   { to: "/triage", label: "Triage Desk", icon: HeartPulse, roles: ["nurse"] },
   { to: "/copilot", label: "Doctor Workspace", icon: Stethoscope, roles: ["doctor"] },
   { to: "/oncology", label: "Oncology & Cancer Care", icon: Syringe, roles: ["doctor"] },
-  { to: "/lab", label: "Lab Workspace", icon: FlaskConical, roles: ["lab"] },
+  { to: "/lab", label: "Laboratory Dashboard", icon: FlaskConical, roles: ["lab"] },
+  { to: "/radiology", label: "Radiology Command Center", icon: Scan, roles: ["lab"] },
   { to: "/pharmacy", label: "Pharmacy Desk", icon: Pill, roles: ["pharmacist"] },
   { to: "/reception", label: "Reception Desk", icon: ClipboardList, roles: ["receptionist"] },
   { to: "/command", label: "Command Center", icon: MonitorDot, roles: ["admin"] },
@@ -72,7 +73,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     const path = loc.pathname;
     if ((path === "/copilot" || path === "/oncology") && activeRole !== "doctor") {
       journey.setRole("doctor");
-    } else if (path === "/lab" && activeRole !== "lab") {
+    } else if ((path === "/lab" || path === "/radiology") && activeRole !== "lab") {
       journey.setRole("lab");
     } else if (path === "/triage" && activeRole !== "nurse") {
       journey.setRole("nurse");

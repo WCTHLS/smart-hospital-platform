@@ -6,6 +6,7 @@ import PatientCheckIn from "./features/patient/PatientCheckIn";
 import TriageWorkspace from "./features/triage/TriageWorkspace";
 import DoctorWorkspace from "./features/doctor/DoctorWorkspace";
 import LabWorkspace from "./features/lab/LabWorkspace";
+import RadiologyWorkspace from "./features/radiology/RadiologyWorkspace";
 import PatientDashboard from "./features/patient/PatientDashboard";
 import CommandCenter from "./features/admin/CommandCenter";
 import AdminPortal from "./features/admin/AdminPortal";
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="/copilot" element={<DoctorWorkspace />} />
             <Route path="/oncology" element={<OncologyWorkspace />} />
             <Route path="/lab" element={<LabWorkspace />} />
+            <Route path="/radiology" element={<RadiologyWorkspace />} />
             <Route path="/reception" element={<ReceptionWorkspace />} />
             <Route path="/pharmacy" element={<PharmacyWorkspace />} />
             <Route path="/patient/login" element={<PatientLogin />} />

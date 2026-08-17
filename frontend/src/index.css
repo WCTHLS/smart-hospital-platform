@@ -677,3 +677,7 @@ a {
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: rgba(37,100,207, 0.22); border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+.text-white-force {
+  color: #ffffff !important;
+}
