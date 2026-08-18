@@ -1,11 +1,12 @@
 import { useEffect, useState, Fragment } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { 
   FileText, Share2, Mic, FlaskConical, Pill, ArrowLeft, Sparkles, History, 
   Stethoscope, User, ShieldAlert, Phone, ChevronDown, ChevronUp, CheckCircle2, 
   Plus, AlertTriangle, ExternalLink, ScanLine, MoreHorizontal, UserCheck, 
   Activity, Clock, BookOpen, HeartPulse, ShieldCheck, Download, Filter, Eye, 
-  PlusCircle, RefreshCw, ClipboardList, Send, PhoneCall, CheckSquare, Building2
+  PlusCircle, RefreshCw, ClipboardList, Send, PhoneCall, CheckSquare, Building2, HardDrive, MapPin, Settings
 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { useJourney } from "../../lib/store";
@@ -16,6 +17,11 @@ import AmbientSoap from "./components/AmbientSoap";
 import OrdersAndLabs from "./components/OrdersAndLabs";
 import Prescription from "./components/Prescription";
 import CopilotSidepane from "./components/CopilotSidepane";
+
+import LabWorkspace from "../lab/LabWorkspace";
+import RadiologyWorkspace from "../radiology/RadiologyWorkspace";
+import PharmacyWorkspace from "../pharmacy/PharmacyWorkspace";
+import CareTeamWorkspace from "../careteam/CareTeamWorkspace";
 
 const NEW_TABS = [
   { id: "timeline", label: "Timeline" },
@@ -283,12 +289,16 @@ export default function DoctorWorkspace() {
   
   // AI summary trigger state
   const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   // Checklist tasks status
   const [task1Checked, setTask1Checked] = useState(false);
   const [task2Checked, setTask2Checked] = useState(false);
   const [task3Checked, setTask3Checked] = useState(false);
   const [task4Checked, setTask4Checked] = useState(false);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = searchParams.get("view");
 
   // Load Doctor Queue for dropdown patient switcher
   const selectedDoctorId = localStorage.getItem("selected_doctor_id") || "";
@@ -299,6 +309,24 @@ export default function DoctorWorkspace() {
     refetchInterval: 5000,
   });
 
+  // Fetch global lab orders for feeds
+  const { data: globalLabOrders } = useQuery({
+    queryKey: ["global-lab-orders"],
+    queryFn: () => api.labOrders(),
+    enabled: !journey.encounterId && (view === "labs" || view === "radiology"),
+    refetchInterval: 5000,
+  });
+
+  // Fetch global prescriptions for feed
+  const { data: globalPrescriptions } = useQuery({
+    queryKey: ["global-prescriptions"],
+    queryFn: () => api.prescriptions(),
+    enabled: !journey.encounterId && view === "prescriptions",
+    refetchInterval: 5000,
+  });
+
+  // Removed EMR view parameters redirection to allow global workspace rendering
+
   const { data: encDetails } = useQuery({
     queryKey: ["encounter-details", journey.encounterId],
     queryFn: () => api.encounter(journey.encounterId!),
@@ -306,12 +334,15 @@ export default function DoctorWorkspace() {
   });
 
   // Fetch full Patient 360 profile data
-  const { data: p360Data, refetch: refetchP360 } = useQuery({
+  const { data: p360Data, refetch: refetchP360, error: p360Error } = useQuery({
     queryKey: ["p360", journey.patientId],
     queryFn: () => api.patient360(journey.patientId!),
     enabled: !!journey.patientId,
     refetchInterval: 5000,
+    retry: false,
   });
+
+  const isConsentRequired = p360Error instanceof ApiError && p360Error.status === 403;
 
   // Fetch Active Encounter consultation notes
   useQuery({
@@ -402,11 +433,7 @@ export default function DoctorWorkspace() {
     }
   }
 
-  useEffect(() => {
-    if (journey.encounterId) {
-      void getSuggestions(journey.encounterId);
-    }
-  }, [journey.encounterId]);
+  // Removed automatic getSuggestions call on load to conserve AI API credits. Can be manually triggered via button.
 
   const handleSelectPatient = (enc: any) => {
     setSel([]);
@@ -420,6 +447,7 @@ export default function DoctorWorkspace() {
     setRxDone(null);
     setRxErr(null);
     setTab("timeline");
+    setSearchParams({ view: "patient360" });
     journey.set({
       patientId: enc.patient.patient_id,
       encounterId: enc.encounter_id,
@@ -499,9 +527,267 @@ export default function DoctorWorkspace() {
     }
   };
 
-  if (!journey.encounterId || !journey.patientId) {
-    return <DoctorQueue onSelectPatient={handleSelectPatient} />;
-  }
+  // Helper to open patient and direct to correct EMR tab
+  const handleSelectPatientWithTab = (enc: any, targetTab: string) => {
+    handleSelectPatient(enc);
+    setTab(targetTab);
+    setSearchParams({}, { replace: true });
+  };
+
+  const renderGlobalLabsFeed = () => {
+    const patientIds = queue?.map((enc: any) => enc.patient.patient_id) || [];
+    const filteredOrders = globalLabOrders?.filter((o: any) => 
+      o.category !== "RADIOLOGY" && patientIds.includes(o.patient_id)
+    ) || [];
+
+    return (
+      <div className="space-y-4 text-left animate-in fade-in duration-300">
+        <div className="flex items-center justify-between pb-1 border-b border-black/[0.05]">
+          <div>
+            <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+              <FlaskConical className="text-[#107C10]" size={20} /> Laboratory Pathology Feed
+            </h2>
+            <p className="text-xs text-slate-400">Track all pathology tests ordered and resulted for your patients today.</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+          {filteredOrders.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 font-semibold">No active lab orders found for today.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-slate-800 text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-black/[0.08] pb-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                    <th className="text-left pb-2 pr-3">Token</th>
+                    <th className="text-left pb-2 pr-3">Patient Name</th>
+                    <th className="text-left pb-2 pr-3">Test Name</th>
+                    <th className="text-left pb-2 pr-3">Date</th>
+                    <th className="text-left pb-2 pr-3">Status</th>
+                    <th className="text-right pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.03]">
+                  {filteredOrders.map((o: any) => {
+                    const enc = queue?.find((e: any) => e.patient.patient_id === o.patient_id);
+                    return (
+                      <tr key={o.lab_order_id} className="hover:bg-slate-50/50 transition">
+                        <td className="py-3 pr-3 font-extrabold text-slate-700">
+                          {o.token_number ? `A-${o.token_number}` : "—"}
+                        </td>
+                        <td className="py-3 pr-3 font-bold text-[#0c3b63]">
+                          {o.patient_name}
+                        </td>
+                        <td className="py-3 pr-3 font-semibold text-slate-650">
+                          {o.test_name}
+                        </td>
+                        <td className="py-3 pr-3 text-slate-500">
+                          {o.ordered_ts ? new Date(o.ordered_ts).toLocaleDateString([], { day: '2-digit', month: 'short' }) : "—"}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold border ${
+                            o.status === "RESULTED"
+                              ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                              : "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                          }`}>
+                            {o.status === "RESULTED" ? "Resulted" : "Pending"}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => enc && handleSelectPatientWithTab(enc, "labs")}
+                            className="bg-[#107C10] hover:bg-[#107C10]/90 text-white font-extrabold text-[11px] py-1 px-3 rounded-lg transition"
+                          >
+                            View Result →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGlobalRadiologyFeed = () => {
+    const patientIds = queue?.map((enc: any) => enc.patient.patient_id) || [];
+    const filteredOrders = globalLabOrders?.filter((o: any) => 
+      o.category === "RADIOLOGY" && patientIds.includes(o.patient_id)
+    ) || [];
+
+    return (
+      <div className="space-y-4 text-left animate-in fade-in duration-300">
+        <div className="flex items-center justify-between pb-1 border-b border-black/[0.05]">
+          <div>
+            <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+              <ScanLine className="text-[#038387]" size={20} /> Radiology Imaging Feed
+            </h2>
+            <p className="text-xs text-slate-400">Review CT, MRI, and X-ray imaging reports and active PACS scans.</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+          {filteredOrders.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 font-semibold">No active imaging orders found.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-slate-800 text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-black/[0.08] pb-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                    <th className="text-left pb-2 pr-3">Token</th>
+                    <th className="text-left pb-2 pr-3">Patient Name</th>
+                    <th className="text-left pb-2 pr-3">Scan Type</th>
+                    <th className="text-left pb-2 pr-3">Date</th>
+                    <th className="text-left pb-2 pr-3">Severity</th>
+                    <th className="text-left pb-2 pr-3">Status</th>
+                    <th className="text-right pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.03]">
+                  {filteredOrders.map((o: any) => {
+                    const enc = queue?.find((e: any) => e.patient.patient_id === o.patient_id);
+                    const aiFlag = o.ai_analysis_summary?.includes("HIGH") ? "HIGH" : o.ai_analysis_summary?.includes("MODERATE") ? "MODERATE" : "NORMAL";
+                    return (
+                      <tr key={o.lab_order_id} className="hover:bg-slate-50/50 transition">
+                        <td className="py-3 pr-3 font-extrabold text-slate-700">
+                          {o.token_number ? `A-${o.token_number}` : "—"}
+                        </td>
+                        <td className="py-3 pr-3 font-bold text-[#0c3b63]">
+                          {o.patient_name}
+                        </td>
+                        <td className="py-3 pr-3 font-semibold text-slate-650">
+                          {o.test_name}
+                        </td>
+                        <td className="py-3 pr-3 text-slate-500">
+                          {o.ordered_ts ? new Date(o.ordered_ts).toLocaleDateString([], { day: '2-digit', month: 'short' }) : "—"}
+                        </td>
+                        <td className="py-3 pr-3">
+                          {o.status === "RESULTED" && (
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold border ${
+                              aiFlag === "HIGH"
+                                ? "bg-rose-500/10 text-rose-600 border-rose-500/20"
+                                : aiFlag === "MODERATE"
+                                ? "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                                : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                            }`}>
+                              {aiFlag}
+                            </span>
+                          )}
+                          {o.status !== "RESULTED" && <span className="text-slate-400">—</span>}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold border ${
+                            o.status === "RESULTED"
+                              ? "bg-sky-500/10 text-sky-600 border-sky-500/20"
+                              : "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                          }`}>
+                            {o.status === "RESULTED" ? "Resulted" : "Pending"}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => enc && handleSelectPatientWithTab(enc, "imaging")}
+                            className="bg-[#038387] hover:bg-[#038387]/90 text-white font-extrabold text-[11px] py-1 px-3 rounded-lg transition"
+                          >
+                            View PACS Scan →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGlobalPrescriptionsFeed = () => {
+    const patientIds = queue?.map((enc: any) => enc.patient.patient_id) || [];
+    const filteredPrescriptions = globalPrescriptions?.filter((rx: any) => 
+      patientIds.includes(rx.patient_id)
+    ) || [];
+
+    return (
+      <div className="space-y-4 text-left animate-in fade-in duration-300">
+        <div className="flex items-center justify-between pb-1 border-b border-black/[0.05]">
+          <div>
+            <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+              <Pill className="text-[#CA5010]" size={20} /> Clinical Prescriptions Feed
+            </h2>
+            <p className="text-xs text-slate-400">Review, modify, or authorize active patient prescriptions and pharmacotherapy orders.</p>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
+          {filteredPrescriptions.length === 0 ? (
+            <div className="text-center py-10 text-slate-400 font-semibold">No active prescriptions found.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-slate-800 text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-black/[0.08] pb-2 text-[10.5px] font-extrabold uppercase tracking-wider text-slate-400">
+                    <th className="text-left pb-2 pr-3">Patient Name</th>
+                    <th className="text-left pb-2 pr-3">Meds Summary</th>
+                    <th className="text-left pb-2 pr-3">Date</th>
+                    <th className="text-left pb-2 pr-3">Status</th>
+                    <th className="text-right pb-2">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-black/[0.03]">
+                  {filteredPrescriptions.map((rx: any) => {
+                    const enc = queue?.find((e: any) => e.patient.patient_id === rx.patient_id);
+                    const medsSummary = rx.items?.map((it: any) => it.drug_name).join(", ") || "No items";
+                    return (
+                      <tr key={rx.rx_id} className="hover:bg-slate-50/50 transition">
+                        <td className="py-3 pr-3 font-bold text-[#0c3b63]">
+                          {rx.patient_name}
+                        </td>
+                        <td className="py-3 pr-3 font-semibold text-slate-650 max-w-[280px] truncate" title={medsSummary}>
+                          {medsSummary}
+                        </td>
+                        <td className="py-3 pr-3 text-slate-500">
+                          {rx.created_ts ? new Date(rx.created_ts).toLocaleDateString([], { day: '2-digit', month: 'short' }) : "—"}
+                        </td>
+                        <td className="py-3 pr-3">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold border ${
+                            rx.status === "APPROVED" || rx.status === "PREPAID" || rx.status === "DISPENSED"
+                              ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                              : "bg-amber-500/10 text-amber-600 border-amber-500/20"
+                          }`}>
+                            {rx.status}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => enc && handleSelectPatientWithTab(enc, "medications")}
+                            className="bg-[#CA5010] hover:bg-[#CA5010]/90 text-white font-extrabold text-[11px] py-1 px-3 rounded-lg transition"
+                          >
+                            Review Rx →
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Moved patient selection check below global view routing to allow direct global workspace rendering
 
   // Formatting variables
   const allergyText = p360Data?.allergies?.map((a: any) => a.substance) ?? [];
@@ -509,6 +795,444 @@ export default function DoctorWorkspace() {
   const activeMedications = p360Data?.medications ?? [];
   const recentLabs = p360Data?.recent_results?.filter((r: any) => r.category !== "RADIOLOGY") ?? [];
   const recentImaging = p360Data?.recent_results?.filter((r: any) => r.category === "RADIOLOGY") ?? [];
+
+  // ---------------------------------------------------- High-Fidelity Command Center fallbacks
+  const renderAdmissionsView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <ClipboardList className="text-[#CA5010]" size={20} /> Admissions Command Center
+        </h2>
+        <p className="text-xs text-slate-400">Live monitor of patient bed allocations, admissions queues, and floor census.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: "ICU Occupancy", value: "85%", color: "#ef4444" },
+          { label: "General Beds", value: "18 / 20", color: "#16a34a" },
+          { label: "Admitted Today", value: "14 Patients", color: "#0078d4" },
+          { label: "Discharge Pending", value: "3 Patients", color: "#CA5010" }
+        ].map((k) => (
+          <div key={k.label} className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm relative overflow-hidden">
+            <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: k.color }} />
+            <div className="text-[20px] font-extrabold text-slate-800">{k.value}</div>
+            <div className="text-[11.5px] font-bold text-slate-400 mt-1">{k.label}</div>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm">
+        <div className="font-bold text-[13px] text-[#0c3b63] mb-3">Active Admissions Log</div>
+        <div className="overflow-x-auto text-xs">
+          <table className="w-full text-slate-700 text-left">
+            <thead>
+              <tr className="border-b border-black/[0.08] pb-1.5 text-[9.5px] font-extrabold text-slate-400 uppercase tracking-wider">
+                <th className="pb-2">Patient</th>
+                <th className="pb-2">Room / Ward</th>
+                <th className="pb-2">Admitting Doctor</th>
+                <th className="pb-2">Diagnosis</th>
+                <th className="pb-2 text-right">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-black/[0.03]">
+              {[
+                { name: "Ahmed Khan", room: "ICU 07", doctor: "Dr. Ahmed Ali", dx: "NSTEMI", status: "Active" },
+                { name: "Sara Ali", room: "Ward B3", doctor: "Dr. Michael Lee", dx: "Post-op Care", status: "Admitted" },
+                { name: "Ali Mahmood", room: "ICU 03", doctor: "Dr. Imran Haider", dx: "Pneumonia", status: "Active" },
+                { name: "Zara Noor", room: "Ward A1", doctor: "Dr. Sarah Khan", dx: "Cellulitis", status: "Discharged" },
+              ].map((row, idx) => (
+                <tr key={idx} className="hover:bg-slate-50/50">
+                  <td className="py-2.5 font-bold text-slate-800">{row.name}</td>
+                  <td className="py-2.5 font-semibold text-slate-650">{row.room}</td>
+                  <td className="py-2.5 text-slate-550">{row.doctor}</td>
+                  <td className="py-2.5 text-slate-500">{row.dx}</td>
+                  <td className="py-2.5 text-right">
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-extrabold border ${
+                      row.status === "Discharged" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-sky-500/10 text-sky-600 border-sky-500/20"
+                    }`}>{row.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderSurgeryView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <Activity className="text-[#107C10]" size={20} /> Surgery &amp; OT Command Center
+        </h2>
+        <p className="text-xs text-slate-400">Live operational monitor of Operating Theaters (OT) and scheduled surgeries.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { title: "OR 1 - Active", op: "Coronary Bypass Graft", doc: "Dr. Ahmed Ali", time: "8:00 AM - 12:30 PM", color: "#D13438" },
+          { title: "OR 2 - Active", op: "Laparoscopic Appendectomy", doc: "Dr. Sara Malik", time: "10:30 AM - 12:00 PM", color: "#D13438" },
+          { title: "OR 3 - Idle", op: "Scheduled Disinfection", doc: "—", time: "11:30 AM - 12:00 PM", color: "#16a34a" },
+          { title: "OR 4 - Scheduled", op: "Total Knee Arthroplasty", doc: "Dr. Michael Lee", time: "1:30 PM - 3:30 PM", color: "#0078d4" }
+        ].map((or, idx) => (
+          <div key={idx} className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm relative overflow-hidden">
+            <span className="absolute inset-y-0 left-0 w-1.5 h-full" style={{ backgroundColor: or.color }} />
+            <div className="font-extrabold text-[12px] text-slate-800 flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: or.color }} />
+              {or.title}
+            </div>
+            <div className="text-xs font-bold text-slate-650 mt-2">{or.op}</div>
+            <div className="text-[11px] text-slate-450 mt-1">Surgeon: {or.doc}</div>
+            <div className="text-[10px] text-slate-450 mt-1 flex items-center gap-1"><Clock size={11} /> {or.time}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderIcuView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <HeartPulse className="text-[#D13438]" size={20} /> ICU Operations Monitor
+        </h2>
+        <p className="text-xs text-slate-400">Real-time telemetry feeds and acuity metrics for Intensive Care patients.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {[
+          { bed: "Bed ICU-01", patient: "M. Siddiqui", vitals: "HR 82, BP 118/76, SpO2 97%", status: "Stable", tone: "green" },
+          { bed: "Bed ICU-03", patient: "Rashid Ali", vitals: "HR 104, BP 138/92, SpO2 93%", status: "Alert", tone: "amber" },
+          { bed: "Bed ICU-07", patient: "Ahmed Khan", vitals: "HR 76, BP 125/80, SpO2 99%", status: "Critical", tone: "red" },
+        ].map((icu, idx) => (
+          <div key={idx} className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm relative overflow-hidden">
+            <div className="flex justify-between items-center pb-2 border-b border-black/[0.04]">
+              <span className="font-extrabold text-[12px] text-slate-800">{icu.bed}</span>
+              <span className={`inline-flex rounded-full px-2 py-0.5 text-[8.5px] font-extrabold uppercase border ${
+                icu.tone === "red" ? "bg-rose-500/10 text-rose-600 border-rose-500/20" : icu.tone === "amber" ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+              }`}>{icu.status}</span>
+            </div>
+            <div className="pt-2 text-left">
+              <div className="font-bold text-xs text-slate-700">{icu.patient}</div>
+              <div className="text-[11px] text-slate-500 font-mono mt-1">{icu.vitals}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderEmergencyView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <AlertTriangle className="text-amber-500" size={20} /> Emergency Department Triage
+        </h2>
+        <p className="text-xs text-slate-400">Emergency room (ED) patient logs classified by standard CTAS priority guidelines.</p>
+      </div>
+      <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm overflow-x-auto">
+        <table className="w-full text-xs text-left">
+          <thead>
+            <tr className="border-b border-black/[0.08] pb-1.5 text-[9.5px] font-extrabold text-slate-400 uppercase tracking-wider">
+              <th className="pb-2">CTAS Code</th>
+              <th className="pb-2">Patient</th>
+              <th className="pb-2">Chief Complaint</th>
+              <th className="pb-2">Wait Time</th>
+              <th className="pb-2 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-black/[0.03]">
+            {[
+              { code: "Level 1 - Resuscitation", patient: "Bilal Ahmad", complaint: "Cardiac Arrest", wait: "0 min", status: "In Trauma Room", tone: "red" },
+              { code: "Level 2 - Emergent", patient: "Marium Bibi", complaint: "Severe Chest Pain", wait: "5 min", status: "Awaiting ECG", tone: "red" },
+              { code: "Level 3 - Urgent", patient: "Kamran Shah", complaint: "Compound Fracture", wait: "18 min", status: "Triage Done", tone: "amber" },
+              { code: "Level 4 - Less Urgent", patient: "Hina Riaz", complaint: "Acute Sprain", wait: "45 min", status: "Waiting", tone: "blue" },
+            ].map((er, idx) => (
+              <tr key={idx} className="hover:bg-slate-50/50">
+                <td className="py-2.5 font-bold">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[8.5px] font-extrabold border ${
+                    er.tone === "red" ? "bg-rose-500/10 text-rose-600 border-rose-500/20" : er.tone === "amber" ? "bg-amber-500/10 text-amber-600 border-amber-500/20" : "bg-sky-500/10 text-sky-600 border-sky-500/20"
+                  }`}>{er.code}</span>
+                </td>
+                <td className="py-2.5 font-bold text-slate-800">{er.patient}</td>
+                <td className="py-2.5 text-slate-600">{er.complaint}</td>
+                <td className="py-2.5 text-slate-500 font-mono">{er.wait}</td>
+                <td className="py-2.5 text-right font-semibold text-slate-650">{er.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderBillingView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <BookOpen className="text-indigo-500" size={20} /> Billing &amp; Invoices
+        </h2>
+        <p className="text-xs text-slate-400 font-medium">Verify outstanding patient claims, pre-authorization statuses, and copays.</p>
+      </div>
+      <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm overflow-x-auto">
+        <table className="w-full text-xs text-left">
+          <thead>
+            <tr className="border-b border-black/[0.08] pb-1.5 text-[9.5px] font-extrabold text-slate-400 uppercase tracking-wider">
+              <th className="pb-2">Invoice ID</th>
+              <th className="pb-2">Patient</th>
+              <th className="pb-2">Total Bill</th>
+              <th className="pb-2">Insurance Covered</th>
+              <th className="pb-2 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-black/[0.03]">
+            {[
+              { id: "INV-2849", name: "Ahmed Khan", amount: "₹45,280.00", insurance: "₹42,000.00", status: "Paid" },
+              { id: "INV-2850", name: "Sara Ali", amount: "₹18,500.00", insurance: "₹15,000.00", status: "Unpaid" },
+              { id: "INV-2851", name: "Ali Mahmood", amount: "₹8,200.00", insurance: "₹0.00", status: "Paid" },
+            ].map((inv, idx) => (
+              <tr key={idx} className="hover:bg-slate-50/50">
+                <td className="py-2.5 font-mono text-[#0078d4] font-bold">{inv.id}</td>
+                <td className="py-2.5 font-bold text-slate-800">{inv.name}</td>
+                <td className="py-2.5 font-semibold text-slate-700">{inv.amount}</td>
+                <td className="py-2.5 text-slate-500">{inv.insurance}</td>
+                <td className="py-2.5 text-right">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[9px] font-extrabold border ${
+                    inv.status === "Paid" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-rose-500/10 text-rose-600 border-rose-500/20"
+                  }`}>{inv.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderInventoryView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <HardDrive className="text-teal-600" size={20} /> Inventory Command Center
+        </h2>
+        <p className="text-xs text-slate-400">Monitor centralized hospital supplies, clinical disposables, and sterile kit stocks.</p>
+      </div>
+      <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm">
+        <div className="font-bold text-[13px] text-[#0c3b63] mb-3">Critical Supply Alerts</div>
+        <div className="space-y-2.5 text-xs text-slate-750">
+          {[
+            { item: "Sterile Nitrile Gloves (Medium)", stock: "15 boxes left", alert: "Below reorder margin of 50 boxes", type: "Low Stock" },
+            { item: "Disposible Syringes 5ml", stock: "102 units left", alert: "High depletion rate today", type: "Depleted" },
+            { item: "Infusion Pumps IV-100", stock: "2 available", alert: "All other units allocated to ICU", type: "Allocation Alert" },
+          ].map((inv, idx) => (
+            <div key={idx} className="p-3 border border-black/[0.05] rounded-xl bg-slate-50/50 flex justify-between items-start">
+              <div>
+                <div className="font-bold text-slate-850">{inv.item}</div>
+                <div className="text-[10px] text-slate-400 mt-0.5">{inv.alert}</div>
+              </div>
+              <div className="text-right shrink-0">
+                <span className="font-bold text-[#D13438] block">{inv.stock}</span>
+                <span className="text-[9px] font-extrabold uppercase text-slate-450 block mt-0.5">{inv.type}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderReportsView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <FileText className="text-sky-600" size={20} /> Clinical Analytics &amp; Reports
+        </h2>
+        <p className="text-xs text-slate-400">Generate compliance metrics, readmission reviews, and clinical quality performance logs.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {[
+          { title: "Monthly Readmission Quality Report", date: "August 2026", desc: "Detailed breakdown of 30-day medical readmission trends.", download: "Download PDF" },
+          { title: "OT Utilization Review", date: "Q2 2026", desc: "Analysis of Operating Theater occupancy hours and turnover periods.", download: "Generate Chart" },
+        ].map((rep, idx) => (
+          <div key={idx} className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm flex flex-col justify-between h-36">
+            <div>
+              <span className="text-[10px] text-slate-400 font-bold">{rep.date}</span>
+              <h4 className="text-[13px] font-bold text-slate-800 mt-1">{rep.title}</h4>
+              <p className="text-[11px] text-slate-450 leading-relaxed mt-1.5">{rep.desc}</p>
+            </div>
+            <button className="text-left text-[11px] font-extrabold text-[#0078d4] hover:underline pt-2 border-t border-black/[0.04] flex items-center gap-1">
+              <Download size={12} /> {rep.download}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderMapView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <MapPin className="text-rose-500" size={20} /> Hospital Floor Map
+        </h2>
+        <p className="text-xs text-slate-400">Dynamic 3D vector coordinates representing active hospital telemetry digital twins.</p>
+      </div>
+      <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm flex justify-center items-center bg-slate-950 min-h-[300px]">
+        <div className="w-full max-w-lg">
+          <DigitalTwinMap />
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDepartmentsView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <Building2 className="text-slate-700" size={20} /> Hospital Departments Directory
+        </h2>
+        <p className="text-xs text-slate-400">Live operational overview of departments, staffing indexes, and occupancy levels.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {[
+          { name: "Emergency Department", count: "24 Patients", staff: "12 Doctors, 28 Nurses", occupancy: "110% Capacity" },
+          { name: "ICU / CCU Unit", count: "14 Patients", staff: "4 Doctors, 16 Nurses", occupancy: "85% Capacity" },
+          { name: "Cardiology Center", count: "32 Patients", staff: "8 Doctors, 12 Nurses", occupancy: "75% Capacity" },
+          { name: "Pharmacy Main", count: "42 Pendings", staff: "6 Pharmacists", occupancy: "Normal Load" },
+          { name: "Radiology Central", count: "11 Studies", staff: "4 Radiologists", occupancy: "Moderate Load" },
+        ].map((dept, idx) => (
+          <div key={idx} className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm text-xs space-y-1">
+            <h4 className="font-extrabold text-slate-800 text-[12.5px]">{dept.name}</h4>
+            <div className="text-slate-500 font-semibold">{dept.count} · {dept.staff}</div>
+            <div className="text-[#0078d4] font-bold">{dept.occupancy}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const renderAssetsView = () => (
+    <div className="space-y-4 text-left animate-in fade-in duration-300">
+      <div className="pb-1 border-b border-black/[0.05]">
+        <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+          <HardDrive className="text-slate-700" size={20} /> High-Value Medical Equipment Assets
+        </h2>
+        <p className="text-xs text-slate-400">Verify calibration triggers, operational status, and floor location of tracking assets.</p>
+      </div>
+      <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm overflow-x-auto">
+        <table className="w-full text-xs text-left">
+          <thead>
+            <tr className="border-b border-black/[0.08] pb-1.5 text-[9.5px] font-extrabold text-slate-400 uppercase tracking-wider">
+              <th className="pb-2">Asset Tag</th>
+              <th className="pb-2">Equipment Description</th>
+              <th className="pb-2">Current Location</th>
+              <th className="pb-2">Calibration Status</th>
+              <th className="pb-2 text-right">Connectivity</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-black/[0.03]">
+            {[
+              { tag: "VT-102", name: "Ventilator Servo-U", loc: "ICU Bed 07", calib: "Approved", status: "Connected" },
+              { tag: "ECG-99", name: "ECG Telemetry 12-lead", loc: "ER Trauma Room 1", calib: "Approved", status: "Connected" },
+              { tag: "US-88", name: "Ultrasound GE Voluson", loc: "OBS/GYN Exam Room", calib: "Pending Review", status: "Offline" },
+            ].map((asset, idx) => (
+              <tr key={idx} className="hover:bg-slate-50/50">
+                <td className="py-2.5 font-mono text-[#0078d4] font-bold">{asset.tag}</td>
+                <td className="py-2.5 font-bold text-slate-800">{asset.name}</td>
+                <td className="py-2.5 font-semibold text-slate-650">{asset.loc}</td>
+                <td className="py-2.5 text-slate-500">{asset.calib}</td>
+                <td className="py-2.5 text-right">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[8.5px] font-extrabold border ${
+                    asset.status === "Connected" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20" : "bg-slate-500/10 text-slate-600 border-slate-500/20"
+                  }`}>{asset.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderSystemView = (type: string) => {
+    const title = type.charAt(0).toUpperCase() + type.slice(1);
+    return (
+      <div className="space-y-4 text-left animate-in fade-in duration-300">
+        <div className="pb-1 border-b border-black/[0.05]">
+          <h2 className="grad-text-page text-lg font-extrabold flex items-center gap-2">
+            <Settings className="text-[#0c3b63]" size={20} /> System {title} Panel
+          </h2>
+          <p className="text-xs text-slate-400">Configure preferences, check system tasks checklist, and read communications.</p>
+        </div>
+        <div className="rounded-2xl border border-black/[0.08] bg-white p-4 shadow-sm text-xs text-slate-700 leading-relaxed max-w-xl">
+          <div className="font-bold text-slate-850 mb-2">Configure ClinIQ Preferences</div>
+          <p className="text-slate-450">Settings are synced with active LDAP directory credentials. To change notification flags, contact administrative support.</p>
+          <div className="mt-3 p-3 bg-slate-50 border border-black/[0.04] rounded-xl flex items-center justify-between">
+            <span className="font-semibold">SMS Patients on Resulted Labs</span>
+            <span className="text-[#107C10] font-bold">Enabled</span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Global views routing
+  if (view === "care-team") {
+    return <CareTeamWorkspace readOnly={true} />;
+  }
+  if (view === "labs") {
+    return <LabWorkspace />;
+  }
+  if (view === "radiology") {
+    return <RadiologyWorkspace />;
+  }
+  if (view === "pharmacy") {
+    return <PharmacyWorkspace />;
+  }
+  if (view === "admissions") {
+    return renderAdmissionsView();
+  }
+  if (view === "surgery") {
+    return renderSurgeryView();
+  }
+  if (view === "icu") {
+    return renderIcuView();
+  }
+  if (view === "emergency") {
+    return renderEmergencyView();
+  }
+  if (view === "billing") {
+    return renderBillingView();
+  }
+  if (view === "inventory") {
+    return renderInventoryView();
+  }
+  if (view === "reports") {
+    return renderReportsView();
+  }
+  if (view === "map") {
+    return renderMapView();
+  }
+  if (view === "departments") {
+    return renderDepartmentsView();
+  }
+  if (view === "assets") {
+    return renderAssetsView();
+  }
+  if (view === "alerts" || view === "tasks" || view === "messages" || view === "settings") {
+    return renderSystemView(view);
+  }
+
+  // Patient selected verification check
+  if (!journey.encounterId || !journey.patientId) {
+    if (view === "labs") {
+      return renderGlobalLabsFeed();
+    }
+    if (view === "radiology") {
+      return renderGlobalRadiologyFeed();
+    }
+    if (view === "prescriptions") {
+      return renderGlobalPrescriptionsFeed();
+    }
+    return <DoctorQueue onSelectPatient={handleSelectPatient} />;
+  }
 
   const buildTimelineEvents = () => {
     const events: any[] = [];
@@ -698,8 +1422,41 @@ export default function DoctorWorkspace() {
               </div>
             </div>
 
-            {/* Demographics details + AI Summary Grid */}
-            <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr] border-b border-black/[0.05] pb-4">
+            {isConsentRequired ? (
+              <div className="my-8 flex flex-col items-center justify-center p-8 text-center rounded-2xl border border-rose-500/20 bg-rose-500/5 max-w-xl mx-auto space-y-4">
+                <div className="grid h-12 w-12 place-items-center rounded-full bg-rose-500/10 text-rose-600">
+                  <ShieldAlert size={24} className="animate-pulse" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-md font-extrabold text-slate-800">🔐 Consent Required to Access Record</h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto leading-relaxed">
+                    Under hospital security protocols and patient privacy rules, you must capture active patient consent before accessing Protected Health Information (PHI).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await api.consent(journey.patientId!);
+                      void refetchP360();
+                    } catch (err) {
+                      console.error(err);
+                      alert("Failed to capture patient consent.");
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  disabled={busy}
+                  className="bg-[#0078d4] hover:bg-[#0078d4]/90 text-white font-extrabold text-[12px] py-2 px-4 rounded-lg shadow-lg cursor-pointer inline-flex items-center gap-1.5 transition"
+                >
+                  {busy ? "Capturing..." : "Capture Consent & Unlock EMR"}
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Demographics details + AI Summary Grid */}
+                <div className="grid gap-4 lg:grid-cols-[1.15fr_1fr] border-b border-black/[0.05] pb-4">
               
               {/* Left Column: Demographics Details Box */}
               <div className="flex gap-4 text-left items-start">
@@ -1206,6 +1963,8 @@ export default function DoctorWorkspace() {
                   </div>
                 )}
               </div>
+              </>
+            )}
             </div>
 
             {/* Bottom Row Grid: Digital Twin, Tasks Checklist, Activity Feed */}

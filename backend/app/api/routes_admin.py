@@ -54,6 +54,21 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
     
     out = []
     for d in doctors:
+        schedules = db.scalars(
+            select(models.DoctorSchedule)
+            .where(models.DoctorSchedule.doctor_id == d.staff_id)
+            .where(models.DoctorSchedule.active.is_(True))
+        ).all()
+        sched_list = [
+            {
+                "day_of_week": s.day_of_week,
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "active": s.active
+            }
+            for s in schedules
+        ]
+        
         out.append({
             "doctor_id": d.staff_id,
             "name": d.name,
@@ -66,8 +81,28 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
             "access_pin": d.access_pin or "1234",
             "opd_fee": d.opd_fee or 0.0,
             "available": d.available,
+            "schedules": sched_list,
         })
     return out
+
+
+@router.get("/admin/encounters/active")
+def list_active_encounters(db: Session = Depends(get_db)) -> list[dict]:
+    encs = db.scalars(
+        select(models.Encounter)
+        .where(models.Encounter.status != "DISCHARGED")
+    ).all()
+    return [
+        {
+            "encounter_id": e.encounter_id,
+            "patient_id": e.patient_id,
+            "doctor_id": e.doctor_id,
+            "status": e.status,
+            "department": e.department,
+            "visit_type": e.visit_type,
+        }
+        for e in encs
+    ]
 
 
 @router.post("/doctors/verify-pin")

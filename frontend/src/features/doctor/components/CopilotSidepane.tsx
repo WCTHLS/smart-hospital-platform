@@ -191,7 +191,18 @@ export default function CopilotSidepane({
 
             {/* Suggested lab/imaging orders */}
             <div>
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-400">Suggested Labs &amp; Orders</div>
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Suggested Labs &amp; Orders</span>
+                {suggestions.length > 0 && (
+                  <button 
+                    onClick={onGetSuggestions} 
+                    disabled={loadingSuggestions} 
+                    className="text-[10.5px] font-bold text-[#0078d4] hover:underline"
+                  >
+                    {loadingSuggestions ? "..." : "Refresh"}
+                  </button>
+                )}
+              </div>
               {suggestions.length === 0 ? (
                 <div className={`${cardClass} space-y-2 text-center`}>
                   <p className="text-[11.5px] leading-relaxed text-slate-500 font-semibold">Indicated diagnostics suggestions.</p>

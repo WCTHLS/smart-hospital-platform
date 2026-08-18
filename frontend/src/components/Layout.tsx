@@ -3,8 +3,13 @@ import { ReactNode, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   HeartPulse, MonitorDot, ShieldAlert, BellRing, Menu, PanelLeftClose,
-  ChevronDown, LogOut, User, Users, UserPlus,
+  ChevronDown, LogOut, User, Users, UserPlus, FlaskConical, Scan, Pill, Syringe, Stethoscope,
+  UserCog, Calendar, LayoutGrid, ClipboardList, Activity, AlertTriangle,
+  BookOpen, HardDrive, FileText, MapPin, Building2, Bell, CheckSquare, MessageSquare,
+  Settings, X
 } from "lucide-react";
+
+
 
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
@@ -15,6 +20,41 @@ import { api } from "../lib/api";
 const ADMIN_NAV = [
   { to: "/admin", label: "Admin Workspace", icon: ShieldAlert },
   { to: "/command", label: "Command Center", icon: MonitorDot },
+];
+
+const CARE_TEAM_NAV = [
+  { to: "/care-team?tab=overview", label: "Care Team Overview", icon: UserCog, end: true },
+  { to: "/care-team?tab=directory", label: "Staff Directory", icon: Users },
+  { to: "/care-team?tab=timings", label: "Operating Timings", icon: Calendar },
+];
+
+const DOCTOR_WORKSPACE_NAV = [
+  { to: "/copilot?view=patient360", label: "Command Center", icon: LayoutGrid },
+  { to: "/copilot", label: "Patients", icon: Users, end: true },
+  { to: "/copilot?view=admissions", label: "Admissions", icon: ClipboardList },
+  { to: "/copilot?view=care-team", label: "Care Team", icon: UserCog },
+  { to: "/copilot?view=labs", label: "Labs", icon: FlaskConical },
+  { to: "/copilot?view=radiology", label: "Radiology", icon: Scan },
+  { to: "/copilot?view=pharmacy", label: "Pharmacy", icon: Pill },
+  { to: "/copilot?view=surgery", label: "Surgery / OT", icon: Syringe },
+  { to: "/copilot?view=icu", label: "ICU", icon: HeartPulse },
+  { to: "/copilot?view=emergency", label: "Emergency", icon: AlertTriangle },
+  { to: "/copilot?view=billing", label: "Billing", icon: BookOpen },
+  { to: "/copilot?view=inventory", label: "Inventory", icon: HardDrive },
+  { to: "/copilot?view=reports", label: "Reports", icon: FileText },
+];
+
+const DOCTOR_TWIN_NAV = [
+  { to: "/copilot?view=map", label: "Hospital Map", icon: MapPin },
+  { to: "/copilot?view=departments", label: "Departments", icon: Building2 },
+  { to: "/copilot?view=assets", label: "Assets", icon: HardDrive },
+];
+
+const DOCTOR_SYSTEM_NAV = [
+  { to: "/copilot?view=alerts", label: "Alerts", icon: Bell, badge: 8 },
+  { to: "/copilot?view=tasks", label: "Tasks", icon: CheckSquare, badge: 14 },
+  { to: "/copilot?view=messages", label: "Messages", icon: MessageSquare, badge: 6 },
+  { to: "/copilot?view=settings", label: "Settings", icon: Settings },
 ];
 
 function criticalText(e: LiveEvent): string {
@@ -52,14 +92,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const nav = useNavigate();
   const connected = useRealtime((s) => s.connected);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const [familyMembers, setFamilyMembers] = useState<any[]>([]);
 
   const activeRole = journey.activeRole;
   const osSession = getOsSession();
   const portalPatient = getPortalPatient();
-
   useEffect(() => {
     if (portalPatient?.patient_id || portalPatient?.mobile) {
       api.familyProfiles(portalPatient?.patient_id, portalPatient?.mobile).then((res) => {
@@ -68,19 +107,18 @@ export default function Layout({ children }: { children: ReactNode }) {
     }
   }, [portalPatient?.patient_id, portalPatient?.mobile]);
 
-
-
   const isPatient = Boolean(portalPatient || loc.pathname.startsWith("/patient"));
   const isDoctor = Boolean(osSession?.role === "DOCTOR" || loc.pathname === "/copilot" || loc.pathname === "/oncology");
   const isNurse = Boolean(osSession?.role === "NURSE" || loc.pathname === "/triage");
   const isLab = Boolean(osSession?.role === "LAB" || loc.pathname === "/lab" || loc.pathname === "/radiology");
   const isPharmacy = Boolean(osSession?.role === "PHARMACIST" || loc.pathname === "/pharmacy");
   const isReception = Boolean(osSession?.role === "RECEPTIONIST" || loc.pathname === "/reception");
+  const isCareTeam = Boolean(osSession?.role === "CARE_TEAM" || loc.pathname === "/care-team");
   const isAdmin = Boolean(osSession?.role === "ADMIN" || loc.pathname === "/admin" || loc.pathname === "/command");
 
-  // Single-role dedicated pages (Patient, Doctor, Nurse, Lab, Pharmacy, Reception) have NO sidebar.
-  // Only Admin has an optional admin navigation sidebar.
-  const hasSidebar = isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command");
+  const hasSidebar = (isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command")) ||
+    (isDoctor && (loc.pathname === "/copilot" || loc.pathname === "/oncology")) ||
+    (isCareTeam && loc.pathname === "/care-team");
 
   const currentUser = osSession ? {
     name: osSession.name,
@@ -107,6 +145,8 @@ export default function Layout({ children }: { children: ReactNode }) {
       journey.setRole("pharmacist");
     } else if ((path === "/command" || path === "/admin") && activeRole !== "admin") {
       journey.setRole("admin");
+    } else if (path === "/care-team" && activeRole !== "care_team") {
+      journey.setRole("care_team" as any);
     } else if (path.startsWith("/patient") && activeRole !== "patient") {
       journey.setRole("patient");
     }
@@ -141,16 +181,17 @@ export default function Layout({ children }: { children: ReactNode }) {
   };
 
   const getHeaderTitle = () => {
-    if (isPatient) return "Patient Dashboard";
+    if (loc.pathname === "/care-team") return "Care Team Workspace";
     if (loc.pathname === "/copilot") return "Doctor Workspace";
     if (loc.pathname === "/oncology") return "Oncology & Cancer Care";
-    if (isNurse) return "Triage Desk";
+    if (loc.pathname === "/triage") return "Triage Desk";
     if (loc.pathname === "/lab") return "Lab Workspace";
     if (loc.pathname === "/radiology") return "Radiology Command Center";
-    if (isPharmacy) return "Pharmacy Desk";
-    if (isReception) return "Admissions & Reception Desk";
+    if (loc.pathname === "/pharmacy") return "Pharmacy Desk";
+    if (loc.pathname === "/reception") return "Admissions & Reception Desk";
     if (loc.pathname === "/admin") return "Admin Workspace";
     if (loc.pathname === "/command") return "Command Center";
+    if (isPatient) return "Patient Dashboard";
     return "Smart Hospital Platform";
   };
 
@@ -357,7 +398,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         />
       )}
 
-      {/* Sidebar (Admin only) */}
+      {/* Sidebar (Clinical & Admin) */}
       {hasSidebar && (
         <aside className={`fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
           style={{
@@ -365,19 +406,146 @@ export default function Layout({ children }: { children: ReactNode }) {
             backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
             backdropFilter: "blur(28px) saturate(180%)",
           }}>
-          {ADMIN_NAV.map((n) => (
-            <NavLink to={n.to} key={n.to} onClick={closeSidebarOnMobile}
-              className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
-              style={({ isActive }: any) => ({
-                color: isActive ? "#123a7a" : "var(--muted)",
-                background: isActive ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))" : "transparent",
-                border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
-                boxShadow: isActive ? "0 0 14px rgba(37,100,207,.12)" : "none",
-              })}>
-              <n.icon size={17} />
-              {n.label}
-            </NavLink>
-          ))}
+          {isDoctor ? (
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4 select-none scrollbar-thin text-left">
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Workspace</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_WORKSPACE_NAV.map((n) => {
+                    const isActive = n.end 
+                      ? loc.pathname === "/copilot" && !loc.search
+                      : loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={(e) => {
+                          if (n.to === "/copilot") {
+                            journey.reset();
+                            closeSidebarOnMobile();
+                            return;
+                          }
+                          if (n.to.includes("view=patient360")) {
+                            if (!journey.encounterId || !journey.patientId) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              alert("Please select a patient from the Live Patient Queue first to open their Command Center.");
+                              return;
+                            }
+                          }
+                          closeSidebarOnMobile();
+                        }}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450"} />
+                        <span className="truncate">{n.label}</span>
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Digital Twin</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_TWIN_NAV.map((n) => {
+                    const isActive = loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={() => closeSidebarOnMobile()}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450"} />
+                        <span className="truncate">{n.label}</span>
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">System</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_SYSTEM_NAV.map((n) => {
+                    const isActive = loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={() => closeSidebarOnMobile()}
+                        className="flex items-center justify-between rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450 shrink-0"} />
+                          <span className="truncate">{n.label}</span>
+                        </span>
+                        {n.badge && (
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[9px] font-extrabold text-[#0078d4]">{n.badge}</span>
+                        )}
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : isCareTeam ? (
+            <div className="space-y-1">
+              <div className="mb-2 px-3 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Care Team Portal</div>
+              {CARE_TEAM_NAV.map((n) => {
+                const isActive = n.end 
+                  ? loc.pathname === n.to && !loc.search
+                  : loc.pathname + loc.search === n.to || (n.to.includes("?tab=") && loc.search === "?" + n.to.split("?")[1]);
+                return (
+                  <NavLink
+                    to={n.to}
+                    key={n.to}
+                    onClick={closeSidebarOnMobile}
+                    className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
+                    style={{
+                      color: isActive ? "#0078d4" : "var(--muted)",
+                      background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                      border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                      boxShadow: isActive ? "0 0 14px rgba(0,120,212,.05)" : "none",
+                    }}
+                  >
+                    <n.icon size={17} className={isActive ? "text-[#0078d4]" : "text-slate-400"} />
+                    {n.label}
+                  </NavLink>
+                );
+              })}
+            </div>
+          ) : (
+            ADMIN_NAV.map((n) => (
+              <NavLink to={n.to} key={n.to} onClick={closeSidebarOnMobile}
+                className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
+                style={({ isActive }: any) => ({
+                  color: isActive ? "#123a7a" : "var(--muted)",
+                  background: isActive ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))" : "transparent",
+                  border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
+                  boxShadow: isActive ? "0 0 14px rgba(37,100,207,.12)" : "none",
+                })}>
+                <n.icon size={17} />
+                {n.label}
+              </NavLink>
+            ))
+          )}
 
           <div className="mt-auto space-y-2">
             <button
