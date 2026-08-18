@@ -276,5 +276,17 @@ export const api = {
   oncologyPathologyReports: (patientId: string) => get<any[]>(`/api/v1/oncology/patients/${patientId}/pathology-reports`),
   createPathologyReport: (body: any) => post<any>("/api/v1/oncology/pathology-reports", body),
   oncologySurvivorshipPlans: (patientId: string) => get<any[]>(`/api/v1/oncology/patients/${patientId}/survivorship-plans`),
+
   createSurvivorshipPlan: (diagnosisId: string, body: any) => post<any>(`/api/v1/oncology/diagnoses/${diagnosisId}/survivorship-plan`, body),
+  portalLogin: (body: any) => post<any>("/api/v1/os/portal/login", body),
+  familyProfiles: (patientId?: string, mobile?: string) => {
+    const params = new URLSearchParams();
+    if (patientId) params.append("patient_id", patientId);
+    if (mobile) params.append("mobile", mobile);
+    const qs = params.toString();
+    return get<any>(`/api/v1/os/portal/family-profiles${qs ? `?${qs}` : ""}`);
+  },
 };
+
+
+

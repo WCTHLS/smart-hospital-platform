@@ -3,7 +3,7 @@ import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, Lock,
   LockKeyhole, Phone, Plus, ShieldCheck, UserPlus, FileText, Activity,
-  Trash2, RefreshCw
+  Trash2, RefreshCw, Users, UserCheck, ArrowUpRight
 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { getPortalPatient, savePortalPatient } from "../../lib/patientAuth";
@@ -13,6 +13,7 @@ import { Card, Field } from "../../components/ui";
 type RegistrationStep = "mobile" | "demographics" | "medical";
 type IssueDraft = { issue_name: string; onset_info: string };
 type DocumentDraft = { title: string; doc_type: string; uri: string; file_name: string };
+type ExistingProfile = { patient_id: string; full_name?: string; name?: string; mrn: string; dob?: string; gender?: string; mobile?: string };
 
 const emptyIssue = (): IssueDraft => ({ issue_name: "", onset_info: "" });
 const emptyDocument = (): DocumentDraft => ({ title: "", doc_type: "", uri: "", file_name: "" });
@@ -37,14 +38,19 @@ export default function PatientLogin() {
   const setJourney = useJourney((state) => state.set);
   const redirect = safeRedirect(params.get("redirect"));
 
-  // 3-step registration flow
-  const [step, setStep] = useState<RegistrationStep>("mobile");
+  const currentPortalPatient = getPortalPatient();
+  const isAddFamilyAction = params.get("action") === "add_family";
 
   // Step 1: Mobile & OTP verification
-  const [mobile, setMobile] = useState("");
+  const [mobile, setMobile] = useState(() => (isAddFamilyAction && currentPortalPatient?.mobile) ? currentPortalPatient.mobile : "");
   const [otp, setOtp] = useState("");
-  const [otpSent, setOtpSent] = useState(false);
-  const [mobileVerified, setMobileVerified] = useState(false);
+  const [otpSent, setOtpSent] = useState(() => isAddFamilyAction);
+  const [mobileVerified, setMobileVerified] = useState(() => isAddFamilyAction);
+  const [existingProfiles, setExistingProfiles] = useState<ExistingProfile[]>([]);
+  const [isAddingFamilyMember, setIsAddingFamilyMember] = useState(() => isAddFamilyAction);
+
+  // 3-step registration flow
+  const [step, setStep] = useState<RegistrationStep>(() => isAddFamilyAction ? "demographics" : "mobile");
 
   // Step 2: Demographics & Security
   const [showPassword, setShowPassword] = useState(false);
@@ -56,7 +62,7 @@ export default function PatientLogin() {
     email: "",
     gender: "",
     blood_group: "",
-    address: "",
+    address: currentPortalPatient?.address || "",
     password: "",
     confirm_password: "",
   });
@@ -68,9 +74,12 @@ export default function PatientLogin() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  if (getPortalPatient()) return <Navigate to={redirect} replace />;
+  if (currentPortalPatient && !isAddFamilyAction) {
+    return <Navigate to={redirect} replace />;
+  }
 
   /* ------------------------------------------------------------- Step 1: OTP Logic */
+
 
   async function handleSendOtp() {
     const cleanMobile = mobile.trim();
@@ -81,14 +90,6 @@ export default function PatientLogin() {
     setBusy(true);
     setError("");
     try {
-      // 1. Check if mobile number is already registered in DB
-      const check = await api.checkPatientAvailable(cleanMobile, undefined);
-      if (check && !check.available) {
-        setError(check.message || `Mobile number ${cleanMobile} is already registered. Please sign in instead.`);
-        setBusy(false);
-        return;
-      }
-
       await api.sendOtp(cleanMobile);
       setOtpSent(true);
       setOtp("");
@@ -108,23 +109,62 @@ export default function PatientLogin() {
     }
     setBusy(true);
     setError("");
+    const cleanMobile = mobile.trim();
+
     try {
-      await api.verifyOtp(mobile.trim(), otp.trim());
+      await api.verifyOtp(cleanMobile, otp.trim());
       setMobileVerified(true);
       setOtpSent(false);
-      setStep("demographics");
+
+      // Check existing family profiles under this mobile
+      const check = await api.checkPatientAvailable(cleanMobile, undefined);
+      if (check?.existing_profiles && check.existing_profiles.length > 0) {
+        setExistingProfiles(check.existing_profiles);
+      } else {
+        setExistingProfiles([]);
+        setStep("demographics");
+      }
     } catch (e) {
       console.warn("verifyOtp error:", e);
       if (otp.length >= 4) {
         setMobileVerified(true);
         setOtpSent(false);
-        setStep("demographics");
+        try {
+          const check = await api.checkPatientAvailable(cleanMobile, undefined);
+          if (check?.existing_profiles && check.existing_profiles.length > 0) {
+            setExistingProfiles(check.existing_profiles);
+          } else {
+            setExistingProfiles([]);
+            setStep("demographics");
+          }
+        } catch {
+          setStep("demographics");
+        }
       } else {
         setError(e instanceof ApiError ? e.message : "Unable to verify OTP. Please enter at least 4 digits.");
       }
     } finally {
       setBusy(false);
     }
+  }
+
+  function handleAddNewFamilyMember() {
+    setIsAddingFamilyMember(true);
+    setRegistration({
+      first_name: "",
+      last_name: "",
+      dob: "",
+      email: "",
+      gender: "",
+      blood_group: "",
+      address: registration.address || "",
+      password: "",
+      confirm_password: "",
+    });
+    setIssues([emptyIssue()]);
+    setDocuments([emptyDocument()]);
+    setError("");
+    setStep("demographics");
   }
 
   /* ------------------------------------------------------------- Step 2: Demographics Validation */
@@ -135,10 +175,12 @@ export default function PatientLogin() {
     registration.dob &&
     registration.dob <= todayIso() &&
     registration.gender &&
-    registration.password.trim() &&
-    registration.confirm_password.trim() &&
-    registration.password === registration.confirm_password &&
-    (!registration.email.trim() || validEmail(registration.email.trim()))
+    (!registration.email.trim() || validEmail(registration.email.trim())) &&
+    (isAddingFamilyMember || (
+      registration.password.trim() &&
+      registration.confirm_password.trim() &&
+      registration.password === registration.confirm_password
+    ))
   );
 
   const handleNextToMedical = async () => {
@@ -167,14 +209,17 @@ export default function PatientLogin() {
       setError("Please enter a valid email address.");
       return;
     }
-    if (!registration.password.trim()) {
-      setError("Please create a password.");
-      return;
+    if (!isAddingFamilyMember) {
+      if (!registration.password.trim()) {
+        setError("Please create a password.");
+        return;
+      }
+      if (registration.password !== registration.confirm_password) {
+        setError("Passwords do not match. Please make sure both password fields match.");
+        return;
+      }
     }
-    if (registration.password !== registration.confirm_password) {
-      setError("Passwords do not match. Please make sure both password fields match.");
-      return;
-    }
+
 
     setBusy(true);
     try {
@@ -270,9 +315,13 @@ export default function PatientLogin() {
             <ShieldCheck size={26} color="#ffffff" />
           </div>
           <div>
-            <h2 className="grad-text text-2xl font-extrabold">Patient Registration</h2>
+            <h2 className="grad-text text-2xl font-extrabold">
+              {isAddingFamilyMember ? "Add Family Member" : "Patient Registration"}
+            </h2>
             <p className="text-[13px] mt-0.5" style={{ color: "var(--muted)" }}>
-              Create your secure health profile in 3 simple steps.
+              {isAddingFamilyMember
+                ? "Register a new profile for your family member under this mobile number."
+                : "Create your secure health profile in 3 simple steps."}
             </p>
           </div>
 
@@ -357,6 +406,7 @@ export default function PatientLogin() {
                         setMobile(e.target.value.replace(/\D/g, "").slice(0, 10));
                         setOtpSent(false);
                         setMobileVerified(false);
+                        setExistingProfiles([]);
                       }}
                       placeholder="9876543210"
                       disabled={busy}
@@ -403,7 +453,7 @@ export default function PatientLogin() {
                 </div>
               )}
 
-              {mobileVerified && (
+              {mobileVerified && existingProfiles.length === 0 && (
                 <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-medium flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <CheckCircle2 size={16} className="text-emerald-600" />
@@ -418,6 +468,58 @@ export default function PatientLogin() {
                   </button>
                 </div>
               )}
+
+              {/* Existing Family Profiles Found on this Mobile Number */}
+              {mobileVerified && existingProfiles.length > 0 && (
+                <div className="space-y-3 p-4 rounded-2xl bg-slate-50 border border-slate-200 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Users size={16} className="text-[#0078d4]" />
+                      <span className="text-xs font-bold text-slate-800">
+                        Registered Profiles on +91 {mobile} ({existingProfiles.length})
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      ✓ OTP Verified
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {existingProfiles.map((p) => (
+                      <div key={p.patient_id} className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200/80 shadow-xs">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-sky-100 text-[#0078d4] font-bold text-xs grid place-items-center">
+                            {(p.full_name || p.name || "PT").slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">{p.full_name || p.name}</p>
+                            <p className="text-[11px] text-slate-400 font-mono">{p.mrn} {p.gender ? `· ${p.gender}` : ""}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => nav(`/login?role=patient&username=${encodeURIComponent(mobile)}`)}
+                          className="btn ghost sm text-[11px] font-bold flex items-center gap-1 text-[#0078d4]"
+                        >
+                          <span>Sign In</span>
+                          <ArrowUpRight size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200">
+                    <button
+                      type="button"
+                      onClick={handleAddNewFamilyMember}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#0078d4] text-white text-xs font-bold shadow-md hover:bg-[#106ebe] transition active:scale-98"
+                    >
+                      <Plus size={15} />
+                      <span>Add New Family Member to this Phone</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="actions-row between !mt-6 pt-2 border-t border-black/[0.05]">
@@ -429,18 +531,23 @@ export default function PatientLogin() {
                 <ArrowLeft size={14} /> Back to Sign In
               </button>
 
-
               <button
                 type="button"
                 disabled={!mobileVerified || busy}
-                onClick={() => setStep("demographics")}
+                onClick={() => {
+                  if (existingProfiles.length > 0) {
+                    handleAddNewFamilyMember();
+                  } else {
+                    setStep("demographics");
+                  }
+                }}
                 className={`flex items-center justify-center gap-2 rounded-xl px-7 py-2.5 text-[13.5px] font-bold transition-all duration-200 ${
                   mobileVerified
                     ? "bg-[#15803d] text-white shadow-[0_8px_20px_rgba(21,128,61,0.38)] hover:bg-[#166534] active:scale-95 cursor-pointer"
                     : "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70"
                 }`}
               >
-                <span>Next: Fill Profile Details</span>
+                <span>{existingProfiles.length > 0 ? "+ Add Family Member" : "Next: Fill Profile Details"}</span>
                 <ArrowRight size={16} />
               </button>
             </div>
@@ -453,7 +560,9 @@ export default function PatientLogin() {
             <div className="flex items-center justify-between border-b border-black/[0.06] pb-3">
               <div className="flex items-center gap-2 font-bold text-slate-800">
                 <UserPlus size={18} className="text-[#0078d4]" />
-                <span>Basic Demographics &amp; Password</span>
+                <span>
+                  {isAddingFamilyMember ? "Family Member Details" : "Basic Demographics & Password"}
+                </span>
               </div>
               <span className="text-[12px] font-semibold text-slate-400">Step 2 of 3</span>
             </div>
@@ -462,7 +571,10 @@ export default function PatientLogin() {
             <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
               <div className="flex items-center gap-2">
                 <CheckCircle2 size={15} className="text-emerald-600" />
-                <span>Verified Mobile: <b className="font-mono">+91 {mobile}</b></span>
+                <span>
+                  {isAddingFamilyMember ? "Family Primary Mobile: " : "Verified Mobile: "}
+                  <b className="font-mono">+91 {mobile}</b>
+                </span>
               </div>
               <button
                 type="button"
@@ -560,54 +672,65 @@ export default function PatientLogin() {
                 </Field>
               </div>
 
+              {!isAddingFamilyMember ? (
+                <>
+                  <Field label="Password *">
+                    <div className="relative flex items-center">
+                      <Lock size={15} className="absolute left-3" color="var(--dim)" />
+                      <input
+                        className="input pl-9 pr-9"
+                        type={showPassword ? "text" : "password"}
+                        value={registration.password}
+                        onChange={(e) => setRegistration({ ...registration, password: e.target.value })}
+                        placeholder="Create a password"
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 text-slate-400 hover:text-slate-600"
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </Field>
 
-              <Field label="Password *">
-                <div className="relative flex items-center">
-                  <Lock size={15} className="absolute left-3" color="var(--dim)" />
-                  <input
-                    className="input pl-9 pr-9"
-                    type={showPassword ? "text" : "password"}
-                    value={registration.password}
-                    onChange={(e) => setRegistration({ ...registration, password: e.target.value })}
-                    placeholder="Create a password"
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 text-slate-400 hover:text-slate-600"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
+                  <Field label="Confirm Password *">
+                    <div className="relative flex items-center">
+                      <Lock size={15} className="absolute left-3" color="var(--dim)" />
+                      <input
+                        className="input pl-9 pr-9"
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={registration.confirm_password}
+                        onChange={(e) => setRegistration({ ...registration, confirm_password: e.target.value })}
+                        placeholder="Re-enter password"
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirmPassword((v) => !v)}
+                        className="absolute right-3 text-slate-400 hover:text-slate-600"
+                        aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                      >
+                        {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                    {registration.confirm_password && registration.password !== registration.confirm_password && (
+                      <p className="mt-1 text-[11px] font-medium text-rose-500">Passwords do not match</p>
+                    )}
+                  </Field>
+                </>
+              ) : (
+                <div className="sm:col-span-2 p-3.5 rounded-2xl bg-sky-50/70 border border-sky-200 text-xs text-sky-950 flex items-center gap-2.5">
+                  <ShieldCheck size={18} className="text-[#0078d4] shrink-0" />
+                  <div>
+                    <span className="font-bold">Linked Family Account:</span> This family member profile will automatically share the login credentials with primary mobile <b>+91 {mobile}</b>.
+                  </div>
                 </div>
-              </Field>
-
-              <Field label="Confirm Password *">
-                <div className="relative flex items-center">
-                  <Lock size={15} className="absolute left-3" color="var(--dim)" />
-                  <input
-                    className="input pl-9 pr-9"
-                    type={showConfirmPassword ? "text" : "password"}
-                    value={registration.confirm_password}
-                    onChange={(e) => setRegistration({ ...registration, confirm_password: e.target.value })}
-                    placeholder="Re-enter password"
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword((v) => !v)}
-                    className="absolute right-3 text-slate-400 hover:text-slate-600"
-                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                  >
-                    {showConfirmPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-                {registration.confirm_password && registration.password !== registration.confirm_password && (
-                  <p className="mt-1 text-[11px] font-medium text-rose-500">Passwords do not match</p>
-                )}
-              </Field>
+              )}
             </div>
+
 
             <div className="actions-row between !mt-6 pt-2 border-t border-black/[0.05]">
               <button
@@ -639,9 +762,11 @@ export default function PatientLogin() {
           <div className="space-y-6 animate-in fade-in duration-150">
             <div className="flex items-center justify-between border-b border-black/[0.06] pb-3">
               <div>
-                <h3 className="font-bold text-slate-800">Health Issues &amp; Medical History</h3>
+                <h3 className="font-bold text-slate-800">
+                  {registration.first_name ? `${registration.first_name}'s Health Issues & Medical History` : "Health Issues & Medical History"}
+                </h3>
                 <p className="mt-0.5 text-xs text-slate-400">
-                  Add any current health symptoms, chronic conditions, or upload past medical files (Optional).
+                  Add specific symptoms, chronic conditions (e.g. shoulder injury, back pain), or upload past medical files for this profile.
                 </p>
               </div>
               <span className="text-[12px] font-semibold text-slate-400">Step 3 of 3</span>
@@ -665,12 +790,12 @@ export default function PatientLogin() {
 
               {issues.map((issue, index) => (
                 <div className="holo relative grid gap-3 sm:grid-cols-2 p-3 rounded-2xl border border-slate-200 bg-slate-50/70" key={index}>
-                  <Field label="Condition, Symptom or Surgery">
+                  <Field label="Condition, Symptom or Injury">
                     <input
                       className="input text-xs"
                       value={issue.issue_name}
                       onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, issue_name: e.target.value } : item))}
-                      placeholder="e.g. Diabetes, Chest pain, Hypertension"
+                      placeholder="e.g. Shoulder injury, Back pain, Diabetes"
                     />
                   </Field>
                   <Field label="How long ago / onset info (Optional)">
@@ -679,7 +804,7 @@ export default function PatientLogin() {
                         className="input text-xs flex-1"
                         value={issue.onset_info}
                         onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, onset_info: e.target.value } : item))}
-                        placeholder="e.g. 5 years, 3 months ago"
+                        placeholder="e.g. 2 weeks ago, 3 months ago"
                       />
                       {issues.length > 1 && (
                         <button
@@ -720,7 +845,7 @@ export default function PatientLogin() {
                       className="input text-xs"
                       value={document.title}
                       onChange={(e) => setDocuments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, title: e.target.value } : item))}
-                      placeholder="e.g. Blood test report, Discharge summary"
+                      placeholder="e.g. Shoulder X-Ray, Blood Report"
                     />
                   </Field>
                   <Field label="Document type">
@@ -758,7 +883,6 @@ export default function PatientLogin() {
                       />
                     </Field>
                   </div>
-
                   {document.file_name && (
                     <div className="text-xs font-semibold sm:col-span-2 text-emerald-600">
                       ✓ Selected file: {document.file_name}

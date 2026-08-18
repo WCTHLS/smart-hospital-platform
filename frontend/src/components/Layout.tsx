@@ -3,15 +3,19 @@ import { ReactNode, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   HeartPulse, MonitorDot, ShieldAlert, BellRing, Menu, PanelLeftClose,
-  ChevronDown, LogOut, User, FlaskConical, Scan, Pill, Syringe, Stethoscope,
-  UserCog, Users, Calendar, LayoutGrid, ClipboardList, Activity, AlertTriangle,
+  ChevronDown, LogOut, User, Users, UserPlus, FlaskConical, Scan, Pill, Syringe, Stethoscope,
+  UserCog, Calendar, LayoutGrid, ClipboardList, Activity, AlertTriangle,
   BookOpen, HardDrive, FileText, MapPin, Building2, Bell, CheckSquare, MessageSquare,
   Settings, X
 } from "lucide-react";
+
+
+
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
 import { getOsSession, clearOsSession, osInitials } from "../features/os/osSession";
-import { getPortalPatient, clearPortalPatient } from "../lib/patientAuth";
+import { getPortalPatient, savePortalPatient, clearPortalPatient } from "../lib/patientAuth";
+import { api } from "../lib/api";
 
 const ADMIN_NAV = [
   { to: "/admin", label: "Admin Workspace", icon: ShieldAlert },
@@ -90,10 +94,19 @@ export default function Layout({ children }: { children: ReactNode }) {
   const connected = useRealtime((s) => s.connected);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
 
   const activeRole = journey.activeRole;
   const osSession = getOsSession();
   const portalPatient = getPortalPatient();
+  useEffect(() => {
+    if (portalPatient?.patient_id || portalPatient?.mobile) {
+      api.familyProfiles(portalPatient?.patient_id, portalPatient?.mobile).then((res) => {
+        if (res?.profiles) setFamilyMembers(res.profiles);
+      }).catch(() => {});
+    }
+  }, [portalPatient?.patient_id, portalPatient?.mobile]);
+
   const isPatient = Boolean(portalPatient || loc.pathname.startsWith("/patient"));
   const isDoctor = Boolean(osSession?.role === "DOCTOR" || loc.pathname === "/copilot" || loc.pathname === "/oncology");
   const isNurse = Boolean(osSession?.role === "NURSE" || loc.pathname === "/triage");
@@ -247,30 +260,121 @@ export default function Layout({ children }: { children: ReactNode }) {
               </button>
 
               {userDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-xl z-50">
+                <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-black/[0.08] bg-white p-2 shadow-xl z-50 animate-in fade-in duration-150">
                   <div className="px-3 py-2 border-b border-slate-100">
-                    <p className="text-[12px] font-bold text-slate-800">{currentUser.name}</p>
+                    <p className="text-[12.5px] font-bold text-slate-800 leading-tight">{currentUser.name}</p>
                     <p className="text-[11px] text-slate-500">{currentUser.role}</p>
                   </div>
+
+                  {/* Family Profiles List for Patient */}
+                  {isPatient && portalPatient && (
+                    <div className="py-1.5 border-b border-slate-100">
+                      <div className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                        <span className="flex items-center gap-1">
+                          <Users size={12} className="text-[#0078d4]" />
+                          <span>Profiles ({familyMembers.length || 1})</span>
+                        </span>
+                        {portalPatient.mobile && (
+                          <span className="font-mono text-[9.5px] text-slate-400 font-semibold">
+                            +91 {portalPatient.mobile}
+                          </span>
+                        )}
+                      </div>
+                      <div className="max-h-44 overflow-y-auto space-y-1 px-1 py-0.5">
+                        {familyMembers.length > 0 ? (
+                          familyMembers.map((fm) => {
+                            const isCurrent = fm.patientId === portalPatient.patient_id;
+                            return (
+                              <button
+                                key={fm.patientId}
+                                type="button"
+                                onClick={() => {
+                                  if (isCurrent) return;
+                                  savePortalPatient({
+                                    patient_id: fm.patientId,
+                                    name: fm.name,
+                                    first_name: fm.first_name,
+                                    last_name: fm.last_name,
+                                    dob: fm.dob,
+                                    gender: fm.gender,
+                                    blood_group: fm.blood_group,
+                                    address: fm.address,
+                                    mobile: fm.mobile || portalPatient.mobile,
+                                  });
+                                  journey.set({ patientId: fm.patientId, patientName: fm.name });
+                                  setUserDropdownOpen(false);
+                                  window.location.reload();
+                                }}
+                                className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-[11.5px] transition ${
+                                  isCurrent
+                                    ? "bg-sky-50 text-[#0078d4] font-bold border border-sky-200/80 shadow-2xs cursor-default"
+                                    : "text-slate-700 hover:bg-slate-50 font-medium border border-transparent cursor-pointer"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className={`w-5 h-5 rounded-md text-[9px] font-bold grid place-items-center shrink-0 ${
+                                    isCurrent ? "bg-[#0078d4] text-white" : "bg-slate-100 text-slate-600"
+                                  }`}>
+                                    {(fm.name || "PT").slice(0, 2).toUpperCase()}
+                                  </div>
+                                  <span className="truncate">{fm.name}</span>
+                                </div>
+                                {isCurrent ? (
+                                  <span className="text-[9px] text-sky-700 bg-sky-100/90 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
+                                    Active
+                                  </span>
+                                ) : (
+                                  <span className="text-[9.5px] text-slate-400 font-mono shrink-0">
+                                    {fm.mrn?.slice(-5) || "Switch"}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="px-3 py-1 text-xs text-slate-500 font-medium">
+                            {portalPatient.name} (Active)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {isPatient && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserDropdownOpen(false);
+                        nav("/patient/login?action=add_family");
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50 transition"
+                    >
+                      <UserPlus size={14} /> + Add Family Member
+                    </button>
+                  )}
+
+
+
                   <button
                     type="button"
                     onClick={() => {
                       setUserDropdownOpen(false);
-                      nav("/login");
+                      nav(isPatient ? "/login?role=patient" : "/login");
                     }}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 transition"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 transition"
                   >
-                    <User size={15} /> Switch Role / Login
+                    <User size={14} /> Switch Role / Login
                   </button>
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-rose-600 hover:bg-rose-50 transition"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 transition"
                   >
-                    <LogOut size={15} /> Sign Out
+                    <LogOut size={14} /> Sign Out
                   </button>
                 </div>
               )}
+
             </div>
           ) : (
             <button
