@@ -41,7 +41,9 @@ class Patient(Base):
     blood_group: Mapped[str | None] = mapped_column(String(5))
     address: Mapped[str | None] = mapped_column(String(240))
     profile_photo: Mapped[str | None] = mapped_column(Text)
+    password_hash: Mapped[str | None] = mapped_column(String(200))
     summary: Mapped[str | None] = mapped_column(String(2000))
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

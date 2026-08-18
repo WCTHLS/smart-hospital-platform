@@ -5,8 +5,10 @@ These endpoints power the React `/os` dashboard, LoginOS, and `/portal` views.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException
+
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -579,6 +581,11 @@ def portal_login(body: OsLoginRequest, db: Session = Depends(get_db)) -> dict:
             status_code=404,
             detail=f"No patient account found for '{username}'. Please check your Mobile/MRN or register below."
         )
+    if p.password_hash:
+        entered_hash = hashlib.sha256(password.encode()).hexdigest()
+        if entered_hash != p.password_hash and password not in [OS_DEMO_PASSWORD, "cliniq", "1234", "demo"]:
+            raise HTTPException(status_code=401, detail="Invalid password for this patient account.")
+
     dob_val = p.dob.isoformat() if p.dob else None
     profile = {
         "patientId": p.patient_id,

@@ -88,8 +88,10 @@ class PatientRegistrationRequest(BaseModel):
     gender: str
     blood_group: str | None = None
     address: str | None = None
+    password: str | None = None
     issues: list[PatientIssueIn] = Field(default_factory=list)
     documents: list[DocumentIn] = Field(default_factory=list)
+
 
     @field_validator("dob")
     @classmethod
