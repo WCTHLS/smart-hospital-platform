@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, Lock, LockKeyhole, Phone, Plus, ShieldCheck, UserPlus } from "lucide-react";
+import {
+  ArrowLeft, ArrowRight, CheckCircle2, Eye, EyeOff, Loader2, Lock,
+  LockKeyhole, Phone, Plus, ShieldCheck, UserPlus, FileText, Activity,
+  Trash2, RefreshCw
+} from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { getPortalPatient, savePortalPatient } from "../../lib/patientAuth";
 import { useJourney } from "../../lib/store";
 import { Card, Field } from "../../components/ui";
 
-type RegistrationStep = "register" | "medical";
+type RegistrationStep = "mobile" | "demographics" | "medical";
 type IssueDraft = { issue_name: string; onset_info: string };
 type DocumentDraft = { title: string; doc_type: string; uri: string; file_name: string };
 
@@ -33,16 +37,18 @@ export default function PatientLogin() {
   const setJourney = useJourney((state) => state.set);
   const redirect = safeRedirect(params.get("redirect"));
 
-  const [step, setStep] = useState<RegistrationStep>("register");
-  const [mobile, setMobile] = useState("6281116923");
+  // 3-step registration flow
+  const [step, setStep] = useState<RegistrationStep>("mobile");
+
+  // Step 1: Mobile & OTP verification
+  const [mobile, setMobile] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [mobileVerified, setMobileVerified] = useState(false);
+
+  // Step 2: Demographics & Security
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [registration, setRegistration] = useState({
     first_name: "",
     last_name: "",
@@ -54,28 +60,36 @@ export default function PatientLogin() {
     password: "",
     confirm_password: "",
   });
+
+  // Step 3: Medical History & Documents
   const [issues, setIssues] = useState<IssueDraft[]>([emptyIssue()]);
   const [documents, setDocuments] = useState<DocumentDraft[]>([emptyDocument()]);
 
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
   if (getPortalPatient()) return <Navigate to={redirect} replace />;
 
+  /* ------------------------------------------------------------- Step 1: OTP Logic */
+
   async function handleSendOtp() {
-    if (!/^\d{10}$/.test(mobile.trim())) {
+    const cleanMobile = mobile.trim();
+    if (!/^\d{10}$/.test(cleanMobile)) {
       setError("Please enter a valid 10-digit mobile number.");
       return;
     }
     setBusy(true);
     setError("");
     try {
-      // Check if mobile number is already registered in DB
-      const check = await api.checkPatientAvailable(mobile.trim(), undefined);
+      // 1. Check if mobile number is already registered in DB
+      const check = await api.checkPatientAvailable(cleanMobile, undefined);
       if (check && !check.available) {
-        setError(check.message || `Mobile number ${mobile.trim()} is already registered. Please sign in instead.`);
+        setError(check.message || `Mobile number ${cleanMobile} is already registered. Please sign in instead.`);
         setBusy(false);
         return;
       }
 
-      await api.sendOtp(mobile.trim());
+      await api.sendOtp(cleanMobile);
       setOtpSent(true);
       setOtp("");
     } catch (e) {
@@ -98,11 +112,13 @@ export default function PatientLogin() {
       await api.verifyOtp(mobile.trim(), otp.trim());
       setMobileVerified(true);
       setOtpSent(false);
+      setStep("demographics");
     } catch (e) {
       console.warn("verifyOtp error:", e);
       if (otp.length >= 4) {
         setMobileVerified(true);
         setOtpSent(false);
+        setStep("demographics");
       } else {
         setError(e instanceof ApiError ? e.message : "Unable to verify OTP. Please enter at least 4 digits.");
       }
@@ -111,73 +127,13 @@ export default function PatientLogin() {
     }
   }
 
-  async function registerPatient() {
-    if (registration.password !== registration.confirm_password) {
-      setError("Passwords do not match. Please re-enter your password.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const result = await api.registerPatient({
-        ...registration,
-        mobile: mobile.trim(),
-        issues: issues.filter((item) => item.issue_name.trim()).map((item) => ({
-          issue_name: item.issue_name.trim(),
-          onset_info: item.onset_info.trim() || null,
-          status: "ACTIVE",
-        })),
-        documents: documents.filter((item) => item.title.trim() && item.uri).map((item) => ({
-          title: item.title.trim(),
-          doc_type: item.doc_type,
-          uri: item.uri,
-        })),
-      });
-      const profile = result.patient;
-      const name = profile.name || `${registration.first_name} ${registration.last_name}`.trim();
-      try {
-        await api.consent(profile.patient_id);
-      } catch (err) {
-        console.warn("Consent notice:", err);
-      }
-      savePortalPatient({
-        patient_id: profile.patient_id,
-        name,
-        mobile: mobile.trim(),
-        first_name: registration.first_name,
-        last_name: registration.last_name,
-        dob: registration.dob,
-        email: registration.email,
-      });
-      setJourney({ patientId: profile.patient_id, patientName: name });
-      nav(redirect, { replace: true });
-    } catch (e) {
-      console.warn("registerPatient error:", e);
-      setError(e instanceof ApiError ? e.message : "Unable to register patient. Please verify your details.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  /* ------------------------------------------------------------- Step 2: Demographics Validation */
 
-  async function selectDocumentFile(index: number, file?: File) {
-    if (!file) return;
-    const uri = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    setDocuments((items) => items.map((item, itemIndex) => itemIndex === index
-      ? { ...item, uri, file_name: file.name }
-      : item));
-  }
-
-  const isFormComplete = Boolean(
+  const isDemographicsComplete = Boolean(
     registration.first_name.trim() &&
     registration.last_name.trim() &&
     registration.dob &&
     registration.dob <= todayIso() &&
-    /^\d{10}$/.test(mobile.trim()) &&
     registration.gender &&
     registration.password.trim() &&
     registration.confirm_password.trim() &&
@@ -185,7 +141,7 @@ export default function PatientLogin() {
     (!registration.email.trim() || validEmail(registration.email.trim()))
   );
 
-  const handleNextStep = async () => {
+  const handleNextToMedical = async () => {
     setError("");
     if (!registration.first_name.trim()) {
       setError("Please enter your first name.");
@@ -201,10 +157,6 @@ export default function PatientLogin() {
     }
     if (registration.dob > todayIso()) {
       setError("Date of birth cannot be in the future.");
-      return;
-    }
-    if (!/^\d{10}$/.test(mobile.trim())) {
-      setError("Please enter a valid 10-digit mobile number.");
       return;
     }
     if (!registration.gender) {
@@ -226,41 +178,303 @@ export default function PatientLogin() {
 
     setBusy(true);
     try {
-      const check = await api.checkPatientAvailable(mobile.trim(), registration.email.trim() || undefined);
-      if (check && !check.available) {
-        setError(check.message || "This mobile number or email is already registered. Please sign in.");
-        return;
+      if (registration.email.trim()) {
+        const check = await api.checkPatientAvailable(mobile.trim(), registration.email.trim());
+        if (check && !check.available && check.field === "email") {
+          setError(check.message || "This email is already registered. Please use another email.");
+          return;
+        }
       }
       setStep("medical");
     } catch (err) {
-      console.warn("Check availability notice:", err);
+      console.warn("Email check notice:", err);
       setStep("medical");
     } finally {
       setBusy(false);
     }
   };
 
+  /* ------------------------------------------------------------- Step 3: Complete Registration */
+
+  async function selectDocumentFile(index: number, file?: File) {
+    if (!file) return;
+    const uri = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    setDocuments((items) => items.map((item, itemIndex) => itemIndex === index
+      ? { ...item, uri, file_name: file.name }
+      : item));
+  }
+
+  async function handleCompleteRegistration() {
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.registerPatient({
+        ...registration,
+        mobile: mobile.trim(),
+        issues: issues.filter((item) => item.issue_name.trim()).map((item) => ({
+          issue_name: item.issue_name.trim(),
+          onset_info: item.onset_info.trim() || null,
+          status: "ACTIVE",
+        })),
+        documents: documents.filter((item) => item.title.trim() && item.uri).map((item) => ({
+          title: item.title.trim(),
+          doc_type: item.doc_type || "OTHER",
+          uri: item.uri,
+        })),
+      });
+
+      const profile = result.patient;
+      const name = profile.name || `${registration.first_name} ${registration.last_name}`.trim();
+
+      try {
+        await api.consent(profile.patient_id);
+      } catch (err) {
+        console.warn("Consent notice:", err);
+      }
+
+      savePortalPatient({
+        patient_id: profile.patient_id,
+        name,
+        mobile: mobile.trim(),
+        first_name: registration.first_name,
+        last_name: registration.last_name,
+        dob: registration.dob,
+        gender: registration.gender,
+        blood_group: registration.blood_group || undefined,
+        address: registration.address || undefined,
+        email: registration.email || undefined,
+      });
+
+      setJourney({ patientId: profile.patient_id, patientName: name });
+      nav(redirect, { replace: true });
+    } catch (e) {
+      console.warn("registerPatient error:", e);
+      setError(e instanceof ApiError ? e.message : "Unable to register patient. Please verify your details.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div className="patient-page mx-auto my-2 sm:my-8 lg:my-12 max-w-3xl">
-      <Card className="space-y-6">
-        <div className="space-y-2 text-center">
-          <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl" style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))" }}>
-            <ShieldCheck size={24} color="#ffffff" />
+    <div className="patient-page mx-auto my-2 sm:my-8 lg:my-12 max-w-3xl animate-in fade-in duration-200">
+      <Card className="space-y-6 shadow-xl border border-white/80 bg-white/95">
+        
+        {/* Header with Step Progress Bar */}
+        <div className="space-y-3 text-center">
+          <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl shadow-md" style={{ background: "linear-gradient(150deg,var(--cyan),var(--violet))" }}>
+            <ShieldCheck size={26} color="#ffffff" />
           </div>
-          <h2 className="grad-text text-2xl font-extrabold">Patient Registration</h2>
-          <p className="text-[13px]" style={{ color: "var(--muted)" }}>Enter your details to create your secure health profile.</p>
+          <div>
+            <h2 className="grad-text text-2xl font-extrabold">Patient Registration</h2>
+            <p className="text-[13px] mt-0.5" style={{ color: "var(--muted)" }}>
+              Create your secure health profile in 3 simple steps.
+            </p>
+          </div>
+
+          {/* 3-Step Pill Progress Indicators */}
+          <div className="grid grid-cols-3 gap-2 pt-2 text-left">
+            <div className={`p-2.5 rounded-xl border transition ${
+              step === "mobile"
+                ? "border-[#0078d4] bg-sky-50 text-[#0078d4] font-bold shadow-xs"
+                : mobileVerified
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800 font-semibold"
+                : "border-slate-200 bg-slate-50 text-slate-400 font-medium"
+            }`}>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Step 1</div>
+              <div className="text-xs truncate flex items-center gap-1 mt-0.5">
+                {mobileVerified ? <CheckCircle2 size={13} className="text-emerald-600 shrink-0" /> : <Phone size={13} className="shrink-0" />}
+                <span>Mobile Verification</span>
+              </div>
+            </div>
+
+            <div className={`p-2.5 rounded-xl border transition ${
+              step === "demographics"
+                ? "border-[#0078d4] bg-sky-50 text-[#0078d4] font-bold shadow-xs"
+                : isDemographicsComplete
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800 font-semibold"
+                : "border-slate-200 bg-slate-50 text-slate-400 font-medium"
+            }`}>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Step 2</div>
+              <div className="text-xs truncate flex items-center gap-1 mt-0.5">
+                <UserPlus size={13} className="shrink-0" />
+                <span>Basic Details</span>
+              </div>
+            </div>
+
+            <div className={`p-2.5 rounded-xl border transition ${
+              step === "medical"
+                ? "border-[#0078d4] bg-sky-50 text-[#0078d4] font-bold shadow-xs"
+                : "border-slate-200 bg-slate-50 text-slate-400 font-medium"
+            }`}>
+              <div className="text-[10px] uppercase tracking-wider opacity-70">Step 3</div>
+              <div className="text-xs truncate flex items-center gap-1 mt-0.5">
+                <Activity size={13} className="shrink-0" />
+                <span>Health Issues</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        {error && <div className="alertbox text-sm">{error}</div>}
+        {error && (
+          <div className="alertbox text-sm bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl">
+            {error}
+          </div>
+        )}
 
-        {step === "register" && (
-          <div className="space-y-4">
+        {/* ------------------------------------------------------------- STEP 1: MOBILE VERIFICATION */}
+        {step === "mobile" && (
+          <div className="space-y-5 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between border-b border-black/[0.06] pb-3">
+              <div className="flex items-center gap-2 font-bold text-slate-800">
+                <Phone size={18} className="text-[#0078d4]" />
+                <span>Verify Your Mobile Number</span>
+              </div>
+              <span className="text-[12px] font-semibold text-slate-400">Step 1 of 3</span>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Please enter your 10-digit mobile number. We will send a secure verification code (OTP) to authenticate your identity.
+            </p>
+
+            <div className="space-y-4 max-w-md mx-auto py-2">
+              <Field label="Mobile number *">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-2.5 text-xs font-bold text-slate-400">
+                      +91
+                    </span>
+                    <input
+                      className="input pl-11 font-mono text-sm"
+                      inputMode="numeric"
+                      maxLength={10}
+                      value={mobile}
+                      onChange={(e) => {
+                        setMobile(e.target.value.replace(/\D/g, "").slice(0, 10));
+                        setOtpSent(false);
+                        setMobileVerified(false);
+                      }}
+                      placeholder="9876543210"
+                      disabled={busy}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy || !/^\d{10}$/.test(mobile)}
+                    onClick={handleSendOtp}
+                    className="btn ghost sm shrink-0 text-[12.5px] px-4 font-bold"
+                  >
+                    {busy ? <Loader2 size={14} className="animate-spin" /> : otpSent ? "Resend OTP" : "Send OTP"}
+                  </button>
+                </div>
+              </Field>
+
+              {otpSent && !mobileVerified && (
+                <div className="space-y-2 p-3.5 rounded-2xl bg-sky-50/60 border border-sky-200 animate-in slide-in-from-top-2 duration-200">
+                  <div className="text-[11.5px] font-bold text-[#0078d4] flex items-center gap-1.5">
+                    <LockKeyhole size={14} /> Enter 6-digit OTP sent to +91 {mobile}
+                  </div>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      className="input flex-1 text-sm font-mono tracking-widest text-center"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={otp}
+                      onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="••••••"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || otp.length < 1}
+                      onClick={handleVerifyOtp}
+                      className="btn g sm shrink-0 px-5 text-xs font-bold"
+                    >
+                      {busy ? "Verifying..." : "Verify & Continue →"}
+                    </button>
+                  </div>
+                  <p className="text-[10.5px] text-slate-400">
+                    💡 For demo testing, enter code <b>1234</b> or any 4+ digits.
+                  </p>
+                </div>
+              )}
+
+              {mobileVerified && (
+                <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs font-medium flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 size={16} className="text-emerald-600" />
+                    Mobile <b>+91 {mobile}</b> verified successfully!
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setStep("demographics")}
+                    className="text-xs font-bold text-emerald-800 underline hover:text-emerald-950"
+                  >
+                    Next: Fill Details →
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="actions-row between !mt-6 pt-2 border-t border-black/[0.05]">
+              <button
+                type="button"
+                className="btn-link text-slate-500 hover:text-slate-800 text-xs"
+                onClick={() => nav("/login?role=patient")}
+              >
+                <ArrowLeft size={14} /> Back to Sign In
+              </button>
+
+
+              <button
+                type="button"
+                disabled={!mobileVerified || busy}
+                onClick={() => setStep("demographics")}
+                className={`flex items-center justify-center gap-2 rounded-xl px-7 py-2.5 text-[13.5px] font-bold transition-all duration-200 ${
+                  mobileVerified
+                    ? "bg-[#15803d] text-white shadow-[0_8px_20px_rgba(21,128,61,0.38)] hover:bg-[#166534] active:scale-95 cursor-pointer"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed opacity-70"
+                }`}
+              >
+                <span>Next: Fill Profile Details</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------- STEP 2: BASIC DEMOGRAPHICS & CREDENTIALS */}
+        {step === "demographics" && (
+          <div className="space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center justify-between border-b border-black/[0.06] pb-3">
               <div className="flex items-center gap-2 font-bold text-slate-800">
                 <UserPlus size={18} className="text-[#0078d4]" />
-                <span>Basic Demographics</span>
+                <span>Basic Demographics &amp; Password</span>
               </div>
-              <span className="text-[12px] font-semibold text-slate-400">Step 1 of 2</span>
+              <span className="text-[12px] font-semibold text-slate-400">Step 2 of 3</span>
+            </div>
+
+            {/* Verified Mobile Confirmation Bar */}
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 size={15} className="text-emerald-600" />
+                <span>Verified Mobile: <b className="font-mono">+91 {mobile}</b></span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileVerified(false);
+                  setOtpSent(false);
+                  setStep("mobile");
+                }}
+                className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 underline flex items-center gap-1"
+              >
+                <RefreshCw size={11} /> Change Mobile
+              </button>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -292,75 +506,6 @@ export default function PatientLogin() {
                 />
               </Field>
 
-              <Field label="Mobile number *">
-                <div className="space-y-2">
-                  <div className="flex gap-2">
-                    <div className="relative flex-1">
-                      <Phone size={15} className="absolute left-3 top-3" color="var(--dim)" />
-                      <input
-                        className="input pl-9"
-                        inputMode="numeric"
-                        maxLength={10}
-                        value={mobile}
-                        onChange={(e) => {
-                          setMobile(e.target.value.replace(/\D/g, "").slice(0, 10));
-                          setOtpSent(false);
-                          setMobileVerified(false);
-                        }}
-                        placeholder="10-digit mobile"
-                        disabled={mobileVerified}
-                      />
-                    </div>
-                    {!mobileVerified ? (
-                      <button
-                        type="button"
-                        disabled={busy || !/^\d{10}$/.test(mobile)}
-                        onClick={handleSendOtp}
-                        className="btn ghost sm shrink-0 text-[12.5px]"
-                      >
-                        {otpSent ? "Resend OTP" : "Send OTP"}
-                      </button>
-                    ) : (
-                      <span className="flex items-center gap-1 text-[12px] font-bold text-[#15803d] px-2.5 py-1.5 rounded-xl bg-green-50 border border-green-200 shrink-0">
-                        <CheckCircle2 size={14} /> Verified
-                      </span>
-                    )}
-                  </div>
-
-                  {otpSent && !mobileVerified && (
-                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200">
-                      <LockKeyhole size={15} className="text-slate-400 shrink-0" />
-                      <input
-                        className="input flex-1 text-sm font-mono tracking-wider"
-                        inputMode="numeric"
-                        maxLength={6}
-                        value={otp}
-                        onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                        placeholder="Enter OTP (e.g. 1234)"
-                      />
-                      <button
-                        type="button"
-                        disabled={busy || otp.length < 1}
-                        onClick={handleVerifyOtp}
-                        className="btn g sm shrink-0 text-[12px]"
-                      >
-                        {busy ? "Verifying..." : "Verify"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </Field>
-
-              <Field label="Email (Optional)">
-                <input
-                  className="input"
-                  type="email"
-                  value={registration.email}
-                  onChange={(e) => setRegistration({ ...registration, email: e.target.value })}
-                  placeholder="patient@example.com"
-                />
-              </Field>
-
               <Field label="Gender *">
                 <select
                   className="input"
@@ -373,6 +518,16 @@ export default function PatientLogin() {
                   <option>Other</option>
                   <option>Unknown</option>
                 </select>
+              </Field>
+
+              <Field label="Email (Optional)">
+                <input
+                  className="input"
+                  type="email"
+                  value={registration.email}
+                  onChange={(e) => setRegistration({ ...registration, email: e.target.value })}
+                  placeholder="patient@example.com"
+                />
               </Field>
 
               <Field label="Blood group (Optional)">
@@ -394,14 +549,17 @@ export default function PatientLogin() {
                 </select>
               </Field>
 
-              <Field label="Address (Optional)">
-                <input
-                  className="input"
-                  value={registration.address}
-                  onChange={(e) => setRegistration({ ...registration, address: e.target.value })}
-                  placeholder="City, State"
-                />
-              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Address (Optional)">
+                  <input
+                    className="input"
+                    value={registration.address}
+                    onChange={(e) => setRegistration({ ...registration, address: e.target.value })}
+                    placeholder="City, State, Street address"
+                  />
+                </Field>
+              </div>
+
 
               <Field label="Password *">
                 <div className="relative flex items-center">
@@ -451,138 +609,187 @@ export default function PatientLogin() {
               </Field>
             </div>
 
-            <div className="actions-row between !mt-6">
+            <div className="actions-row between !mt-6 pt-2 border-t border-black/[0.05]">
               <button
                 type="button"
-                className="btn-link text-slate-500 hover:text-slate-800"
-                onClick={() => nav("/login")}
+                className="btn-link text-slate-500 hover:text-slate-800 text-xs"
+                onClick={() => setStep("mobile")}
               >
-                <ArrowLeft size={14} /> Back to Sign In
+                <ArrowLeft size={14} /> Back to Mobile
               </button>
               <button
                 type="button"
                 disabled={busy}
-                onClick={handleNextStep}
+                onClick={handleNextToMedical}
                 className={`flex items-center justify-center gap-2 rounded-xl px-7 py-2.5 text-[14px] font-bold transition-all duration-200 ${
-                  isFormComplete
+                  isDemographicsComplete
                     ? "bg-[#15803d] text-white shadow-[0_8px_20px_rgba(21,128,61,0.38)] hover:bg-[#166534] hover:shadow-[0_10px_24px_rgba(21,128,61,0.48)] active:scale-95 cursor-pointer ring-2 ring-[#15803d]/20"
                     : "bg-[#86efac]/50 text-[#166534]/70 border border-[#86efac] hover:bg-[#86efac]/80 cursor-pointer"
                 }`}
               >
-                <span>Next</span>
-                <ArrowRight size={16} className={isFormComplete ? "translate-x-0.5 transition-transform" : ""} />
+                <span>Next: Health Issues</span>
+                <ArrowRight size={16} className={isDemographicsComplete ? "translate-x-0.5 transition-transform" : ""} />
               </button>
             </div>
           </div>
         )}
 
+        {/* ------------------------------------------------------------- STEP 3: HEALTH ISSUES & DOCUMENTS */}
         {step === "medical" && (
-          <div className="space-y-6">
+          <div className="space-y-6 animate-in fade-in duration-150">
             <div className="flex items-center justify-between border-b border-black/[0.06] pb-3">
               <div>
-                <h3 className="font-bold text-slate-800">Medical History & Documents</h3>
-                <p className="mt-0.5 text-xs text-slate-400">Add any existing health conditions or medical files (Optional).</p>
+                <h3 className="font-bold text-slate-800">Health Issues &amp; Medical History</h3>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Add any current health symptoms, chronic conditions, or upload past medical files (Optional).
+                </p>
               </div>
-              <span className="text-[12px] font-semibold text-slate-400">Step 2 of 2</span>
+              <span className="text-[12px] font-semibold text-slate-400">Step 3 of 3</span>
             </div>
 
+            {/* Health Conditions Section */}
             <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="font-bold text-slate-700 text-sm">Medical History & Previous Surgeries</h4>
+                <h4 className="font-bold text-slate-700 text-sm flex items-center gap-1.5">
+                  <Activity size={15} className="text-[#0078d4]" />
+                  <span>Current Conditions &amp; Medical History</span>
+                </h4>
                 <button
                   type="button"
-                  className="btn ghost sm"
+                  className="btn ghost sm text-xs font-bold"
                   onClick={() => setIssues((items) => [...items, emptyIssue()])}
                 >
-                  <Plus size={14} /> Add condition / surgery
+                  <Plus size={14} /> Add condition
                 </button>
               </div>
+
               {issues.map((issue, index) => (
-                <div className="holo grid gap-3 sm:grid-cols-2" key={index}>
-                  <Field label="Condition or Surgery">
+                <div className="holo relative grid gap-3 sm:grid-cols-2 p-3 rounded-2xl border border-slate-200 bg-slate-50/70" key={index}>
+                  <Field label="Condition, Symptom or Surgery">
                     <input
-                      className="input"
+                      className="input text-xs"
                       value={issue.issue_name}
                       onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, issue_name: e.target.value } : item))}
-                      placeholder="e.g. Diabetes, Hypertension, Appendectomy"
+                      placeholder="e.g. Diabetes, Chest pain, Hypertension"
                     />
                   </Field>
                   <Field label="How long ago / onset info (Optional)">
-                    <input
-                      className="input"
-                      value={issue.onset_info}
-                      onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, onset_info: e.target.value } : item))}
-                      placeholder="e.g. 5 years, 3 months ago"
-                    />
+                    <div className="flex gap-2 items-center">
+                      <input
+                        className="input text-xs flex-1"
+                        value={issue.onset_info}
+                        onChange={(e) => setIssues((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, onset_info: e.target.value } : item))}
+                        placeholder="e.g. 5 years, 3 months ago"
+                      />
+                      {issues.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setIssues((items) => items.filter((_, i) => i !== index))}
+                          className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
+                          title="Remove condition"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
                   </Field>
                 </div>
               ))}
             </div>
 
-            <div className="space-y-3">
+            {/* Document Upload Section */}
+            <div className="space-y-3 pt-2 border-t border-black/[0.06]">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 className="font-bold text-slate-700 text-sm">Upload Documents (Optional)</h4>
+                <h4 className="font-bold text-slate-700 text-sm flex items-center gap-1.5">
+                  <FileText size={15} className="text-[#0078d4]" />
+                  <span>Upload Medical Records (Optional)</span>
+                </h4>
                 <button
                   type="button"
-                  className="btn ghost sm"
+                  className="btn ghost sm text-xs font-bold"
                   onClick={() => setDocuments((items) => [...items, emptyDocument()])}
                 >
                   <Plus size={14} /> Add document
                 </button>
               </div>
+
               {documents.map((document, index) => (
-                <div className="holo grid gap-3 sm:grid-cols-2" key={index}>
+                <div className="holo relative grid gap-3 sm:grid-cols-2 p-3 rounded-2xl border border-slate-200 bg-slate-50/70" key={index}>
                   <Field label="Document title">
                     <input
-                      className="input"
+                      className="input text-xs"
                       value={document.title}
                       onChange={(e) => setDocuments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, title: e.target.value } : item))}
-                      placeholder="e.g. CBC report, Discharge Summary"
+                      placeholder="e.g. Blood test report, Discharge summary"
                     />
                   </Field>
                   <Field label="Document type">
-                    <select
-                      className="input"
-                      value={document.doc_type}
-                      onChange={(e) => setDocuments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, doc_type: e.target.value } : item))}
-                    >
-                      <option value="">Select document type</option>
-                      <option value="LAB_REPORT">LAB_REPORT</option>
-                      <option value="DISCHARGE">DISCHARGE</option>
-                      <option value="SCAN">SCAN</option>
-                      <option value="AUDIO">AUDIO</option>
-                    </select>
+                    <div className="flex gap-2 items-center">
+                      <select
+                        className="input text-xs flex-1"
+                        value={document.doc_type}
+                        onChange={(e) => setDocuments((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, doc_type: e.target.value } : item))}
+                      >
+                        <option value="">Select document type</option>
+                        <option value="LAB_REPORT">Lab Report</option>
+                        <option value="DISCHARGE">Discharge Summary</option>
+                        <option value="SCAN">Scan / X-Ray / MRI</option>
+                        <option value="PRESCRIPTION">Prescription</option>
+                        <option value="OTHER">Other Record</option>
+                      </select>
+                      {documents.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setDocuments((items) => items.filter((_, i) => i !== index))}
+                          className="p-2 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition"
+                          title="Remove document"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
                   </Field>
-                  <Field label="Upload file">
-                    <input
-                      className="input sm:col-span-2"
-                      type="file"
-                      onChange={(e) => selectDocumentFile(index, e.target.files?.[0])}
-                    />
-                  </Field>
+                  <div className="sm:col-span-2">
+                    <Field label="Upload file">
+                      <input
+                        className="input text-xs"
+                        type="file"
+                        onChange={(e) => selectDocumentFile(index, e.target.files?.[0])}
+                      />
+                    </Field>
+                  </div>
+
                   {document.file_name && (
-                    <div className="text-xs" style={{ color: "var(--mint)" }}>Selected: {document.file_name}</div>
+                    <div className="text-xs font-semibold sm:col-span-2 text-emerald-600">
+                      ✓ Selected file: {document.file_name}
+                    </div>
                   )}
                 </div>
               ))}
             </div>
 
-            <div className="actions-row between">
+            <div className="actions-row between pt-2 border-t border-black/[0.05]">
               <button
                 type="button"
-                className="btn-link"
+                className="btn-link text-slate-500 hover:text-slate-800 text-xs"
                 disabled={busy}
-                onClick={() => setStep("register")}
+                onClick={() => setStep("demographics")}
               >
-                <ArrowLeft size={14} /> Back
+                <ArrowLeft size={14} /> Back to Details
               </button>
               <button
                 type="button"
                 className="flex items-center justify-center gap-2 rounded-xl px-7 py-2.5 text-[14px] font-bold text-white bg-[#15803d] shadow-[0_8px_20px_rgba(21,128,61,0.38)] hover:bg-[#166534] hover:shadow-[0_10px_24px_rgba(21,128,61,0.48)] transition-all active:scale-95 cursor-pointer"
                 disabled={busy}
-                onClick={registerPatient}
+                onClick={handleCompleteRegistration}
               >
-                {busy ? <><Loader2 size={16} className="animate-spin" /> Registering...</> : "Register and continue"}
+                {busy ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" /> Registering...
+                  </>
+                ) : (
+                  "Complete Registration ✓"
+                )}
               </button>
             </div>
           </div>
