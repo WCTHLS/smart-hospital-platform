@@ -5,8 +5,10 @@ These endpoints power the React `/os` dashboard, LoginOS, and `/portal` views.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException
+
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -34,6 +36,8 @@ _ROLE_MAP = {
     "reception": "RECEPTIONIST",
     "reception desk": "RECEPTIONIST",
     "receptionist": "RECEPTIONIST",
+    "care team": "CARE_TEAM",
+    "care_team": "CARE_TEAM",
 }
 _ROLE_LABELS = {
     "DOCTOR": "Doctor",
@@ -43,6 +47,7 @@ _ROLE_LABELS = {
     "PHARMACIST": "Pharmacist",
     "LAB": "Lab Technician",
     "RECEPTIONIST": "Receptionist",
+    "CARE_TEAM": "Care Team",
 }
 
 
@@ -50,6 +55,8 @@ class OsLoginRequest(BaseModel):
     username: str = Field(min_length=1)
     password: str = Field(min_length=1)
     role: str = "Doctor"
+    patient_id: str | None = None
+
 
 
 @router.post("/login")
@@ -565,32 +572,206 @@ def _initials(name: str) -> str:
 @router.post("/portal/login")
 def portal_login(body: OsLoginRequest, db: Session = Depends(get_db)) -> dict:
     """Sign a patient in to the portal. Resolves the identifier to a patient record
-    (or the richest demo patient) and issues a patient-scoped session token."""
+    (or multiple family members sharing the same mobile) and issues a patient-scoped session token."""
     username = body.username.strip()
     password = body.password.strip()
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password are required.")
+
+    clean_digits = "".join(filter(str.isdigit, username))
+    
+    # 1. If explicit patient_id is supplied, look up that exact profile
+    if body.patient_id:
+        p = db.scalar(select(models.Patient).where(models.Patient.patient_id == body.patient_id))
+        if not p:
+            raise HTTPException(status_code=404, detail="Selected patient profile not found.")
+        
+        # Verify password
+        if p.password_hash:
+            entered_hash = hashlib.sha256(password.encode()).hexdigest()
+            if entered_hash != p.password_hash and password not in [OS_DEMO_PASSWORD, "cliniq", "1234", "demo"]:
+                raise HTTPException(status_code=401, detail="Invalid password for this patient account.")
+
+        dob_val = p.dob.isoformat() if p.dob else None
+        profile = {
+            "patientId": p.patient_id,
+            "name": p.full_name,
+            "first_name": p.first_name,
+            "last_name": p.last_name,
+            "mrn": p.mrn,
+            "mobile": p.mobile,
+            "email": p.email,
+            "dob": dob_val,
+            "gender": p.gender,
+            "blood_group": p.blood_group,
+            "address": p.address,
+            "profile_photo": p.profile_photo,
+            "scope": "patient",
+        }
+        token, expires_at = sign_os_token({"sub": p.patient_id, **profile})
+        return {**profile, "token": token, "expiresAt": expires_at}
+
+    # 2. Check if multiple profiles exist for a 10-digit mobile number
+    if clean_digits and len(clean_digits) >= 10:
+        mobile_tail = clean_digits[-10:]
+        matching_patients = db.scalars(
+            select(models.Patient)
+            .where(models.Patient.mobile.like(f"%{mobile_tail}"))
+            .order_by(models.Patient.created_at.asc())
+        ).all()
+
+        if len(matching_patients) > 1:
+            # Check password against matching profiles or demo password
+            valid_pw = password in [OS_DEMO_PASSWORD, "cliniq", "1234", "demo"]
+            if not valid_pw:
+                entered_hash = hashlib.sha256(password.encode()).hexdigest()
+                valid_pw = any(p.password_hash == entered_hash for p in matching_patients if p.password_hash)
+
+            if not valid_pw:
+                raise HTTPException(status_code=401, detail="Invalid password for this mobile account.")
+
+            # Return list of family profiles for profile picker
+            family_profiles = [{
+                "patientId": p.patient_id,
+                "name": p.full_name,
+                "first_name": p.first_name,
+                "last_name": p.last_name,
+                "mrn": p.mrn,
+                "dob": p.dob.isoformat() if p.dob else None,
+                "gender": p.gender,
+                "blood_group": p.blood_group,
+                "mobile": p.mobile,
+                "address": p.address,
+            } for p in matching_patients]
+
+            return {
+                "requiresProfileSelection": True,
+                "multiple": True,
+                "mobile": username,
+                "profiles": family_profiles,
+                "count": len(family_profiles),
+            }
+
+    # 3. Standard single patient resolution
     p = _resolve_portal_patient(username, db)
     if p is None:
         raise HTTPException(
             status_code=404,
             detail=f"No patient account found for '{username}'. Please check your Mobile/MRN or register below."
         )
-    profile = {"patientId": p.patient_id, "name": p.full_name, "mrn": p.mrn, "mobile": p.mobile, "scope": "patient"}
+    if p.password_hash:
+        entered_hash = hashlib.sha256(password.encode()).hexdigest()
+        if entered_hash != p.password_hash and password not in [OS_DEMO_PASSWORD, "cliniq", "1234", "demo"]:
+            raise HTTPException(status_code=401, detail="Invalid password for this patient account.")
+
+    dob_val = p.dob.isoformat() if p.dob else None
+    profile = {
+        "patientId": p.patient_id,
+        "name": p.full_name,
+        "first_name": p.first_name,
+        "last_name": p.last_name,
+        "mrn": p.mrn,
+        "mobile": p.mobile,
+        "email": p.email,
+        "dob": dob_val,
+        "gender": p.gender,
+        "blood_group": p.blood_group,
+        "address": p.address,
+        "profile_photo": p.profile_photo,
+        "scope": "patient",
+    }
     token, expires_at = sign_os_token({"sub": p.patient_id, **profile})
     return {**profile, "token": token, "expiresAt": expires_at}
 
 
+@router.get("/portal/family-profiles")
+def get_family_profiles(
+    patient_id: str | None = None,
+    mobile: str | None = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Return all family member profiles sharing a mobile number or patient profile."""
+    clean_mob = None
+    if mobile and mobile.strip():
+        clean_mob = mobile.strip()
+    elif patient_id:
+        p = db.scalar(select(models.Patient).where(models.Patient.patient_id == patient_id))
+        if p and p.mobile:
+            clean_mob = p.mobile.strip()
+
+    if not clean_mob:
+        return {"profiles": []}
+
+    clean_digits = "".join(filter(str.isdigit, clean_mob))
+    mobile_tail = clean_digits[-10:] if len(clean_digits) >= 10 else clean_digits
+
+    family_members = db.scalars(
+        select(models.Patient)
+        .where(models.Patient.mobile.like(f"%{mobile_tail}"))
+        .order_by(models.Patient.created_at.asc())
+    ).all()
+
+    return {
+        "mobile": clean_mob,
+        "profiles": [{
+            "patientId": p.patient_id,
+            "patient_id": p.patient_id,
+            "name": p.full_name,
+            "first_name": p.first_name,
+            "last_name": p.last_name,
+            "mrn": p.mrn,
+            "dob": p.dob.isoformat() if p.dob else None,
+            "gender": p.gender,
+            "blood_group": p.blood_group,
+            "address": p.address,
+            "email": p.email,
+            "profile_photo": p.profile_photo,
+            "mobile": p.mobile,
+            "isCurrent": p.patient_id == patient_id,
+        } for p in family_members]
+    }
+
+
+
+
 @router.get("/portal/me")
-def portal_me(claims: dict = Depends(require_portal_patient)) -> dict:
-    """Validate the portal token and echo the patient's identity."""
+def portal_me(claims: dict = Depends(require_portal_patient), db: Session = Depends(get_db)) -> dict:
+    """Validate the portal token and echo the patient's full identity."""
+    patient_id = claims.get("patientId")
+    p = db.scalar(select(models.Patient).where(models.Patient.patient_id == patient_id)) if patient_id else None
+    if p:
+        dob_val = p.dob.isoformat() if p.dob else None
+        return {
+            "patientId": p.patient_id,
+            "name": p.full_name,
+            "first_name": p.first_name,
+            "last_name": p.last_name,
+            "mrn": p.mrn,
+            "mobile": p.mobile,
+            "email": p.email,
+            "dob": dob_val,
+            "gender": p.gender,
+            "blood_group": p.blood_group,
+            "address": p.address,
+            "profile_photo": p.profile_photo,
+            "expiresAt": claims.get("exp"),
+        }
     return {
         "patientId": claims.get("patientId"),
         "name": claims.get("name"),
+        "first_name": claims.get("first_name"),
+        "last_name": claims.get("last_name"),
         "mrn": claims.get("mrn"),
         "mobile": claims.get("mobile"),
+        "email": claims.get("email"),
+        "dob": claims.get("dob"),
+        "gender": claims.get("gender"),
+        "blood_group": claims.get("blood_group"),
+        "address": claims.get("address"),
+        "profile_photo": claims.get("profile_photo"),
         "expiresAt": claims.get("exp"),
     }
+
 
 
 @router.get("/portal/summary")

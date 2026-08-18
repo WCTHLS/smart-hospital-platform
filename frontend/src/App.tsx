@@ -20,6 +20,7 @@ const PatientOncologyCare = lazy(() => import("./features/patient/PatientOncolog
 const ReceptionWorkspace = lazy(() => import("./features/reception/ReceptionWorkspace"));
 const PharmacyWorkspace = lazy(() => import("./features/pharmacy/PharmacyWorkspace"));
 const OncologyWorkspace = lazy(() => import("./features/oncology/OncologyWorkspace"));
+const CareTeamWorkspace = lazy(() => import("./features/careteam/CareTeamWorkspace"));
 const CommandCenterOS = lazy(() => import("./features/os/CommandCenterOS"));
 const LoginOS = lazy(() => import("./features/os/LoginOS"));
 const PatientPortal = lazy(() => import("./features/portal/PatientPortal"));
@@ -70,6 +71,7 @@ export default function App() {
                     <Route path="/patient/oncology" element={<RequirePatient><PatientOncologyCare /></RequirePatient>} />
                     <Route path="/command" element={<CommandCenter />} />
                     <Route path="/admin" element={<AdminPortal />} />
+                    <Route path="/care-team" element={<CareTeamWorkspace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                   </Routes>
                 </Layout>

@@ -25,7 +25,9 @@ def ai_status() -> dict:
     model_name = gateway.active_model_name()
     
     # Determine the display message based on active keys
-    if settings.gemini_api_key:
+    if settings.openai_api_key:
+        msg = "Azure OpenAI API connected."
+    elif settings.gemini_api_key:
         msg = "Gemini API connected."
     elif settings.grok_api_key or settings.grok_api:
         msg = "xAI Grok API connected."

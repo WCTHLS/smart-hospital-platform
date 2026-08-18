@@ -3,27 +3,58 @@ import { ReactNode, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   HeartPulse, MonitorDot, ShieldAlert, BellRing, Menu, PanelLeftClose,
-  ChevronDown, LogOut, User, Home, Calendar, FlaskConical, Pill, Receipt, FolderOpen,
+  ChevronDown, LogOut, User, Users, UserPlus, FlaskConical, Scan, Pill, Syringe, Stethoscope,
+  UserCog, Calendar, LayoutGrid, ClipboardList, Activity, AlertTriangle,
+  BookOpen, HardDrive, FileText, MapPin, Building2, Bell, CheckSquare, MessageSquare,
+  Settings, X
 } from "lucide-react";
+
+
+
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
 import { getOsSession, clearOsSession, osInitials } from "../features/os/osSession";
-import { getPortalPatient, clearPortalPatient } from "../lib/patientAuth";
+import { getPortalPatient, savePortalPatient, clearPortalPatient } from "../lib/patientAuth";
+import { api } from "../lib/api";
 
 const ADMIN_NAV = [
   { to: "/admin", label: "Admin Workspace", icon: ShieldAlert },
   { to: "/command", label: "Command Center", icon: MonitorDot },
 ];
 
-const PATIENT_NAV = [
-  { to: "/patient?tab=My Health Overview", tab: "My Health Overview", label: "Overview", icon: Home, section: "MAIN" },
-  { to: "/patient?tab=Appointments", tab: "Appointments", label: "Appointments", icon: Calendar, section: "MAIN" },
-  { to: "/patient?tab=My Vitals", tab: "My Vitals", label: "Vitals", icon: HeartPulse, section: "MAIN" },
-  { to: "/patient?tab=My Lab Reports", tab: "My Lab Reports", label: "Labs & Scans", icon: FlaskConical, section: "MAIN" },
-  { to: "/patient?tab=My Prescriptions", tab: "My Prescriptions", label: "Prescriptions", icon: Pill, section: "MAIN" },
-  { to: "/patient?tab=Billing", tab: "Billing", label: "Billing", icon: Receipt, section: "MAIN" },
-  { to: "/patient?tab=My Documents", tab: "My Documents", label: "Documents", icon: FolderOpen, section: "MAIN" },
-  { to: "/patient?tab=My Profile", tab: "My Profile", label: "My Profile", icon: User, section: "ACCOUNT" },
+const CARE_TEAM_NAV = [
+  { to: "/care-team?tab=overview", label: "Care Team Overview", icon: UserCog, end: true },
+  { to: "/care-team?tab=directory", label: "Staff Directory", icon: Users },
+  { to: "/care-team?tab=timings", label: "Operating Timings", icon: Calendar },
+];
+
+const DOCTOR_WORKSPACE_NAV = [
+  { to: "/copilot?view=patient360", label: "Command Center", icon: LayoutGrid },
+  { to: "/copilot", label: "Patients", icon: Users, end: true },
+  { to: "/copilot?view=admissions", label: "Admissions", icon: ClipboardList },
+  { to: "/copilot?view=care-team", label: "Care Team", icon: UserCog },
+  { to: "/copilot?view=labs", label: "Labs", icon: FlaskConical },
+  { to: "/copilot?view=radiology", label: "Radiology", icon: Scan },
+  { to: "/copilot?view=pharmacy", label: "Pharmacy", icon: Pill },
+  { to: "/copilot?view=surgery", label: "Surgery / OT", icon: Syringe },
+  { to: "/copilot?view=icu", label: "ICU", icon: HeartPulse },
+  { to: "/copilot?view=emergency", label: "Emergency", icon: AlertTriangle },
+  { to: "/copilot?view=billing", label: "Billing", icon: BookOpen },
+  { to: "/copilot?view=inventory", label: "Inventory", icon: HardDrive },
+  { to: "/copilot?view=reports", label: "Reports", icon: FileText },
+];
+
+const DOCTOR_TWIN_NAV = [
+  { to: "/copilot?view=map", label: "Hospital Map", icon: MapPin },
+  { to: "/copilot?view=departments", label: "Departments", icon: Building2 },
+  { to: "/copilot?view=assets", label: "Assets", icon: HardDrive },
+];
+
+const DOCTOR_SYSTEM_NAV = [
+  { to: "/copilot?view=alerts", label: "Alerts", icon: Bell, badge: 8 },
+  { to: "/copilot?view=tasks", label: "Tasks", icon: CheckSquare, badge: 14 },
+  { to: "/copilot?view=messages", label: "Messages", icon: MessageSquare, badge: 6 },
+  { to: "/copilot?view=settings", label: "Settings", icon: Settings },
 ];
 
 function criticalText(e: LiveEvent): string {
@@ -63,10 +94,18 @@ export default function Layout({ children }: { children: ReactNode }) {
   const connected = useRealtime((s) => s.connected);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
+  const [familyMembers, setFamilyMembers] = useState<any[]>([]);
 
   const activeRole = journey.activeRole;
   const osSession = getOsSession();
   const portalPatient = getPortalPatient();
+  useEffect(() => {
+    if (portalPatient?.patient_id || portalPatient?.mobile) {
+      api.familyProfiles(portalPatient?.patient_id, portalPatient?.mobile).then((res) => {
+        if (res?.profiles) setFamilyMembers(res.profiles);
+      }).catch(() => { });
+    }
+  }, [portalPatient?.patient_id, portalPatient?.mobile]);
 
   const isPatient = Boolean(portalPatient || loc.pathname.startsWith("/patient"));
   const isDoctor = Boolean(osSession?.role === "DOCTOR" || loc.pathname === "/copilot" || loc.pathname === "/oncology");
@@ -74,10 +113,12 @@ export default function Layout({ children }: { children: ReactNode }) {
   const isLab = Boolean(osSession?.role === "LAB" || loc.pathname === "/lab" || loc.pathname === "/radiology");
   const isPharmacy = Boolean(osSession?.role === "PHARMACIST" || loc.pathname === "/pharmacy");
   const isReception = Boolean(osSession?.role === "RECEPTIONIST" || loc.pathname === "/reception");
+  const isCareTeam = Boolean(osSession?.role === "CARE_TEAM" || loc.pathname === "/care-team");
   const isAdmin = Boolean(osSession?.role === "ADMIN" || loc.pathname === "/admin" || loc.pathname === "/command");
 
-  // Show sidebar for Admin and Patient Portal
-  const hasSidebar = (isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command")) || isPatient;
+  const hasSidebar = (isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command")) ||
+    (isDoctor && (loc.pathname === "/copilot" || loc.pathname === "/oncology")) ||
+    (isCareTeam && loc.pathname === "/care-team");
 
   const currentUser = osSession ? {
     name: osSession.name,
@@ -104,6 +145,8 @@ export default function Layout({ children }: { children: ReactNode }) {
       journey.setRole("pharmacist");
     } else if ((path === "/command" || path === "/admin") && activeRole !== "admin") {
       journey.setRole("admin");
+    } else if (path === "/care-team" && activeRole !== "care_team") {
+      journey.setRole("care_team" as any);
     } else if (path.startsWith("/patient") && activeRole !== "patient") {
       journey.setRole("patient");
     }
@@ -138,16 +181,17 @@ export default function Layout({ children }: { children: ReactNode }) {
   };
 
   const getHeaderTitle = () => {
-    if (isPatient) return "Patient Dashboard";
+    if (loc.pathname === "/care-team") return "Care Team Workspace";
     if (loc.pathname === "/copilot") return "Doctor Workspace";
     if (loc.pathname === "/oncology") return "Oncology & Cancer Care";
-    if (isNurse) return "Triage Desk";
+    if (loc.pathname === "/triage") return "Triage Desk";
     if (loc.pathname === "/lab") return "Lab Workspace";
     if (loc.pathname === "/radiology") return "Radiology Command Center";
-    if (isPharmacy) return "Pharmacy Desk";
-    if (isReception) return "Reception Desk";
+    if (loc.pathname === "/pharmacy") return "Pharmacy Desk";
+    if (loc.pathname === "/reception") return "Admissions & Reception Desk";
     if (loc.pathname === "/admin") return "Admin Workspace";
     if (loc.pathname === "/command") return "Command Center";
+    if (isPatient) return "Patient Dashboard";
     return "Smart Hospital Platform";
   };
 
@@ -216,39 +260,129 @@ export default function Layout({ children }: { children: ReactNode }) {
               </button>
 
               {userDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-48 rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-xl z-50">
+                <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-black/[0.08] bg-white p-2 shadow-xl z-50 animate-in fade-in duration-150">
                   <div className="px-3 py-2 border-b border-slate-100">
-                    <p className="text-[12px] font-bold text-slate-800">{currentUser.name}</p>
+                    <p className="text-[12.5px] font-bold text-slate-800 leading-tight">{currentUser.name}</p>
                     <p className="text-[11px] text-slate-500">{currentUser.role}</p>
                   </div>
+
+                  {/* Family Profiles List for Patient */}
+                  {isPatient && portalPatient && (
+                    <div className="py-1.5 border-b border-slate-100">
+                      <div className="px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                        <span className="flex items-center gap-1">
+                          <Users size={12} className="text-[#0078d4]" />
+                          <span>Profiles ({familyMembers.length || 1})</span>
+                        </span>
+                        {portalPatient.mobile && (
+                          <span className="font-mono text-[9.5px] text-slate-400 font-semibold">
+                            +91 {portalPatient.mobile}
+                          </span>
+                        )}
+                      </div>
+                      <div className="max-h-44 overflow-y-auto space-y-1 px-1 py-0.5">
+                        {familyMembers.length > 0 ? (
+                          familyMembers.map((fm) => {
+                            const isCurrent = fm.patientId === portalPatient.patient_id;
+                            return (
+                              <button
+                                key={fm.patientId}
+                                type="button"
+                                onClick={() => {
+                                  if (isCurrent) return;
+                                  savePortalPatient({
+                                    patient_id: fm.patientId,
+                                    name: fm.name,
+                                    first_name: fm.first_name,
+                                    last_name: fm.last_name,
+                                    dob: fm.dob,
+                                    gender: fm.gender,
+                                    blood_group: fm.blood_group,
+                                    address: fm.address,
+                                    mobile: fm.mobile || portalPatient.mobile,
+                                  });
+                                  journey.set({ patientId: fm.patientId, patientName: fm.name });
+                                  setUserDropdownOpen(false);
+                                  window.location.reload();
+                                }}
+                                className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-[11.5px] transition ${isCurrent
+                                    ? "bg-sky-50 text-[#0078d4] font-bold border border-sky-200/80 shadow-2xs cursor-default"
+                                    : "text-slate-700 hover:bg-slate-50 font-medium border border-transparent cursor-pointer"
+                                  }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div className={`w-5 h-5 rounded-md text-[9px] font-bold grid place-items-center shrink-0 ${isCurrent ? "bg-[#0078d4] text-white" : "bg-slate-100 text-slate-600"
+                                    }`}>
+                                    {(fm.name || "PT").slice(0, 2).toUpperCase()}
+                                  </div>
+                                  <span className="truncate">{fm.name}</span>
+                                </div>
+                                {isCurrent ? (
+                                  <span className="text-[9px] text-sky-700 bg-sky-100/90 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
+                                    Active
+                                  </span>
+                                ) : (
+                                  <span className="text-[9.5px] text-slate-400 font-mono shrink-0">
+                                    {fm.mrn?.slice(-5) || "Switch"}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="px-3 py-1 text-xs text-slate-500 font-medium">
+                            {portalPatient.name} (Active)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {isPatient && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserDropdownOpen(false);
+                        nav("/patient/login?action=add_family");
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50 transition"
+                    >
+                      <UserPlus size={14} /> + Add Family Member
+                    </button>
+                  )}
+
+
+
                   <button
                     type="button"
                     onClick={() => {
                       setUserDropdownOpen(false);
-                      nav("/login");
+                      nav(isPatient ? "/login?role=patient" : "/login");
                     }}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-slate-700 hover:bg-slate-50 transition"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 transition"
                   >
-                    <User size={15} /> Switch Role / Login
+                    <User size={14} /> Switch Role / Login
                   </button>
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-rose-600 hover:bg-rose-50 transition"
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 transition"
                   >
-                    <LogOut size={15} /> Sign Out
+                    <LogOut size={14} /> Sign Out
                   </button>
                 </div>
               )}
+
             </div>
           ) : (
             <button
               type="button"
-              onClick={() => nav("/login")}
+              onClick={() => nav(isPatient ? "/login?role=patient" : "/login")}
               className="flex items-center gap-1.5 rounded-xl bg-[#0078d4] px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-[#106ebe]"
             >
               <User size={14} /> Sign In
             </button>
+
           )}
         </div>
       </header>
@@ -262,100 +396,165 @@ export default function Layout({ children }: { children: ReactNode }) {
         />
       )}
 
-      {/* Sidebar (Admin & Patient) */}
+      {/* Sidebar (Clinical & Admin) */}
       {hasSidebar && (
-        <aside
-          className={`sidebar-dark fixed bottom-0 left-0 top-16 z-20 flex w-[240px] flex-col gap-1 p-3.5 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
-            } bg-[#0b1329] border-r border-slate-800/80 shadow-xl`}
-        >
-          {isPatient ? (
-            <div className="flex flex-col gap-1 flex-1 overflow-y-auto scrollbar-none">
-              {/* MAIN Section */}
-              <div className="nav-section-title px-3 pt-2 pb-1.5">
-                Main Menu
+        <aside className={`fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+          style={{
+            borderRight: "1px solid var(--line)",
+            backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
+            backdropFilter: "blur(28px) saturate(180%)",
+          }}>
+          {isDoctor ? (
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4 select-none scrollbar-thin text-left">
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Workspace</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_WORKSPACE_NAV.map((n) => {
+                    const isActive = n.end
+                      ? loc.pathname === "/copilot" && !loc.search
+                      : loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={(e) => {
+                          if (n.to === "/copilot") {
+                            journey.reset();
+                            closeSidebarOnMobile();
+                            return;
+                          }
+                          if (n.to.includes("view=patient360")) {
+                            if (!journey.encounterId || !journey.patientId) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              alert("Please select a patient from the Live Patient Queue first to open their Command Center.");
+                              return;
+                            }
+                          }
+                          closeSidebarOnMobile();
+                        }}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450"} />
+                        <span className="truncate">{n.label}</span>
+                      </NavLink>
+                    );
+                  })}
+                </div>
               </div>
-              {PATIENT_NAV.filter((n) => n.section === "MAIN").map((n) => {
-                const searchTab = new URLSearchParams(loc.search).get("tab") || "My Health Overview";
-                const isActive =
-                  loc.pathname === "/patient" &&
-                  ((n.tab === "My Health Overview" &&
-                    (!new URLSearchParams(loc.search).get("tab") || searchTab === "My Health Overview")) ||
-                    searchTab === n.tab ||
-                    (n.tab === "Appointments" &&
-                      (searchTab === "Appointments" || searchTab === "Book Consultation")) ||
-                    (n.tab === "My Lab Reports" &&
-                      (searchTab === "My Lab Reports" || searchTab === "Scans & Imaging")));
 
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Digital Twin</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_TWIN_NAV.map((n) => {
+                    const isActive = loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={() => closeSidebarOnMobile()}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450"} />
+                        <span className="truncate">{n.label}</span>
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">System</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_SYSTEM_NAV.map((n) => {
+                    const isActive = loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={() => closeSidebarOnMobile()}
+                        className="flex items-center justify-between rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450 shrink-0"} />
+                          <span className="truncate">{n.label}</span>
+                        </span>
+                        {n.badge && (
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[9px] font-extrabold text-[#0078d4]">{n.badge}</span>
+                        )}
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : isCareTeam ? (
+            <div className="space-y-1">
+              <div className="mb-2 px-3 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Care Team Portal</div>
+              {CARE_TEAM_NAV.map((n) => {
+                const isActive = n.end
+                  ? loc.pathname === n.to && !loc.search
+                  : loc.pathname + loc.search === n.to || (n.to.includes("?tab=") && loc.search === "?" + n.to.split("?")[1]);
                 return (
-                  <button
-                    key={n.label}
-                    type="button"
-                    onClick={() => {
-                      closeSidebarOnMobile();
-                      nav(n.to);
+                  <NavLink
+                    to={n.to}
+                    key={n.to}
+                    onClick={closeSidebarOnMobile}
+                    className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
+                    style={{
+                      color: isActive ? "#0078d4" : "var(--muted)",
+                      background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                      border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                      boxShadow: isActive ? "0 0 14px rgba(0,120,212,.05)" : "none",
                     }}
-                    className={`nav-item flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition text-left ${isActive ? "is-active font-bold" : ""
-                      }`}
                   >
-                    <n.icon size={18} className="nav-icon shrink-0" />
-                    <span>{n.label}</span>
-                  </button>
+                    <n.icon size={17} className={isActive ? "text-[#0078d4]" : "text-slate-400"} />
+                    {n.label}
+                  </NavLink>
                 );
               })}
-
-              {/* ACCOUNT Section */}
-              <div className="nav-section-title px-3 pt-4 pb-1.5">
-                Account &amp; Settings
-              </div>
-              {PATIENT_NAV.filter((n) => n.section === "ACCOUNT").map((n) => {
-                const searchTab = new URLSearchParams(loc.search).get("tab") || "My Health Overview";
-                const isActive = loc.pathname === "/patient" && searchTab === n.tab;
-
-                return (
-                  <button
-                    key={n.label}
-                    type="button"
-                    onClick={() => {
-                      closeSidebarOnMobile();
-                      nav(n.to);
-                    }}
-                    className={`nav-item flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition text-left ${isActive ? "is-active font-bold" : ""
-                      }`}
-                  >
-                    <n.icon size={18} className="nav-icon shrink-0" />
-                    <span>{n.label}</span>
-                  </button>
-                );
-              })}
-
-              <button
-                type="button"
-                onClick={() => {
-                  closeSidebarOnMobile();
-                  handleLogout();
-                }}
-                className="nav-item nav-item-logout flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition text-left mt-0.5"
-              >
-                <LogOut size={18} className="nav-icon shrink-0" />
-                <span>Log Out</span>
-              </button>
             </div>
           ) : (
             ADMIN_NAV.map((n) => (
-              <NavLink
-                to={n.to}
-                key={n.to}
-                onClick={closeSidebarOnMobile}
-                className={({ isActive }: any) =>
-                  `nav-item flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition ${isActive ? "is-active font-bold" : ""
-                  }`
-                }
-              >
-                <n.icon size={18} className="nav-icon shrink-0" />
+              <NavLink to={n.to} key={n.to} onClick={closeSidebarOnMobile}
+                className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
+                style={({ isActive }: any) => ({
+                  color: isActive ? "#123a7a" : "var(--muted)",
+                  background: isActive ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))" : "transparent",
+                  border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
+                  boxShadow: isActive ? "0 0 14px rgba(37,100,207,.12)" : "none",
+                })}>
+                <n.icon size={17} />
                 {n.label}
               </NavLink>
             ))
           )}
+
+          <div className="mt-auto space-y-2">
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+            >
+              <LogOut size={15} />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </aside>
       )}
 

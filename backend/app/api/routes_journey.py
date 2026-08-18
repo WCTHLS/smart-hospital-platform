@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
 import logging
+import hashlib
 import uuid
 from zoneinfo import ZoneInfo
 
@@ -591,15 +592,15 @@ def get_mobile_profiles(body: MobileProfilesRequest, db: Session = Depends(get_d
 
 @router.post("/patients/check-available")
 def check_patient_available(body: PatientCheckAvailableRequest, db: Session = Depends(get_db)) -> dict:
+    existing_profiles = []
     if body.mobile and body.mobile.strip():
         clean_mob = body.mobile.strip()
-        existing = db.scalar(select(models.Patient).where(models.Patient.mobile == clean_mob))
-        if existing:
-            return {
-                "available": False,
-                "field": "mobile",
-                "message": f"Mobile number {clean_mob} is already registered ({existing.full_name}). Please sign in instead."
-            }
+        existing_patients = db.scalars(
+            select(models.Patient).where(models.Patient.mobile == clean_mob)
+            .order_by(models.Patient.created_at.desc())
+        ).all()
+        existing_profiles = [_patient_match(p) for p in existing_patients]
+
     if body.email and body.email.strip():
         clean_email = body.email.strip().lower()
         existing_email = db.scalar(select(models.Patient).where(func.lower(models.Patient.email) == clean_email))
@@ -607,42 +608,76 @@ def check_patient_available(body: PatientCheckAvailableRequest, db: Session = De
             return {
                 "available": False,
                 "field": "email",
-                "message": f"Email address {clean_email} is already registered ({existing_email.full_name}). Please sign in or use a different email."
+                "message": f"Email address {clean_email} is already registered ({existing_email.full_name}). Please use a different email or sign in.",
+                "existing_profiles": existing_profiles,
             }
-    return {"available": True}
+
+    return {
+        "available": True,
+        "existing_profiles": existing_profiles,
+        "profile_count": len(existing_profiles),
+    }
 
 
 @router.post("/patients/register")
 def register_patient(body: PatientRegistrationRequest, db: Session = Depends(get_db)) -> dict:
-    if body.mobile and body.mobile.strip():
-        clean_mob = body.mobile.strip()
-        existing_mob = db.scalar(select(models.Patient).where(models.Patient.mobile == clean_mob))
-        if existing_mob:
+    clean_mob = body.mobile.strip() if body.mobile else None
+    clean_first = body.first_name.strip().lower()
+    clean_last = body.last_name.strip().lower()
+
+    if clean_mob:
+        # Check if the exact same person is already registered under this mobile number
+        exact_duplicate = db.scalar(
+            select(models.Patient)
+            .where(models.Patient.mobile == clean_mob)
+            .where(func.lower(models.Patient.first_name) == clean_first)
+            .where(func.lower(models.Patient.last_name) == clean_last)
+            .where(models.Patient.dob == body.dob)
+        )
+        if exact_duplicate:
             raise HTTPException(
                 status_code=409,
-                detail=f"A patient account with mobile number {clean_mob} already exists ({existing_mob.full_name}). Please sign in instead."
+                detail=f"A profile for {body.first_name} {body.last_name} with birth date {body.dob} already exists under this mobile number. Please sign in instead."
             )
 
     if body.email and body.email.strip():
         clean_email = body.email.strip().lower()
-        existing_email = db.scalar(select(models.Patient).where(func.lower(models.Patient.email) == clean_email))
+        existing_email = db.scalar(
+            select(models.Patient)
+            .where(func.lower(models.Patient.email) == clean_email)
+            .where(func.lower(models.Patient.first_name) != clean_first)
+        )
         if existing_email:
             raise HTTPException(
                 status_code=409,
-                detail=f"A patient account with email {clean_email} already exists. Please sign in or use a different email."
+                detail=f"A patient account with email {clean_email} already exists ({existing_email.full_name}). Please use a different email."
             )
+
+
+    pw_hash = hashlib.sha256(body.password.strip().encode()).hexdigest() if body.password and body.password.strip() else None
+    if not pw_hash and clean_mob:
+        existing_family = db.scalar(
+            select(models.Patient)
+            .where(models.Patient.mobile == clean_mob)
+            .where(models.Patient.password_hash.is_not(None))
+        )
+        if existing_family:
+            pw_hash = existing_family.password_hash
 
     patient = models.Patient(
         first_name=body.first_name,
         last_name=body.last_name,
         dob=body.dob,
         mobile=body.mobile.strip() if body.mobile else None,
+
         email=body.email.strip().lower() if body.email else None,
         gender=body.gender,
         blood_group=_blood_group_value(body.blood_group) if body.blood_group else "UNK",
         address=body.address,
+        password_hash=pw_hash,
         mrn=_generate_unique_mrn(db),
     )
+
     db.add(patient)
     db.flush()
     _add_profile_details(db, patient, body.issues, body.documents)

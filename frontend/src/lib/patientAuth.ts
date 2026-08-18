@@ -6,9 +6,13 @@ export type PortalPatient = {
   first_name?: string;
   last_name?: string;
   dob?: string;
+  gender?: string;
+  blood_group?: string;
+  address?: string;
   email?: string;
   profile_photo?: string;
 };
+
 
 const SESSION_KEY = "portal_patient";
 
