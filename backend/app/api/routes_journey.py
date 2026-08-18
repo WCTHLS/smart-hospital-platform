@@ -5,24 +5,26 @@ Maps to services: Identity & Consent, Registration/EMPI, Patient 360, Intake & T
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta, timezone
+import logging
 import hashlib
 import uuid
 from zoneinfo import ZoneInfo
 
-
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select, case, nulls_last
 from sqlalchemy.orm import Session
 
-from app import models
+from app import models, services
 from app.ai import agents
 from app.ai.knowledge import route_specialty
 from app.api.routes_clinical import _check_and_discharge_lab_visit, _lab_category
 from app.core.database import get_db
 from app.core.events import Topics, bus
 from app.core.security import audit, require_active_consent
+
+logger = logging.getLogger("aarogya.journey")
 from app.schemas import (
     CheckInRequest,
     ConsentRequest,
@@ -221,6 +223,7 @@ def _patient_brief(p: models.Patient) -> dict:
         "email": p.email,
         "address": p.address,
         "profile_photo": p.profile_photo,
+        "summary": p.summary,
     }
 
 
@@ -290,7 +293,12 @@ def _appointment_local_date(value: datetime) -> date:
     return aware.astimezone(ZoneInfo("Asia/Kolkata")).date()
 
 
-def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | None) -> dict:
+def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | None, db: Session | None = None) -> dict:
+    appt_status = appointment.status
+    if db and appointment.encounter_id:
+        enc = db.get(models.Encounter, appointment.encounter_id)
+        if enc and enc.status:
+            appt_status = enc.status
     return {
         "appointment_id": appointment.appointment_id,
         "encounter_id": appointment.encounter_id,
@@ -309,7 +317,7 @@ def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | N
         "appointment_type": appointment.appointment_type,
         "scheduled_start": appointment.scheduled_start.isoformat(),
         "scheduled_end": appointment.scheduled_end.isoformat(),
-        "status": appointment.status,
+        "status": appt_status,
         "channel": appointment.channel,
         "opd_fee": doctor.opd_fee if doctor else None,
     }
@@ -444,6 +452,8 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
                     "appointment_id": appointment.appointment_id,
                     "status": existing_encounter.status,
                     "new_patient": False,
+                    "token": triage_token.token_number if triage_token else None,
+                    "token_number": triage_token.token_number if triage_token else None,
                     "reason": body.reason or appointment.reason,
                     "triage_location": {
                         "room": triage_room,
@@ -555,6 +565,14 @@ def check_in(body: CheckInRequest, db: Session = Depends(get_db)) -> dict:
         "status": encounter.status,
         "new_patient": created,
         "reason": body.reason,
+        "token": triage_token.token_number,
+        "token_number": triage_token.token_number,
+        "token_data": {
+            "number": triage_token.token_number,
+            "room": triage_room,
+            "floor": triage_floor,
+            "status": triage_token.status,
+        },
         "triage_location": {
             "room": triage_room,
             "floor": triage_floor,
@@ -716,16 +734,27 @@ def update_patient_profile(
     db: Session = Depends(get_db),
 ) -> dict:
     patient = _get_patient(db, patient_id)
-    patient.email = body.email
-    patient.gender = body.gender
-    patient.blood_group = _blood_group_value(body.blood_group)
-    patient.address = body.address
-    _add_profile_details(db, patient, body.allergies, body.documents)
+    if body.first_name is not None and body.first_name.strip():
+        patient.first_name = body.first_name.strip()
+    if body.last_name is not None:
+        patient.last_name = body.last_name.strip() if body.last_name else None
+    if body.email is not None:
+        patient.email = body.email.strip() if body.email else None
+    if body.gender is not None:
+        patient.gender = body.gender
+    if body.blood_group is not None:
+        patient.blood_group = _blood_group_value(body.blood_group)
+    if body.address is not None:
+        patient.address = body.address.strip() if body.address else None
+    if body.dob is not None:
+        patient.dob = body.dob
+    if body.allergies or body.documents:
+        _add_profile_details(db, patient, body.allergies, body.documents)
     audit(
         db,
         actor_id=patient.patient_id,
         actor_role="PATIENT",
-        action="PATIENT_PROFILE_COMPLETED",
+        action="PATIENT_PROFILE_UPDATED",
         entity_type="patient",
         entity_id=patient.patient_id,
     )
@@ -793,14 +822,21 @@ def today_appointments(patient_id: str, db: Session = Depends(get_db)) -> dict:
     appointments = db.scalars(
         select(models.Appointment)
         .where(models.Appointment.patient_id == patient_id)
-        .where(models.Appointment.status == "BOOKED")
         .where(models.Appointment.scheduled_start >= day_start)
         .where(models.Appointment.scheduled_start < day_end)
         .order_by(models.Appointment.scheduled_start)
     ).all()
+    if not appointments:
+        # Fallback to patient's active or upcoming appointments so they are always visible for check-in
+        appointments = db.scalars(
+            select(models.Appointment)
+            .where(models.Appointment.patient_id == patient_id)
+            .order_by(models.Appointment.scheduled_start.desc())
+            .limit(10)
+        ).all()
     return {
         "appointments": [
-            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id))
+            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id), db)
             for appointment in appointments
         ]
     }
@@ -815,13 +851,19 @@ def upcoming_appointments(patient_id: str, db: Session = Depends(get_db)) -> dic
     appointments = db.scalars(
         select(models.Appointment)
         .where(models.Appointment.patient_id == patient_id)
-        .where(models.Appointment.status == "BOOKED")
         .where(models.Appointment.scheduled_start >= day_start)
         .order_by(models.Appointment.scheduled_start)
     ).all()
+    if not appointments:
+        appointments = db.scalars(
+            select(models.Appointment)
+            .where(models.Appointment.patient_id == patient_id)
+            .order_by(models.Appointment.scheduled_start.desc())
+            .limit(10)
+        ).all()
     return {
         "appointments": [
-            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id))
+            _appointment_brief(appointment, db.get(models.Staff, appointment.doctor_id), db)
             for appointment in appointments
         ]
     }
@@ -1015,12 +1057,15 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         ).all()
     }
 
+    all_vitals_rows = []
     latest_vitals = None
     if enc_ids:
-        latest_vitals = db.scalar(
+        all_vitals_rows = db.scalars(
             select(models.Vitals).where(models.Vitals.encounter_id.in_(enc_ids))
             .order_by(models.Vitals.captured_ts.desc())
-        )
+        ).all()
+        if all_vitals_rows:
+            latest_vitals = all_vitals_rows[0]
 
     notes = db.scalars(
         select(models.ClinicalNote).where(models.ClinicalNote.encounter_id.in_(enc_ids or [""]))
@@ -1221,6 +1266,290 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
                 "followups": []
             })
 
+    # Care team (doctors who treated this patient from DB)
+    treating_staff_map = {}
+    for enc in encounters:
+        if enc.doctor_id and enc.doctor_id not in treating_staff_map:
+            treating_staff_map[enc.doctor_id] = {
+                "staff_id": enc.doctor_id,
+                "last_date": enc.arrival_ts.date().isoformat() if enc.arrival_ts else None,
+                "department": enc.department,
+            }
+        elif enc.doctor_id and enc.arrival_ts:
+            curr_date = enc.arrival_ts.date().isoformat()
+            if not treating_staff_map[enc.doctor_id]["last_date"] or curr_date > treating_staff_map[enc.doctor_id]["last_date"]:
+                treating_staff_map[enc.doctor_id]["last_date"] = curr_date
+
+    for appt in encounter_appointments.values():
+        if appt.doctor_id and appt.doctor_id not in treating_staff_map:
+            treating_staff_map[appt.doctor_id] = {
+                "staff_id": appt.doctor_id,
+                "last_date": appt.scheduled_start.date().isoformat() if appt.scheduled_start else None,
+                "department": appt.department,
+                "specialty": appt.specialty,
+            }
+
+    for note in notes:
+        doc_id = note.authored_by or note.approved_by
+        if doc_id and doc_id not in treating_staff_map:
+            treating_staff_map[doc_id] = {
+                "staff_id": doc_id,
+                "last_date": note.created_ts.date().isoformat() if note.created_ts else None,
+            }
+
+    staff_objs = db.scalars(select(models.Staff)).all()
+    staff_by_id = {s.staff_id: s for s in staff_objs}
+
+    care_team_list = []
+    for sid, info in treating_staff_map.items():
+        s = staff_by_id.get(sid)
+        if s:
+            care_team_list.append({
+                "staff_id": s.staff_id,
+                "name": s.name if s.name.startswith("Dr.") else f"Dr. {s.name}",
+                "role": s.specialty or s.department or s.role,
+                "department": s.department,
+                "specialty": s.specialty,
+                "room": s.room,
+                "floor": s.floor,
+                "last_date": info.get("last_date"),
+                "badge": "Attending Physician" if (primary_encs and primary_encs[0].doctor_id == sid) else "Consultant",
+            })
+
+    triages_for_encs = db.scalars(
+        select(models.Triage).where(models.Triage.encounter_id.in_(enc_ids or [""]))
+    ).all()
+    triage_by_enc = {t.encounter_id: t for t in triages_for_encs}
+
+    # Radiology and imaging scans
+    radiology_reports = db.scalars(
+        select(models.RadiologyReport)
+        .where(models.RadiologyReport.patient_id == patient_id)
+        .order_by(models.RadiologyReport.reported_ts.desc())
+    ).all()
+
+    # All lab orders for this patient
+    all_lab_orders = db.scalars(
+        select(models.LabOrder)
+        .where(models.LabOrder.patient_id == patient_id)
+        .order_by(models.LabOrder.ordered_ts.desc())
+    ).all()
+
+    imaging_keywords = ("mri", "ct ", "ct-", "ct_", "ct scan", "scan", "x-ray", "xray", "x ray", "ultrasound", "usg", "pet", "angiograph", "echocardiogram", "echo", "mammograph", "dexa", "fluoroscopy", "radiology", "doppler", "tomography")
+
+    scans_list = []
+    for rr in radiology_reports:
+        scans_list.append({
+            "report_id": rr.report_id,
+            "name": f"{rr.modality or 'Imaging'} - {rr.body_region or 'Diagnostic'}" if rr.modality else "Radiology Scan",
+            "modality": rr.modality or "Imaging",
+            "body_region": rr.body_region,
+            "date": rr.reported_ts.strftime("%d %b %Y") if rr.reported_ts else "",
+            "finding": rr.impression or rr.findings or "Scan Completed",
+            "status": "Report Ready" if (rr.findings or rr.impression) else "Completed",
+            "attachment_uri": rr.attachment_uri,
+        })
+
+    lab_reports_list = []
+    pending_orders_list = []
+    for order in all_lab_orders:
+        t_name = (order.test_name or "").lower()
+        p_name = (order.panel or "").lower()
+        is_imaging = any(k in t_name or k in p_name for k in imaging_keywords) or (order.panel and order.panel.upper() in ["RADIOLOGY", "IMAGING", "SCANS", "SCAN"])
+
+        res_matches = [r for o, r in recent_results if o.lab_order_id == order.lab_order_id and r]
+        primary_res = res_matches[0] if res_matches else None
+        price = order.price if order.price else (1200.0 if is_imaging else 350.0)
+        norm_status = "COMPLETED" if order.status in ["RESULTED", "COMPLETED", "DISCHARGED"] else order.status
+
+        # Resolve attending doctor & consultation context for this lab order
+        o_enc = db.get(models.Encounter, order.encounter_id) if order.encounter_id else None
+        o_appt = encounter_appointments.get(o_enc.appointment_id) if (o_enc and o_enc.appointment_id) else None
+        if not o_appt and o_enc and o_enc.appointment_id:
+            o_appt = db.get(models.Appointment, o_enc.appointment_id)
+        o_trg = triage_by_enc.get(order.encounter_id) if order.encounter_id else None
+
+        o_doc_staff = None
+        if o_enc and o_enc.doctor_id:
+            o_doc_staff = staff_by_id.get(o_enc.doctor_id) or db.get(models.Staff, o_enc.doctor_id)
+        if not o_doc_staff and order.ordered_by:
+            o_doc_staff = staff_by_id.get(order.ordered_by) or db.scalars(select(models.Staff).where(models.Staff.name.ilike(f"%{order.ordered_by}%"))).first()
+        if not o_doc_staff and o_appt and o_appt.doctor_id:
+            o_doc_staff = staff_by_id.get(o_appt.doctor_id) or db.get(models.Staff, o_appt.doctor_id)
+        if not o_doc_staff and o_trg and o_trg.recommended_doctor_id:
+            o_doc_staff = staff_by_id.get(o_trg.recommended_doctor_id) or db.get(models.Staff, o_trg.recommended_doctor_id)
+
+        o_doc_name = None
+        o_doc_spec = None
+        o_doc_room = None
+        o_doc_floor = None
+        if o_doc_staff:
+            o_doc_name = o_doc_staff.name
+            if o_doc_name and not o_doc_name.startswith("Dr.") and not o_doc_name.startswith("dr.") and o_doc_staff.role == "DOCTOR":
+                o_doc_name = f"Dr. {o_doc_name}"
+            o_doc_spec = o_doc_staff.specialty or o_doc_staff.department
+            o_doc_room = o_doc_staff.room
+            o_doc_floor = o_doc_staff.floor
+        elif order.ordered_by:
+            o_doc_name = order.ordered_by if order.ordered_by.startswith("Dr.") else f"Dr. {order.ordered_by}"
+            o_doc_spec = o_enc.department if o_enc else (o_appt.specialty if o_appt else None)
+
+        o_reason = (
+            o_appt.reason if (o_appt and o_appt.reason)
+            else (o_trg.chief_complaint if (o_trg and o_trg.chief_complaint)
+            else (o_enc.notes if (o_enc and o_enc.notes and not o_enc.notes.startswith("parent:"))
+            else None))
+        )
+
+        doctor_data = {
+            "name": o_doc_name or (care_team_list[0]["name"] if care_team_list else "Dr. Neha Nair"),
+            "specialty": o_doc_spec or (o_enc.department if o_enc else "Orthopaedics"),
+            "room": o_doc_room,
+            "floor": o_doc_floor,
+        }
+        appointment_data = {
+            "appointment_id": o_appt.appointment_id if o_appt else (o_enc.appointment_id if o_enc else None),
+            "encounter_id": order.encounter_id,
+            "date": (o_appt.scheduled_start.date().isoformat() if (o_appt and o_appt.scheduled_start) else (o_enc.arrival_ts.date().isoformat() if o_enc else "")),
+            "reason": o_reason or "Doctor Consultation & Clinical Assessment",
+            "department": o_appt.department if o_appt else (o_enc.department if o_enc else None),
+        }
+
+        order_results = []
+        for o, r in recent_results:
+            if o.lab_order_id == order.lab_order_id and r:
+                order_results.append({
+                    "result_id": r.result_id,
+                    "analyte": r.analyte,
+                    "value": r.value,
+                    "unit": r.unit,
+                    "reference_low": r.reference_low,
+                    "reference_high": r.reference_high,
+                    "reference_range": f"{r.reference_low} - {r.reference_high} {r.unit or ''}".strip() if (r.reference_low is not None and r.reference_high is not None) else None,
+                    "abnormal_flag": r.abnormal_flag or "N",
+                    "status": r.status,
+                })
+
+        order_date = (order.sample_collected_ts or order.ordered_ts).strftime("%d %b %Y") if order.ordered_ts else ""
+
+        # Determine human-friendly finding text based on actual status & bookings
+        if order.notes:
+            finding_text = order.notes
+        elif order.status in ["RESULTED", "COMPLETED", "DISCHARGED"]:
+            finding_text = f"{primary_res.value} {primary_res.unit or ''}".strip() if (primary_res and primary_res.value is not None) else "Report Ready & Verified"
+        elif order.status == "SAMPLE_COLLECTED":
+            finding_text = "Sample / Scan collected · Processing in laboratory"
+        elif order.status in ["CONFIRMED", "BOOKED", "SCHEDULED"] or order.booking_slot:
+            slot_info = f" ({order.booking_date} {order.booking_slot})" if (order.booking_date and order.booking_slot) else ""
+            finding_text = f"Slot Booked & Confirmed{slot_info} · Pending Sample Collection"
+        else:
+            finding_text = "Action Required · Pending Booking / Sample Collection"
+
+        item_data = {
+            "lab_order_id": order.lab_order_id,
+            "order_id": order.lab_order_id,
+            "encounter_id": order.encounter_id,
+            "name": order.test_name or "Diagnostic Test",
+            "test": order.test_name or "Diagnostic Test",
+            "panel": order.panel or ("Imaging & Radiology" if is_imaging else "Clinical Laboratory"),
+            "price": price,
+            "status": norm_status,
+            "raw_status": order.status,
+            "booking_date": order.booking_date,
+            "booking_slot": order.booking_slot,
+            "date": order_date,
+            "value": f"{primary_res.value} {primary_res.unit or ''}".strip() if (primary_res and primary_res.value is not None) else finding_text,
+            "flag": primary_res.abnormal_flag if primary_res else "N",
+            "finding": finding_text,
+            "notes": order.notes,
+            "attachment_name": order.attachment_name,
+            "attachment_uri": order.attachment_uri,
+            "is_imaging": is_imaging,
+            "results": order_results,
+            "doctor": doctor_data,
+            "appointment": appointment_data,
+        }
+
+        if norm_status in ["CREATED", "PENDING"]:
+            pending_orders_list.append(item_data)
+
+        if is_imaging:
+            scans_list.append({
+                "report_id": order.lab_order_id,
+                "lab_order_id": order.lab_order_id,
+                "order_id": order.lab_order_id,
+                "encounter_id": order.encounter_id,
+                "name": order.test_name or "Imaging Scan",
+                "modality": order.panel or "Radiology / Imaging",
+                "price": price,
+                "date": order_date,
+                "finding": finding_text,
+                "notes": order.notes,
+                "status": norm_status,
+                "raw_status": order.status,
+                "booking_date": order.booking_date,
+                "booking_slot": order.booking_slot,
+                "attachment_name": order.attachment_name,
+                "attachment_uri": order.attachment_uri,
+                "is_imaging": True,
+                "results": order_results,
+                "doctor": doctor_data,
+                "appointment": appointment_data,
+            })
+        else:
+            lab_reports_list.append(item_data)
+
+    # Also check scan documents
+    for doc in recent_documents:
+        if doc.doc_type == "SCAN":
+            scans_list.append({
+                "report_id": doc.document_id,
+                "name": doc.title or "Imaging Scan",
+                "modality": "Scan",
+                "date": doc.created_ts.strftime("%d %b %Y") if doc.created_ts else "",
+                "finding": "Uploaded Document",
+                "status": "Report Ready",
+                "attachment_uri": doc.uri,
+            })
+
+    # Active medications detailed from PatientMedication + Prescription Items
+    medications_detailed = []
+    seen_drugs = set()
+    for m in active_meds_rows:
+        seen_drugs.add(m.drug_name.lower())
+        medications_detailed.append({
+            "medication_id": m.medication_id,
+            "name": m.drug_name,
+            "dose": m.dosage or "Standard Dose",
+            "freq": "As Prescribed",
+            "route": "Oral",
+            "purpose": "Prescribed Medication",
+            "status": m.status,
+            "created_ts": m.created_ts.isoformat() if m.created_ts else None,
+        })
+
+    # Check prescriptions for active items
+    active_prescriptions = db.scalars(
+        select(models.Prescription)
+        .where(models.Prescription.patient_id == patient_id)
+        .where(models.Prescription.status.in_(["APPROVED", "DISPENSED", "ACTIVE"]))
+        .order_by(models.Prescription.created_ts.desc())
+    ).all()
+    for rx in active_prescriptions:
+        for itm in rx.items:
+            if itm.drug_name.lower() not in seen_drugs:
+                seen_drugs.add(itm.drug_name.lower())
+                medications_detailed.append({
+                    "medication_id": itm.rx_item_id,
+                    "name": itm.drug_name,
+                    "dose": itm.dose or "Standard Dose",
+                    "freq": itm.frequency or "Once Daily",
+                    "route": itm.route or "Oral",
+                    "purpose": itm.instructions or "Prescribed Treatment",
+                    "status": "ACTIVE",
+                    "created_ts": rx.created_ts.isoformat() if rx.created_ts else None,
+                })
+
     audit(db, actor_id="copilot", actor_role="SYSTEM", action="PATIENT360_READ",
           entity_type="patient", entity_id=patient_id, consent_id=consent_id)
     db.commit()
@@ -1228,38 +1557,463 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
 
     brief = _patient_brief(patient)
     allergies_list = [
-        {"substance": a.substance, "drug_class": a.drug_class, "severity": a.severity, "reaction": a.reaction}
+        {"allergy_id": a.allergy_id, "substance": a.substance, "drug_class": a.drug_class, "severity": a.severity, "reaction": a.reaction}
         for a in patient.allergies
     ]
     issues_list = [
         {"issue_id": i.issue_id, "issue_name": i.issue_name, "onset_info": i.onset_info, "status": i.status}
         for i in patient.issues
     ]
+    patient_docs = db.scalars(
+        select(models.Document)
+        .where(models.Document.patient_id == patient_id)
+        .order_by(models.Document.created_ts.desc())
+    ).all()
+    documents_list = [
+        {
+            "document_id": d.document_id,
+            "title": d.title or "Medical Document",
+            "doc_type": d.doc_type,
+            "uri": d.uri,
+            "created_ts": d.created_ts.isoformat() if d.created_ts else None,
+            "encounter_id": d.encounter_id,
+        }
+        for d in patient_docs
+    ]
     formatted_notes = [{"date": n.created_ts.date().isoformat(), "text": n.final_text} for n in notes]
     vitals_payload = None if not latest_vitals else {
-        "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}",
-        "spo2": latest_vitals.spo2, "heart_rate": latest_vitals.heart_rate,
-        "temperature": latest_vitals.temperature, "bmi": latest_vitals.bmi,
-        "weight_kg": latest_vitals.weight_kg, "height_cm": latest_vitals.height_cm,
-        "captured_ts": latest_vitals.captured_ts.isoformat(),
+        "bp": f"{latest_vitals.bp_systolic}/{latest_vitals.bp_diastolic}" if (latest_vitals.bp_systolic and latest_vitals.bp_diastolic) else None,
+        "bp_systolic": latest_vitals.bp_systolic,
+        "bp_diastolic": latest_vitals.bp_diastolic,
+        "spo2": latest_vitals.spo2,
+        "heart_rate": latest_vitals.heart_rate,
+        "respiratory_rate": latest_vitals.respiratory_rate,
+        "temperature": latest_vitals.temperature,
+        "bmi": latest_vitals.bmi,
+        "weight_kg": latest_vitals.weight_kg,
+        "height_cm": latest_vitals.height_cm,
+        "captured_ts": latest_vitals.captured_ts.isoformat() if latest_vitals.captured_ts else None,
     }
 
+    summary_text = patient.summary or (formatted_notes[0]["text"] if formatted_notes else None)
     summary_res = None
-    if patient.summary:
+    if summary_text:
         summary_res = {
-            "result": {"summary": patient.summary},
+            "result": {"summary": summary_text},
             "agent": "Patient History Summary",
             "source": "database"
         }
 
+    # Gather all active tokens (OPD Consultation tokens and Lab/Diagnostics tokens)
+    # Gather all active tokens (Triage, Doctor Consultation, Lab, Pharmacy)
+    active_tokens_list = []
+    seen_token_numbers = set()
+    for e in encounters:
+        tokens_for_enc = db.scalars(
+            select(models.Token)
+            .where(models.Token.encounter_id == e.encounter_id)
+            .order_by(models.Token.issued_ts.desc())
+        ).all()
+        for t in tokens_for_enc:
+            t_status = (t.status or "").upper()
+            if t_status not in ["DONE", "COMPLETED", "CANCELLED"] and t.token_number not in seen_token_numbers:
+                seen_token_numbers.add(t.token_number)
+                is_lab = (t.token_number and t.token_number.startswith("L-")) or (t.department or "").lower() == "laboratory" or e.visit_type == "LAB"
+                is_pharmacy = (t.token_number and t.token_number.startswith("PHA-")) or (t.department or "").lower() == "pharmacy"
+                is_triage = (t.token_number and t.token_number.startswith("T-")) or (t.department or "").lower() == "triage"
+                token_type = "PHARMACY" if is_pharmacy else ("LAB" if is_lab else ("TRIAGE" if is_triage else "CONSULTATION"))
+
+                active_tokens_list.append({
+                    "number": t.token_number,
+                    "token_type": token_type,
+                    "room": t.room or ("Pharmacy Counter 3" if is_pharmacy else ("Phlebotomy / Lab 1" if is_lab else ("Triage Room 2" if is_triage else "Consultation Room 109"))),
+                    "floor": t.floor or ("Ground Floor" if (is_pharmacy or is_lab or is_triage) else "Floor 3"),
+                    "department": t.department or ("Pharmacy" if is_pharmacy else ("Laboratory & Diagnostics" if is_lab else ("Triage & Intake" if is_triage else "Doctor Consultation"))),
+                    "status": t.status or "WAITING",
+                    "encounter_id": e.encounter_id,
+                    "encounter_status": e.status,
+                    "is_lab": is_lab,
+                    "is_pharmacy": is_pharmacy,
+                    "is_triage": is_triage,
+                    "visit_type": e.visit_type or token_type,
+                    "eta_minutes": _calculate_live_eta(db, e.encounter_id) if not is_lab else 10,
+                })
+
+    # All Prescriptions for this patient (with linked doctor, appointment details, and live pharmacy pickup token)
+    all_patient_prescriptions = db.scalars(
+        select(models.Prescription)
+        .where(models.Prescription.patient_id == patient_id)
+        .order_by(models.Prescription.created_ts.desc())
+    ).all()
+
+    prescriptions_list = []
+    for rx in all_patient_prescriptions:
+        rx_encounter = db.get(models.Encounter, rx.encounter_id) if rx.encounter_id else None
+        rx_appointment = encounter_appointments.get(rx_encounter.appointment_id) if (rx_encounter and rx_encounter.appointment_id) else None
+        if not rx_appointment and rx_encounter and rx_encounter.appointment_id:
+            rx_appointment = db.get(models.Appointment, rx_encounter.appointment_id)
+
+        doc_staff = None
+        if rx_encounter and rx_encounter.doctor_id:
+            doc_staff = staff_by_id.get(rx_encounter.doctor_id) or db.get(models.Staff, rx_encounter.doctor_id)
+        if not doc_staff and rx_appointment and rx_appointment.doctor_id:
+            doc_staff = staff_by_id.get(rx_appointment.doctor_id) or db.get(models.Staff, rx_appointment.doctor_id)
+        if not doc_staff and rx.prescribed_by:
+            clean_name = rx.prescribed_by.replace("Dr. ", "").replace("dr. ", "").strip()
+            doc_staff = staff_by_id.get(rx.prescribed_by) or db.get(models.Staff, rx.prescribed_by) or db.scalar(select(models.Staff).where(models.Staff.name.ilike(f"%{clean_name}%")))
+
+        doc_name = doc_staff.name if doc_staff else (rx.prescribed_by or "Attending Physician")
+        if doc_name and not doc_name.startswith("Dr.") and not doc_name.startswith("dr."):
+            doc_name = f"Dr. {doc_name}"
+        doc_specialty = doc_staff.specialty or doc_staff.department if doc_staff else (rx_encounter.department if rx_encounter else "General Medicine")
+        doc_room = doc_staff.room if doc_staff else "Consultation Room"
+        doc_floor = doc_staff.floor if doc_staff else "Floor 1"
+
+        pharmacy_token = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == rx.encounter_id)
+            .where(models.Token.department == "Pharmacy")
+            .order_by(models.Token.issued_ts.desc())
+        )
+
+        rx_items_list = []
+        for itm in rx.items:
+            stock_price = db.scalar(
+                select(models.PharmacyStock.unit_price)
+                .where(func.lower(models.PharmacyStock.drug_name) == itm.drug_name.lower())
+            ) or 10.0
+            rx_items_list.append({
+                "rx_item_id": itm.rx_item_id,
+                "drug_name": itm.drug_name,
+                "dose": itm.dose or "Standard Dose",
+                "frequency": itm.frequency or "Once Daily",
+                "route": itm.route or "Oral",
+                "duration_days": itm.duration_days if itm.duration_days is not None else 7,
+                "instructions": itm.instructions or "As directed by physician",
+                "quantity": itm.quantity or 1,
+                "unit_price": stock_price,
+            })
+
+        appt_date_str = ""
+        if rx_appointment and rx_appointment.scheduled_start:
+            appt_date_str = rx_appointment.scheduled_start.strftime("%d %b %Y, %I:%M %p")
+        elif rx_encounter and rx_encounter.arrival_ts:
+            appt_date_str = rx_encounter.arrival_ts.strftime("%d %b %Y, %I:%M %p")
+        elif rx.created_ts:
+            appt_date_str = rx.created_ts.strftime("%d %b %Y, %I:%M %p")
+
+        appt_reason_str = (
+            rx_appointment.reason if (rx_appointment and rx_appointment.reason)
+            else (rx_encounter.notes if (rx_encounter and rx_encounter.notes)
+            else "Doctor Consultation & Clinical Assessment")
+        )
+
+        prescriptions_list.append({
+            "rx_id": rx.rx_id,
+            "encounter_id": rx.encounter_id,
+            "status": rx.status,
+            "created_ts": rx.created_ts.isoformat() if rx.created_ts else None,
+            "approved_ts": rx.approved_ts.isoformat() if rx.approved_ts else None,
+            "doctor": {
+                "name": doc_name,
+                "specialty": doc_specialty,
+                "room": doc_room,
+                "floor": doc_floor,
+            },
+            "appointment": {
+                "appointment_id": rx_appointment.appointment_id if rx_appointment else None,
+                "date": appt_date_str,
+                "reason": appt_reason_str,
+                "department": rx_encounter.department if rx_encounter else (rx_appointment.department if rx_appointment else "OPD"),
+            },
+            "pickup_token": {
+                "number": pharmacy_token.token_number,
+                "status": pharmacy_token.status,
+                "room": pharmacy_token.room or "Pharmacy Counter 3",
+                "floor": pharmacy_token.floor or "Ground Floor",
+            } if pharmacy_token else None,
+            "items": rx_items_list,
+        })
+
+    # Itemized Bills and Statements for all patient encounters
+    bills_list = []
+    target_billing_encs = primary_encs if primary_encs else encounters
+    for e in target_billing_encs:
+        try:
+            inv = services.get_or_create_invoice(db, e)
+            services.recalc_invoice(db, inv)
+
+            appt = encounter_appointments.get(e.appointment_id) if e.appointment_id else None
+            if not appt and e.appointment_id:
+                appt = db.get(models.Appointment, e.appointment_id)
+
+            doc_staff_id = e.doctor_id or (appt.doctor_id if appt else None)
+            doc_staff = staff_by_id.get(doc_staff_id) if doc_staff_id else (db.get(models.Staff, doc_staff_id) if doc_staff_id else None)
+
+            doc_name = doc_staff.name if doc_staff else (e.department and f"Dr. {e.department} Consultant" or "Attending Physician")
+            if doc_name and not doc_name.startswith("Dr.") and not doc_name.startswith("dr."):
+                doc_name = f"Dr. {doc_name}"
+            doc_spec = doc_staff.specialty or doc_staff.department if doc_staff else (e.department or "General Medicine")
+            doc_room = doc_staff.room if doc_staff else "Consultation Room"
+            doc_floor = doc_staff.floor if doc_staff else "Floor 1"
+
+            appt_date_str = (
+                appt.scheduled_start.strftime("%d %b %Y, %I:%M %p") if (appt and appt.scheduled_start)
+                else (e.arrival_ts.strftime("%d %b %Y, %I:%M %p") if e.arrival_ts else "")
+            )
+            appt_reason_str = (
+                appt.reason if (appt and appt.reason)
+                else (e.notes if (e.notes and not e.notes.startswith("parent:")) else f"{e.visit_type or 'OPD'} Consultation")
+            )
+            # Reconcile online prepayment sources (OPD booking, Pharmacy orders, Lab payments)
+            opd_order = None
+            if appt:
+                opd_order = db.scalar(
+                    select(models.RazorpayOrder)
+                    .where(models.RazorpayOrder.appointment_id == appt.appointment_id)
+                    .where(models.RazorpayOrder.status == "PAID")
+                )
+            if not opd_order and appt and appt.reason:
+                opd_order = db.scalar(
+                    select(models.RazorpayOrder)
+                    .where(models.RazorpayOrder.patient_id == patient_id)
+                    .where(models.RazorpayOrder.appointment_type == "OPD")
+                    .where(models.RazorpayOrder.status == "PAID")
+                    .where(models.RazorpayOrder.reason.ilike(f"%{appt.reason}%"))
+                )
+
+            # Check pharmacy prepayments for this encounter
+            rx_records = db.scalars(
+                select(models.Prescription).where(models.Prescription.encounter_id == e.encounter_id)
+            ).all()
+            is_rx_prepaid = any(rx.status in ["PREPAID", "DISPENSED", "COLLECTED"] for rx in rx_records)
+            if not is_rx_prepaid:
+                for rx in rx_records:
+                    rx_ord = db.scalar(
+                        select(models.RazorpayOrder)
+                        .where(models.RazorpayOrder.patient_id == patient_id)
+                        .where(models.RazorpayOrder.appointment_type == "PHARMACY")
+                        .where(models.RazorpayOrder.status == "PAID")
+                        .where(models.RazorpayOrder.reason == f"Prescription payment: {rx.rx_id}")
+                    )
+                    if rx_ord:
+                        is_rx_prepaid = True
+                        break
+
+            # Check lab order prepayments
+            patient_lab_orders = db.scalars(
+                select(models.LabOrder).where(models.LabOrder.patient_id == patient_id)
+            ).all()
+            paid_lab_order_ids = set()
+            for ro in db.scalars(
+                select(models.RazorpayOrder)
+                .where(models.RazorpayOrder.patient_id == patient_id)
+                .where(models.RazorpayOrder.appointment_type == "LAB")
+                .where(models.RazorpayOrder.status == "PAID")
+            ).all():
+                if ro.reason and "Lab orders payment:" in ro.reason:
+                    raw_ids = ro.reason.split("Lab orders payment:", 1)[1].strip()
+                    for oid in raw_ids.split(","):
+                        paid_lab_order_ids.add(oid.strip())
+
+            # Check direct invoice payments
+            payments = db.scalars(select(models.Payment).where(models.Payment.invoice_id == inv.invoice_id)).all()
+            direct_paid_total = sum(p.amount for p in payments if p.status == "COMPLETED")
+
+            formatted_lines = []
+            paid_lines_sum = direct_paid_total
+            for line in inv.lines:
+                line_total = round(line.amount * line.quantity, 2)
+                line_paid = False
+                if inv.status == "PAID" or inv.balance <= 0.01:
+                    line_paid = True
+                elif line.category == "CONSULT" and opd_order:
+                    line_paid = True
+                elif line.category == "PHARMACY" and is_rx_prepaid:
+                    line_paid = True
+                elif line.category == "LAB":
+                    clean_test = line.description.replace("Lab: ", "").strip().lower()
+                    matching = [lo for lo in patient_lab_orders if lo.test_name.strip().lower() == clean_test]
+                    if matching:
+                        for m in matching:
+                            if m.lab_order_id in paid_lab_order_ids or m.status in ["CONFIRMED", "COLLECTED", "PROCESSING", "RESULTED", "COMPLETED", "PAID"]:
+                                line_paid = True
+                                break
+                    elif paid_lab_order_ids:
+                        line_paid = True
+                
+                if line_paid:
+                    paid_lines_sum += line_total
+
+                formatted_lines.append({
+                    "line_id": line.line_id,
+                    "category": line.category,
+                    "description": line.description,
+                    "amount": line.amount,
+                    "quantity": line.quantity,
+                    "total": line_total,
+                    "is_paid": line_paid,
+                    "status": "Paid" if line_paid else "Unpaid",
+                })
+
+            subtotal = round(inv.consultation_amt + inv.lab_amt + inv.pharmacy_amt, 2)
+            calculated_due = max(0.0, round(inv.total - paid_lines_sum, 2))
+            is_paid = calculated_due <= 0.01 or inv.status == "PAID"
+            
+            # Sync invoice balance and status in DB
+            if is_paid and inv.status != "PAID":
+                inv.status = "PAID"
+                inv.balance = 0.0
+            elif not is_paid:
+                inv.balance = calculated_due
+            
+            # Format clean bill number like BIL-2026-0818-0012
+            inv_created = inv.created_ts or e.arrival_ts or datetime.now()
+            date_prefix = inv_created.strftime("%Y-%m%d")
+            short_suffix = inv.invoice_id.replace("-", "")[:4].upper()
+            bill_number = f"BIL-{date_prefix}-{short_suffix}"
+
+            bills_list.append({
+                "bill_id": inv.invoice_id,
+                "invoice_id": inv.invoice_id,
+                "bill_no": bill_number,
+                "encounter_id": e.encounter_id,
+                "status": "Paid" if is_paid else "Unpaid",
+                "is_paid": is_paid,
+                "date": appt_date_str,
+                "billing_date": inv_created.strftime("%d %b %Y"),
+                "doctor": {
+                    "name": doc_name,
+                    "specialty": doc_spec,
+                    "room": doc_room,
+                    "floor": doc_floor,
+                },
+                "appointment": {
+                    "appointment_id": appt.appointment_id if appt else None,
+                    "date": appt_date_str,
+                    "reason": appt_reason_str,
+                    "department": e.department or "Outpatient",
+                    "visit_type": e.visit_type or "Consultation",
+                    "status": e.status,
+                    "location": f"{doc_room} / {doc_floor}",
+                },
+                "subtotal": subtotal,
+                "tax": inv.tax,
+                "total": inv.total,
+                "consultation_amt": inv.consultation_amt,
+                "lab_amt": inv.lab_amt,
+                "pharmacy_amt": inv.pharmacy_amt,
+                "due_amount": 0.0 if is_paid else calculated_due,
+                "paid_amount": inv.total if is_paid else round(paid_lines_sum, 2),
+                "balance": 0.0 if is_paid else calculated_due,
+                "lines": formatted_lines,
+                "created_ts": inv.created_ts.isoformat() if inv.created_ts else (e.arrival_ts.isoformat() if e.arrival_ts else None),
+            })
+        except Exception as ex:
+            logger.warning(f"Failed to generate invoice for encounter {e.encounter_id}: {ex}")
+
+    # Sort bills with latest visit on top
+    bills_list.sort(key=lambda b: b.get("created_ts") or "", reverse=True)
+
+    # All triages for encounters
+    triages_for_encs = db.scalars(
+        select(models.Triage).where(models.Triage.encounter_id.in_(enc_ids or [""]))
+    ).all()
+    triage_by_enc = {t.encounter_id: t for t in triages_for_encs}
+
+    vitals_history = []
+    for v in all_vitals_rows:
+        v_enc = db.get(models.Encounter, v.encounter_id) if v.encounter_id else None
+        v_appt = encounter_appointments.get(v_enc.appointment_id) if (v_enc and v_enc.appointment_id) else None
+        if not v_appt and v_enc and v_enc.appointment_id:
+            v_appt = db.get(models.Appointment, v_enc.appointment_id)
+        v_trg = triage_by_enc.get(v.encounter_id)
+
+        v_doc_staff = None
+        if v_enc and v_enc.doctor_id:
+            v_doc_staff = staff_by_id.get(v_enc.doctor_id) or db.get(models.Staff, v_enc.doctor_id)
+        if not v_doc_staff and v_appt and v_appt.doctor_id:
+            v_doc_staff = staff_by_id.get(v_appt.doctor_id) or db.get(models.Staff, v_appt.doctor_id)
+        if not v_doc_staff and v_trg and v_trg.recommended_doctor_id:
+            v_doc_staff = staff_by_id.get(v_trg.recommended_doctor_id) or db.get(models.Staff, v_trg.recommended_doctor_id)
+
+        doc_name = None
+        doc_specialty = None
+        doc_room = None
+        doc_floor = None
+        if v_doc_staff:
+            doc_name = v_doc_staff.name
+            if doc_name and not doc_name.startswith("Dr.") and not doc_name.startswith("dr.") and v_doc_staff.role == "DOCTOR":
+                doc_name = f"Dr. {doc_name}"
+            doc_specialty = v_doc_staff.specialty or v_doc_staff.department
+            doc_room = v_doc_staff.room
+            doc_floor = v_doc_staff.floor
+        elif v_enc and v_enc.department:
+            doc_specialty = v_enc.department
+        elif v_appt and v_appt.specialty:
+            doc_specialty = v_appt.specialty
+
+        health_concern = (
+            v_appt.reason if (v_appt and v_appt.reason)
+            else (v_trg.chief_complaint if (v_trg and v_trg.chief_complaint)
+            else (v_enc.notes if (v_enc and v_enc.notes and not v_enc.notes.startswith("parent:"))
+            else None))
+        )
+
+        v_captured = v.captured_ts or (v_enc.arrival_ts if v_enc else None)
+        v_date_str = v_captured.strftime("%d %b %Y, %I:%M %p") if v_captured else ""
+
+        vitals_history.append({
+            "vital_id": v.vital_id,
+            "encounter_id": v.encounter_id,
+            "captured_ts": v_captured.isoformat() if v_captured else None,
+            "date": v_date_str,
+            "bp": f"{v.bp_systolic}/{v.bp_diastolic}" if (v.bp_systolic and v.bp_diastolic) else None,
+            "bp_systolic": v.bp_systolic,
+            "bp_diastolic": v.bp_diastolic,
+            "spo2": v.spo2,
+            "heart_rate": v.heart_rate,
+            "respiratory_rate": v.respiratory_rate,
+            "temperature": v.temperature,
+            "weight_kg": v.weight_kg,
+            "height_cm": v.height_cm,
+            "bmi": v.bmi,
+            "doctor": {
+                "name": doc_name,
+                "specialty": doc_specialty,
+                "room": doc_room,
+                "floor": doc_floor,
+            } if (doc_name or doc_specialty) else None,
+            "appointment": {
+                "appointment_id": v_appt.appointment_id if v_appt else None,
+                "date": v_appt.scheduled_start.strftime("%d %b %Y, %I:%M %p") if (v_appt and v_appt.scheduled_start) else v_date_str,
+                "reason": health_concern,
+                "department": v_enc.department if v_enc else (v_appt.department if v_appt else None),
+                "visit_type": v_enc.visit_type if v_enc else (v_appt.appointment_type if v_appt else "OPD"),
+            } if (v_appt or health_concern) else None,
+            "health_concern": health_concern,
+            "department": v_enc.department if v_enc else (v_appt.department if v_appt else None),
+        })
+
     return {
         "patient": brief,
+        "active_token": active_tokens_list[0] if active_tokens_list else None,
+        "active_tokens": active_tokens_list,
         "allergies": allergies_list,
         "issues": issues_list,
         "active_medications": active_meds,
-        "medications": medications_list,
+        "medications": medications_detailed if medications_detailed else medications_list,
+        "prescriptions": prescriptions_list,
+        "bills": bills_list,
         "latest_vitals": vitals_payload,
+        "vitals_history": vitals_history,
         "recent_notes": formatted_notes,
+        "care_team": care_team_list,
+        "past_doctors": care_team_list,
+        "lab_reports": lab_reports_list,
+        "scans_diagnostics": scans_list,
+        "pending_lab_orders": pending_orders_list,
+        "clinical_summary": summary_text,
         "recent_results": [
             {
                 "lab_order_id": order.lab_order_id,
@@ -1370,6 +2124,74 @@ def add_patient_issue(patient_id: str, body: IssueCreateSchema, db: Session = De
     db.add(issue)
     db.commit()
     return {"status": "SUCCESS", "issue_id": issue.issue_id}
+
+
+@router.delete("/patients/{patient_id}/issues/{issue_id}")
+def delete_patient_issue(patient_id: str, issue_id: str, db: Session = Depends(get_db)):
+    issue = db.scalar(
+        select(models.PatientIssue)
+        .where(models.PatientIssue.patient_id == patient_id)
+        .where(models.PatientIssue.issue_id == issue_id)
+    )
+    if not issue:
+        issue = db.scalar(
+            select(models.PatientIssue)
+            .where(models.PatientIssue.patient_id == patient_id)
+            .where(models.PatientIssue.issue_name == issue_id)
+        )
+    if not issue:
+        raise HTTPException(status_code=404, detail="Medical issue not found")
+    db.delete(issue)
+    db.commit()
+    return {"status": "SUCCESS", "message": "Medical issue removed successfully"}
+
+
+class AllergyCreateSchema(BaseModel):
+    substance: str
+    severity: str | None = "MILD"
+    reaction: str | None = None
+    drug_class: str | None = None
+
+
+@router.post("/patients/{patient_id}/allergies")
+def add_patient_allergy(patient_id: str, body: AllergyCreateSchema, db: Session = Depends(get_db)):
+    patient = _get_patient(db, patient_id)
+    allergy = models.Allergy(
+        patient_id=patient_id,
+        substance=body.substance.strip(),
+        severity=body.severity or "MILD",
+        reaction=body.reaction.strip() if body.reaction else None,
+        drug_class=body.drug_class.strip() if body.drug_class else None,
+    )
+    db.add(allergy)
+    db.commit()
+    return {
+        "status": "SUCCESS",
+        "allergy_id": allergy.allergy_id,
+        "substance": allergy.substance,
+        "severity": allergy.severity,
+        "reaction": allergy.reaction,
+    }
+
+
+@router.delete("/patients/{patient_id}/allergies/{allergy_id}")
+def delete_patient_allergy(patient_id: str, allergy_id: str, db: Session = Depends(get_db)):
+    allergy = db.scalar(
+        select(models.Allergy)
+        .where(models.Allergy.patient_id == patient_id)
+        .where(models.Allergy.allergy_id == allergy_id)
+    )
+    if not allergy:
+        allergy = db.scalar(
+            select(models.Allergy)
+            .where(models.Allergy.patient_id == patient_id)
+            .where(models.Allergy.substance == allergy_id)
+        )
+    if not allergy:
+        raise HTTPException(status_code=404, detail="Allergy record not found")
+    db.delete(allergy)
+    db.commit()
+    return {"status": "SUCCESS", "message": "Allergy removed successfully"}
 
 
 class MedicationCreateSchema(BaseModel):
@@ -1542,6 +2364,22 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
     encounter.doctor_id = doctor.staff_id if doctor else None
     encounter.status = "EMERGENCY" if tr["red_flag"] and tr["acuity_level"] == "1" else "TRIAGED"
 
+    # Synchronize linked appointment status to TRIAGED
+    if encounter.appointment_id:
+        linked_appt = db.get(models.Appointment, encounter.appointment_id)
+        if linked_appt:
+            linked_appt.status = encounter.status
+            if encounter.doctor_id:
+                linked_appt.doctor_id = encounter.doctor_id
+            if encounter.department:
+                linked_appt.specialty = encounter.department
+    if appointment:
+        appointment.status = encounter.status
+        if encounter.doctor_id:
+            appointment.doctor_id = encounter.doctor_id
+        if encounter.department:
+            appointment.specialty = encounter.department
+
     waiting = db.scalar(
         select(func.count()).select_from(models.Token).where(models.Token.status == "WAITING")
     ) or 0
@@ -1637,6 +2475,13 @@ def override_triage(
         if body.acuity_level == "1" and triage.red_flag
         else "TRIAGED"
     )
+
+    if encounter.appointment_id:
+        linked_appt = db.get(models.Appointment, encounter.appointment_id)
+        if linked_appt:
+            linked_appt.status = encounter.status
+            linked_appt.doctor_id = doctor.staff_id
+            linked_appt.specialty = body.specialty
 
     token = db.scalar(
         select(models.Token)
@@ -2719,6 +3564,8 @@ class EconsultRequestPayload(BaseModel):
 def upload_patient_document(
     patient_id: str,
     file: UploadFile = File(...),
+    doc_type: str | None = Form(None),
+    title: str | None = Form(None),
     db: Session = Depends(get_db)
 ) -> dict:
     import os
@@ -2741,14 +3588,55 @@ def upload_patient_document(
     
     doc = models.Document(
         patient_id=patient_id,
-        doc_type="LAB_REPORT",
-        title=file.filename or "Outside Lab Report",
+        doc_type=doc_type or "LAB_REPORT",
+        title=title or file.filename or "Outside Health Document",
         uri=attachment_uri,
     )
     db.add(doc)
     db.commit()
     
-    return {"document_id": doc.document_id, "title": doc.title, "uri": doc.uri}
+    return {
+        "document_id": doc.document_id,
+        "title": doc.title,
+        "doc_type": doc.doc_type,
+        "uri": doc.uri,
+        "created_ts": doc.created_ts.isoformat() if doc.created_ts else None,
+    }
+
+
+@router.get("/patients/{patient_id}/documents")
+def get_patient_documents(patient_id: str, db: Session = Depends(get_db)) -> list[dict]:
+    patient = _get_patient(db, patient_id)
+    docs = db.scalars(
+        select(models.Document)
+        .where(models.Document.patient_id == patient_id)
+        .order_by(models.Document.created_ts.desc())
+    ).all()
+    return [
+        {
+            "document_id": d.document_id,
+            "title": d.title or "Medical Document",
+            "doc_type": d.doc_type,
+            "uri": d.uri,
+            "created_ts": d.created_ts.isoformat() if d.created_ts else None,
+            "encounter_id": d.encounter_id,
+        }
+        for d in docs
+    ]
+
+
+@router.delete("/patients/{patient_id}/documents/{document_id}")
+def delete_patient_document(patient_id: str, document_id: str, db: Session = Depends(get_db)):
+    doc = db.scalar(
+        select(models.Document)
+        .where(models.Document.patient_id == patient_id)
+        .where(models.Document.document_id == document_id)
+    )
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    db.delete(doc)
+    db.commit()
+    return {"status": "SUCCESS", "message": "Document deleted successfully"}
 
 
 @router.post("/patients/{patient_id}/revisit/book")

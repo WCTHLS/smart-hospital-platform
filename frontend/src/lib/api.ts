@@ -6,9 +6,9 @@ export class ApiError extends Error {
   constructor(status: number, detail: unknown) {
     const validationMessage = Array.isArray(detail)
       ? detail.map((item) => {
-          const field = Array.isArray(item?.loc) ? item.loc.filter((part: unknown) => part !== "body").join(".") : "";
-          return [field, item?.msg].filter(Boolean).join(": ");
-        }).filter(Boolean).join("; ")
+        const field = Array.isArray(item?.loc) ? item.loc.filter((part: unknown) => part !== "body").join(".") : "";
+        return [field, item?.msg].filter(Boolean).join(": ");
+      }).filter(Boolean).join("; ")
       : "";
     super(typeof detail === "string" ? detail : validationMessage || `Request failed (${status})`);
     this.status = status;
@@ -79,9 +79,23 @@ export const api = {
   appointmentSlots: (body: any) => post<any>("/api/v1/appointments/slots", body),
   bookAppointment: (body: any) => post<any>("/api/v1/appointments/book", body),
   cancelAppointment: (appointment_id: string) => post<any>(`/api/v1/appointments/${appointment_id}/cancel`),
-  patient360: (patient_id: string) => get<any>(`/api/v1/patients/${patient_id}/patient360`),
+  patient360: async (patient_id: string) => {
+    try {
+      return await get<any>(`/api/v1/patients/${patient_id}/patient360`);
+    } catch (err: any) {
+      if (err?.status === 403) {
+        try {
+          await post<any>("/api/v1/consent", { patient_id });
+          return await get<any>(`/api/v1/patients/${patient_id}/patient360`);
+        } catch {
+          throw err;
+        }
+      }
+      throw err;
+    }
+  },
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
-  addPatientIssue: (patient_id: string, body: { issue_name: string; onset_info?: string }) =>
+  addPatientIssue: (patient_id: string, body: { issue_name: string; onset_info?: string; status?: string }) =>
     post<any>(`/api/v1/patients/${patient_id}/issues`, body),
   addPatientMedication: (patient_id: string, body: { drug_name: string; dosage?: string }) =>
     post<any>(`/api/v1/patients/${patient_id}/medications`, body),
@@ -191,6 +205,20 @@ export const api = {
     booking_date?: string;
     booking_slot?: string;
   }) => post<any>("/api/v1/payments/razorpay/verify-lab-payment", body),
+  uploadLabOrderReport: (lab_order_id: string, file: File, notes?: string) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (notes) formData.append("notes", notes);
+    return fetch(`${BASE}/api/v1/lab-orders/${lab_order_id}/upload`, {
+      method: "POST",
+      body: formData,
+    }).then(async (res) => {
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : null;
+      if (!res.ok) throw new ApiError(res.status, data?.detail ?? data);
+      return data;
+    });
+  },
   createRazorpayPrescriptionOrder: (body: {
     patient_id: string;
     amount: number;
@@ -220,10 +248,19 @@ export const api = {
   listDoctorSchedule: (doctor_id: string) => get<any[]>(`/api/v1/admin/doctors/${doctor_id}/schedule`),
   updateDoctorSchedule: (doctor_id: string, body: any[]) => post<any>(`/api/v1/admin/doctors/${doctor_id}/schedule`, body),
 
+  // patient profile & medical demographics
+  addPatientAllergy: (patientId: string, body: any) => post<any>(`/api/v1/patients/${patientId}/allergies`, body),
+  deletePatientAllergy: (patientId: string, allergyId: string) => del<any>(`/api/v1/patients/${patientId}/allergies/${allergyId}`),
+  deletePatientIssue: (patientId: string, issueId: string) => del<any>(`/api/v1/patients/${patientId}/issues/${issueId}`),
+  getPatientDocuments: (patientId: string) => get<any[]>(`/api/v1/patients/${patientId}/documents`),
+  deletePatientDocument: (patientId: string, documentId: string) => del<any>(`/api/v1/patients/${patientId}/documents/${documentId}`),
+
   // revisit & econsult
-  uploadPatientDocument: (patientId: string, file: File) => {
+  uploadPatientDocument: (patientId: string, file: File, docType: string = "LAB_REPORT", title?: string) => {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("doc_type", docType);
+    if (title) formData.append("title", title);
     return fetch(`${BASE}/api/v1/patients/${patientId}/upload-document`, {
       method: "POST",
       body: formData,

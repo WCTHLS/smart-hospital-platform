@@ -9,8 +9,6 @@ import {
   Settings, X
 } from "lucide-react";
 
-
-
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
 import { getOsSession, clearOsSession, osInitials } from "../features/os/osSession";
@@ -99,6 +97,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const activeRole = journey.activeRole;
   const osSession = getOsSession();
   const portalPatient = getPortalPatient();
+
   useEffect(() => {
     if (portalPatient?.patient_id || portalPatient?.mobile) {
       api.familyProfiles(portalPatient?.patient_id, portalPatient?.mobile).then((res) => {
@@ -353,8 +352,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                     </button>
                   )}
 
-
-
                   <button
                     type="button"
                     onClick={() => {
@@ -374,7 +371,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                   </button>
                 </div>
               )}
-
             </div>
           ) : (
             <button
@@ -384,7 +380,6 @@ export default function Layout({ children }: { children: ReactNode }) {
             >
               <User size={14} /> Sign In
             </button>
-
           )}
         </div>
       </header>
@@ -496,9 +491,9 @@ export default function Layout({ children }: { children: ReactNode }) {
                           <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450 shrink-0"} />
                           <span className="truncate">{n.label}</span>
                         </span>
-                        {n.badge && (
+                        {n.badge ? (
                           <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[9px] font-extrabold text-[#0078d4]">{n.badge}</span>
-                        )}
+                        ) : null}
                       </NavLink>
                     );
                   })}
