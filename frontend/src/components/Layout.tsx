@@ -152,7 +152,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (loc.pathname === "/lab") return "Lab Workspace";
     if (loc.pathname === "/radiology") return "Radiology Command Center";
     if (loc.pathname === "/pharmacy") return "Pharmacy Desk";
-    if (loc.pathname === "/reception") return "Reception Desk";
+    if (loc.pathname === "/reception") return "Admissions & Reception Desk";
     if (loc.pathname === "/admin") return "Admin Workspace";
     if (loc.pathname === "/command") return "Command Center";
     if (isPatient) return "Patient Dashboard";
