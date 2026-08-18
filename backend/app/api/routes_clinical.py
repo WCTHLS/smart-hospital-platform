@@ -1227,6 +1227,32 @@ def pickup_prescription(rx_id: str, db: Session = Depends(get_db)) -> dict:
     return {"status": "success", "rx_id": rx_id, "prescription_status": rx.status}
 
 
+@router.post("/pharmacy/stock/reorder")
+def reorder_stock(body: dict, db: Session = Depends(get_db)) -> dict:
+    drug_name = body.get("drug_name")
+    qty = body.get("quantity", 50)
+    if not drug_name:
+        raise HTTPException(status_code=400, detail="drug_name is required")
+    stock = db.scalar(
+        select(models.PharmacyStock).where(func.lower(models.PharmacyStock.drug_name) == drug_name.lower())
+    )
+    if not stock:
+        stock = models.PharmacyStock(
+            drug_name=drug_name,
+            quantity_available=qty,
+            quantity_reserved=0,
+            unit_price=15.0,
+            salt="Generic salt",
+            drug_class="Generics",
+            formulary=True,
+        )
+        db.add(stock)
+    else:
+        stock.quantity_available += qty
+    db.commit()
+    return {"status": "success", "drug_name": drug_name, "quantity_available": stock.quantity_available}
+
+
 @router.get("/pharmacy/prepaid")
 def list_prepaid_prescriptions(db: Session = Depends(get_db)) -> list[dict]:
     rxs = db.scalars(

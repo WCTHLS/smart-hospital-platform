@@ -4,7 +4,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   HeartPulse, MonitorDot, ShieldAlert, BellRing, Menu, PanelLeftClose,
   ChevronDown, LogOut, User, FlaskConical, Scan, Pill, Syringe, Stethoscope,
-  UserCog, Users, Calendar,
+  UserCog, Users, Calendar, LayoutGrid, ClipboardList, Activity, AlertTriangle,
+  BookOpen, HardDrive, FileText, MapPin, Building2, Bell, CheckSquare, MessageSquare,
+  Settings, X
 } from "lucide-react";
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
@@ -22,12 +24,33 @@ const CARE_TEAM_NAV = [
   { to: "/care-team?tab=timings", label: "Operating Timings", icon: Calendar },
 ];
 
-const DOCTOR_NAV = [
-  { to: "/copilot", label: "Live Patient Queue", icon: Stethoscope, end: true },
-  { to: "/copilot?view=labs", label: "Laboratory Feed", icon: FlaskConical },
-  { to: "/copilot?view=radiology", label: "Radiology Feed", icon: Scan },
-  { to: "/copilot?view=prescriptions", label: "Prescription Feed", icon: Pill },
-  { to: "/oncology", label: "Oncology Care", icon: Syringe },
+const DOCTOR_WORKSPACE_NAV = [
+  { to: "/copilot?view=patient360", label: "Command Center", icon: LayoutGrid },
+  { to: "/copilot", label: "Patients", icon: Users, end: true },
+  { to: "/copilot?view=admissions", label: "Admissions", icon: ClipboardList },
+  { to: "/copilot?view=care-team", label: "Care Team", icon: UserCog },
+  { to: "/copilot?view=labs", label: "Labs", icon: FlaskConical },
+  { to: "/copilot?view=radiology", label: "Radiology", icon: Scan },
+  { to: "/copilot?view=pharmacy", label: "Pharmacy", icon: Pill },
+  { to: "/copilot?view=surgery", label: "Surgery / OT", icon: Syringe },
+  { to: "/copilot?view=icu", label: "ICU", icon: HeartPulse },
+  { to: "/copilot?view=emergency", label: "Emergency", icon: AlertTriangle },
+  { to: "/copilot?view=billing", label: "Billing", icon: BookOpen },
+  { to: "/copilot?view=inventory", label: "Inventory", icon: HardDrive },
+  { to: "/copilot?view=reports", label: "Reports", icon: FileText },
+];
+
+const DOCTOR_TWIN_NAV = [
+  { to: "/copilot?view=map", label: "Hospital Map", icon: MapPin },
+  { to: "/copilot?view=departments", label: "Departments", icon: Building2 },
+  { to: "/copilot?view=assets", label: "Assets", icon: HardDrive },
+];
+
+const DOCTOR_SYSTEM_NAV = [
+  { to: "/copilot?view=alerts", label: "Alerts", icon: Bell, badge: 8 },
+  { to: "/copilot?view=tasks", label: "Tasks", icon: CheckSquare, badge: 14 },
+  { to: "/copilot?view=messages", label: "Messages", icon: MessageSquare, badge: 6 },
+  { to: "/copilot?view=settings", label: "Settings", icon: Settings },
 ];
 
 function criticalText(e: LiveEvent): string {
@@ -280,45 +303,103 @@ export default function Layout({ children }: { children: ReactNode }) {
             backdropFilter: "blur(28px) saturate(180%)",
           }}>
           {isDoctor ? (
-            <div className="space-y-1">
-              <div className="mb-2 px-3 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Clinical Portal</div>
-              {DOCTOR_NAV.map((n) => {
-                const isActive = n.end 
-                  ? loc.pathname === n.to && !loc.search
-                  : loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
-                return (
-                  <NavLink
-                    to={n.to}
-                    key={n.to}
-                    onClick={(e) => {
-                      if (n.to === "/copilot") {
-                        journey.reset();
-                        closeSidebarOnMobile();
-                        return;
-                      }
-                      if (n.to.includes("?view=")) {
-                        if (!journey.encounterId || !journey.patientId) {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          alert("Please select a patient from the Live Patient Queue first.");
-                          return;
-                        }
-                      }
-                      closeSidebarOnMobile();
-                    }}
-                    className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
-                    style={{
-                      color: isActive ? "#0078d4" : "var(--muted)",
-                      background: isActive ? "rgba(0,120,212,.08)" : "transparent",
-                      border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
-                      boxShadow: isActive ? "0 0 14px rgba(0,120,212,.05)" : "none",
-                    }}
-                  >
-                    <n.icon size={17} className={isActive ? "text-[#0078d4]" : "text-slate-400"} />
-                    {n.label}
-                  </NavLink>
-                );
-              })}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-4 select-none scrollbar-thin text-left">
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Workspace</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_WORKSPACE_NAV.map((n) => {
+                    const isActive = n.end 
+                      ? loc.pathname === "/copilot" && !loc.search
+                      : loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={(e) => {
+                          if (n.to === "/copilot") {
+                            journey.reset();
+                            closeSidebarOnMobile();
+                            return;
+                          }
+                          if (n.to.includes("view=patient360")) {
+                            if (!journey.encounterId || !journey.patientId) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              alert("Please select a patient from the Live Patient Queue first to open their Command Center.");
+                              return;
+                            }
+                          }
+                          closeSidebarOnMobile();
+                        }}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450"} />
+                        <span className="truncate">{n.label}</span>
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Digital Twin</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_TWIN_NAV.map((n) => {
+                    const isActive = loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={() => closeSidebarOnMobile()}
+                        className="flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450"} />
+                        <span className="truncate">{n.label}</span>
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">System</div>
+                <div className="space-y-0.5">
+                  {DOCTOR_SYSTEM_NAV.map((n) => {
+                    const isActive = loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
+                    return (
+                      <NavLink
+                        to={n.to}
+                        key={n.to}
+                        onClick={() => closeSidebarOnMobile()}
+                        className="flex items-center justify-between rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition"
+                        style={{
+                          color: isActive ? "#0078d4" : "var(--muted)",
+                          background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                          border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                        }}
+                      >
+                        <span className="flex items-center gap-2.5 min-w-0">
+                          <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450 shrink-0"} />
+                          <span className="truncate">{n.label}</span>
+                        </span>
+                        {n.badge && (
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[9px] font-extrabold text-[#0078d4]">{n.badge}</span>
+                        )}
+                      </NavLink>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           ) : isCareTeam ? (
             <div className="space-y-1">

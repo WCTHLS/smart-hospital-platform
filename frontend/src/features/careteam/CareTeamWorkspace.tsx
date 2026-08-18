@@ -118,10 +118,10 @@ const CT_REASSIGN = [
 
 const CT_QUICK = ["Who is on duty in ICU?", "Which unit is over capacity?", "Show me today's shift changes"];
 
-export default function CareTeamWorkspace() {
+export default function CareTeamWorkspace({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get("tab") || "overview";
+  const tab = readOnly ? "overview" : (searchParams.get("tab") || "overview");
 
   // Roster Search & Filter states
   const [rosterSearch, setRosterSearch] = useState("");
@@ -637,7 +637,7 @@ export default function CareTeamWorkspace() {
                       <th className="pb-1.5 font-bold">Status</th>
                       <th className="pb-1.5 font-bold text-center">Current Patients</th>
                       <th className="pb-1.5 font-bold text-center">Contact</th>
-                      <th className="pb-1.5 font-bold text-right">Actions</th>
+                      {!readOnly && <th className="pb-1.5 font-bold text-right">Actions</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-black/[0.03]">
@@ -671,28 +671,32 @@ export default function CareTeamWorkspace() {
                             <MessageSquare size={13} className="cursor-pointer hover:text-slate-600" />
                           </div>
                         </td>
-                        <td className="py-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleEditDoctor(r)}
-                            className="text-[#0078d4] font-bold hover:underline"
-                          >
-                            Edit
-                          </button>
-                        </td>
+                        {!readOnly && (
+                          <td className="py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleEditDoctor(r)}
+                              className="text-[#0078d4] font-bold hover:underline"
+                            >
+                              Edit
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              <button 
-                type="button" 
-                onClick={() => setSearchParams({ tab: "directory" })}
-                className="mt-3 text-[11px] font-semibold text-[#0078d4] hover:underline block"
-              >
-                View All Staff →
-              </button>
+              {!readOnly && (
+                <button 
+                  type="button" 
+                  onClick={() => setSearchParams({ tab: "directory" })}
+                  className="mt-3 text-[11px] font-semibold text-[#0078d4] hover:underline block"
+                >
+                  View All Staff →
+                </button>
+              )}
             </div>
 
             {/* Multidisciplinary Care Team */}
@@ -734,13 +738,15 @@ export default function CareTeamWorkspace() {
                 ))}
               </div>
               
-              <button 
-                type="button" 
-                onClick={() => setSearchParams({ tab: "directory" })}
-                className="mt-3 text-[11px] font-semibold text-[#0078d4] hover:underline block text-left"
-              >
-                + Add Team Member
-              </button>
+              {!readOnly && (
+                <button 
+                  type="button" 
+                  onClick={() => setSearchParams({ tab: "directory" })}
+                  className="mt-3 text-[11px] font-semibold text-[#0078d4] hover:underline block text-left"
+                >
+                  + Add Team Member
+                </button>
+              )}
             </div>
           </div>
 
@@ -750,16 +756,18 @@ export default function CareTeamWorkspace() {
             <div className="rounded-2xl border border-black/[0.08] bg-white p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-[12.5px] font-bold text-[#0c3b63]">Physician Assignments</h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchParams({ tab: "directory" });
-                    setDirectoryRoleFilter("DOCTOR");
-                  }}
-                  className="text-[10.5px] font-semibold text-[#0078d4] hover:underline"
-                >
-                  View All
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchParams({ tab: "directory" });
+                      setDirectoryRoleFilter("DOCTOR");
+                    }}
+                    className="text-[10.5px] font-semibold text-[#0078d4] hover:underline"
+                  >
+                    View All
+                  </button>
+                )}
               </div>
               <div className="space-y-1.5">
                 {livePhysicians.slice(0, 5).map((p, index) => (
@@ -778,16 +786,18 @@ export default function CareTeamWorkspace() {
             <div className="rounded-2xl border border-black/[0.08] bg-white p-3.5 shadow-[0_2px_12px_rgba(0,0,0,0.02)]">
               <div className="mb-2 flex items-center justify-between">
                 <h3 className="text-[12.5px] font-bold text-[#0c3b63]">Nurse Assignments</h3>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchParams({ tab: "directory" });
-                    setDirectoryRoleFilter("NURSE");
-                  }}
-                  className="text-[10.5px] font-semibold text-[#0078d4] hover:underline"
-                >
-                  View All
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchParams({ tab: "directory" });
+                      setDirectoryRoleFilter("NURSE");
+                    }}
+                    className="text-[10.5px] font-semibold text-[#0078d4] hover:underline"
+                  >
+                    View All
+                  </button>
+                )}
               </div>
               <div className="space-y-1.5">
                 {liveNurses.slice(0, 5).map((p, index) => (

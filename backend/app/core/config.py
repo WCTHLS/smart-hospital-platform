@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     ai_enabled: bool = True
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
+    openai_api_key: str | None = None
+    azure_openai_endpoint: str = "https://cliniqapi.openai.azure.com/openai/v1"
+    azure_openai_model: str = "gpt-5-mini"
     gemini_api_key: str | None = None
     grok_api_key: str | None = None
     grok_api: str | None = None
