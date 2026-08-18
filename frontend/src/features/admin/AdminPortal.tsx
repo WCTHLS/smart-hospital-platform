@@ -29,7 +29,7 @@ export default function AdminPortal() {
   const qc = useQueryClient();
   const [adminTab, setAdminTab] = useState<"OPD" | "LAB">("OPD");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<"DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST">("DOCTOR");
+  const [role, setRole] = useState<"DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST" | "CARE_TEAM">("DOCTOR");
   const [specialty, setSpecialty] = useState("General Medicine");
   const [experience, setExperience] = useState("");
   const [room, setRoom] = useState("");
@@ -88,13 +88,14 @@ export default function AdminPortal() {
     }
   }, [labSchedules]);
 
-  const [directoryRoleFilter, setDirectoryRoleFilter] = useState<"ALL" | "DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST">("ALL");
+  const [directoryRoleFilter, setDirectoryRoleFilter] = useState<"ALL" | "DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST" | "CARE_TEAM">("ALL");
 
   const doctorCount = doctors?.filter((d: any) => ((d.role || "DOCTOR").toUpperCase() === "DOCTOR")).length || 0;
   const nurseCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "NURSE")).length || 0;
   const labCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "LAB")).length || 0;
   const pharmacistCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "PHARMACIST")).length || 0;
   const receptionistCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "RECEPTIONIST")).length || 0;
+  const careTeamCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "CARE_TEAM")).length || 0;
   const totalCount = doctors?.length || 0;
 
   const normalizedSearch = directorySearch.trim().toLowerCase();
@@ -643,6 +644,7 @@ export default function AdminPortal() {
                       <option value="LAB">Lab Technician</option>
                       <option value="PHARMACIST">Pharmacist</option>
                       <option value="RECEPTIONIST">Receptionist</option>
+                      <option value="CARE_TEAM">Care Team</option>
                     </select>
                   </div>
 
@@ -656,7 +658,9 @@ export default function AdminPortal() {
                         ? "Lab Technician Full Name *"
                         : role === "PHARMACIST"
                         ? "Pharmacist Full Name *"
-                        : "Receptionist Full Name *"}
+                        : role === "RECEPTIONIST"
+                        ? "Receptionist Full Name *"
+                        : "Care Team Full Name *"}
                     </label>
                     <input
                       type="text"
@@ -669,7 +673,9 @@ export default function AdminPortal() {
                           ? "e.g. Vikram Lab Tech"
                           : role === "PHARMACIST"
                           ? "e.g. Sunil Pharmacist"
-                          : "e.g. Deepa Front Desk"
+                          : role === "RECEPTIONIST"
+                          ? "e.g. Deepa Front Desk"
+                          : "e.g. Amit Care Coordinator"
                       }
                       className="input text-xs"
                       value={name}
@@ -821,6 +827,33 @@ export default function AdminPortal() {
                     </div>
                   )}
 
+                  {role === "CARE_TEAM" && (
+                    <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="block font-bold text-[var(--dim)]">Operations Unit</label>
+                        <input
+                          type="text"
+                          className="input text-xs cursor-not-allowed opacity-60"
+                          value="Care Coordination & Roster Ops"
+                          disabled
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Experience (Years) *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="e.g. 5"
+                          className="input text-xs"
+                          value={experience}
+                          onChange={(e) => setExperience(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <label className="block font-bold text-slate-300">
@@ -832,7 +865,9 @@ export default function AdminPortal() {
                           ? "Lab Room / Counter *"
                           : role === "PHARMACIST"
                           ? "Pharmacy Counter / Window *"
-                          : "Reception Desk / Counter *"}
+                          : role === "RECEPTIONIST"
+                          ? "Reception Desk / Counter *"
+                          : "Care Team Office / Room *"}
                       </label>
                       <input
                         type="text"
@@ -845,7 +880,9 @@ export default function AdminPortal() {
                             ? "e.g. Lab Counter 2"
                             : role === "PHARMACIST"
                             ? "e.g. Pharmacy Window 1"
-                            : "e.g. Front Desk 1"
+                            : role === "RECEPTIONIST"
+                            ? "e.g. Front Desk 1"
+                            : "e.g. Operations Room 3"
                         }
                         className="input text-xs"
                         value={room}
@@ -954,7 +991,9 @@ export default function AdminPortal() {
                         ? "Register Lab Technician"
                         : role === "PHARMACIST"
                         ? "Register Pharmacist"
-                        : "Register Receptionist"}
+                        : role === "RECEPTIONIST"
+                        ? "Register Receptionist"
+                        : "Register Care Team Member"}
                     </button>
                   </div>
                 </form>
@@ -1090,6 +1129,7 @@ export default function AdminPortal() {
                 { id: "LAB", label: "Lab Technicians", count: labCount, icon: FlaskConical },
                 { id: "PHARMACIST", label: "Pharmacists", count: pharmacistCount, icon: Pill },
                 { id: "RECEPTIONIST", label: "Receptionists", count: receptionistCount, icon: ClipboardList },
+                { id: "CARE_TEAM", label: "Care Team", count: careTeamCount, icon: Users },
               ].map((tab) => {
                 const isActive = directoryRoleFilter === tab.id;
                 return (

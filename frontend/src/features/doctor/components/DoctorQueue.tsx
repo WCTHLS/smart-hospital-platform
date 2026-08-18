@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import { Stethoscope, User, ShieldAlert, Users, MapPin, ArrowRight, Search, FileClock, X } from "lucide-react";
 import { api, ApiError } from "../../../lib/api";
 import { Card, Tag, Empty } from "../../../components/ui";
@@ -10,6 +11,7 @@ interface DoctorQueueProps {
 
 export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(() => {
     return localStorage.getItem("selected_doctor_id") || "";
@@ -45,6 +47,12 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
     const timer = window.setTimeout(() => setShowReportReviewNotice(false), 7000);
     return () => window.clearTimeout(timer);
   }, [reportReviewCount, selectedDoctorId]);
+
+  useEffect(() => {
+    if (!selectedDoctorId) {
+      navigate("/login", { replace: true });
+    }
+  }, [selectedDoctorId, navigate]);
 
   const activeDoc = doctors?.find((d: any) => d.doctor_id === selectedDoctorId);
   const isUnlocked = Boolean(selectedDoctorId);
@@ -188,12 +196,6 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
             <span className={`w-1.5 h-1.5 rounded-full ${docAvailable ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
             {docAvailable ? "ONLINE / ACTIVE" : "OFF DUTY / AWAY"}
           </button>
-          <button
-            onClick={handleLogoutDoctor}
-            className="btn ghost text-[11px] !py-1 !px-2.5 font-bold text-red-400 hover:text-red-300 inline-flex items-center gap-1"
-          >
-            🔒 Lock Session
-          </button>
         </div>
       </Card>
     );
@@ -220,78 +222,9 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
           </button>
         </Card>
       ) : !isUnlocked ? (
-        <div className="space-y-4">
-          <Card className="flex flex-col gap-4">
-            <div>
-              <h2 className="grad-text text-xl font-extrabold flex items-center gap-2">
-                <Stethoscope size={22} className="text-[var(--cyan)]" /> Doctor Portal Login
-              </h2>
-              <p className="text-[13px] mt-1" style={{ color: "var(--muted)" }}>
-                Search and select your clinical profile to view your active patient queue and consultation schedules.
-              </p>
-            </div>
-            
-            <div className="relative">
-              <Search size={16} className="absolute left-3 top-3 text-[var(--muted)]" />
-              <input
-                type="text"
-                placeholder="Search by name, specialty, room, or floor…"
-                value={doctorSearchQuery}
-                onChange={(e) => setDoctorSearchQuery(e.target.value)}
-                className="input !pl-9 w-full"
-                style={{ background: "var(--panel)", borderColor: "var(--glass-border)" }}
-              />
-            </div>
-
-            {(() => {
-              const searchLower = doctorSearchQuery.toLowerCase();
-              const filteredDocs = doctors?.filter((doc: any) => {
-                const matchName = doc.name?.toLowerCase().includes(searchLower);
-                const matchSpecialty = doc.specialty?.toLowerCase().includes(searchLower);
-                const matchRoom = doc.room?.toLowerCase().includes(searchLower);
-                const matchFloor = doc.floor?.toLowerCase().includes(searchLower);
-                return matchName || matchSpecialty || matchRoom || matchFloor;
-              }) || [];
-
-              if (doctors && doctors.length > 0 && filteredDocs.length === 0) {
-                return (
-                  <div className="text-center py-8">
-                    <p style={{ color: "var(--muted)" }} className="text-sm">
-                      No doctors match "{doctorSearchQuery}"
-                    </p>
-                  </div>
-                );
-              }
-
-              return (
-                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 max-h-96 overflow-y-auto">
-                  {filteredDocs.map((doc: any) => (
-                    <button
-                      key={doc.doctor_id}
-                      onClick={() => handleSelectDoctor(doc.doctor_id)}
-                      className="card hover-border cursor-pointer transition h-full flex flex-col justify-between text-left p-4 rounded-lg"
-                      style={{ background: "var(--panel)", border: "1px solid var(--glass-border)" }}
-                    >
-                      <div className="space-y-2">
-                        <h4 className="text-base font-extrabold text-slate-100">{doc.name}</h4>
-                        <p className="text-[12px]" style={{ color: "var(--muted)" }}>
-                          {doc.specialty} · {doc.room} ({doc.floor})
-                        </p>
-                        {doc.experience_years && (
-                          <p className="text-[11px]" style={{ color: "var(--dim)" }}>
-                            {doc.experience_years} yrs experience
-                          </p>
-                        )}
-                      </div>
-                      <div className="text-[var(--cyan)] text-sm font-bold mt-2">
-                        Select →
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              );
-            })()}
-          </Card>
+        <div className="text-center py-12 flex flex-col items-center justify-center space-y-3">
+          <span className="h-6 w-6 animate-spin rounded-full border-2 border-slate-350 border-t-[#0078d4]" />
+          <p className="text-xs text-slate-400 font-bold">Redirecting to login portal...</p>
         </div>
       ) : (
         renderSessionToolbar()

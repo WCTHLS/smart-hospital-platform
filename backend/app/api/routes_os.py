@@ -36,6 +36,8 @@ _ROLE_MAP = {
     "reception": "RECEPTIONIST",
     "reception desk": "RECEPTIONIST",
     "receptionist": "RECEPTIONIST",
+    "care team": "CARE_TEAM",
+    "care_team": "CARE_TEAM",
 }
 _ROLE_LABELS = {
     "DOCTOR": "Doctor",
@@ -45,6 +47,7 @@ _ROLE_LABELS = {
     "PHARMACIST": "Pharmacist",
     "LAB": "Lab Technician",
     "RECEPTIONIST": "Receptionist",
+    "CARE_TEAM": "Care Team",
 }
 
 

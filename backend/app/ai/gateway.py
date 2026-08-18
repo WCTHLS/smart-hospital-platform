@@ -27,8 +27,8 @@ class ModelGateway:
         """Probe reachability for LLM services."""
         if not settings.ai_enabled:
             return False
-        # If Gemini key or Grok key is provided, the API service is cloud-hosted and assumed available
-        if settings.gemini_api_key or settings.grok_api_key or settings.grok_api:
+        # If Azure OpenAI key, Gemini key or Grok key is provided, the API service is cloud-hosted and assumed available
+        if settings.openai_api_key or settings.gemini_api_key or settings.grok_api_key or settings.grok_api:
             return True
         if self._known_available:
             return True
@@ -40,6 +40,8 @@ class ModelGateway:
         return bool(self._known_available)
 
     def active_model_name(self) -> str:
+        if settings.openai_api_key:
+            return settings.azure_openai_model
         if settings.gemini_api_key:
             return "gemini-flash-latest"
         gkey = settings.grok_api_key or settings.grok_api
@@ -109,6 +111,43 @@ class ModelGateway:
         """Return model text, or ``None`` if the LLM is unavailable/errored."""
         if not self.available():
             return None
+
+        # --- Azure OpenAI Integration ---
+        if settings.openai_api_key:
+            url = f"{settings.azure_openai_endpoint.rstrip('/')}/chat/completions"
+            headers = {
+                "Content-Type": "application/json",
+                "api-key": settings.openai_api_key,
+                "Authorization": f"Bearer {settings.openai_api_key}"
+            }
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+
+            payload = {
+                "model": settings.azure_openai_model,
+                "messages": messages,
+                "stream": False
+            }
+            if settings.azure_openai_model != "gpt-5-mini":
+                payload["temperature"] = temperature
+            if json_mode:
+                payload["response_format"] = {"type": "json_object"}
+
+            try:
+                resp = httpx.post(url, json=payload, headers=headers, timeout=self._timeout)
+                resp.raise_for_status()
+                data = resp.json()
+                choices = data.get("choices") or []
+                if choices:
+                    text = choices[0].get("message", {}).get("content")
+                    if text:
+                        print(f"\033[92m[ModelGateway] Azure OpenAI API call success (model={settings.azure_openai_model}). Prompt: ~{len(prompt)//4} tokens, Response: {len(text)} chars\033[0m")
+                        logger.info("Azure OpenAI API call success")
+                        return text.strip()
+            except Exception as e:
+                logger.warning("Azure OpenAI API call failed: %s; trying Gemini/Grok fallbacks...", str(e))
 
         # --- Google Gemini Integration ---
         if settings.gemini_api_key:

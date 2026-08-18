@@ -326,10 +326,13 @@ def suggest_orders_agent(
     try:
         res = gateway.generate_json(prompt)
         if isinstance(res, dict):
-            for val in res.values():
-                if isinstance(val, list):
-                    res = val
-                    break
+            if "test" in res:
+                res = [res]
+            else:
+                for val in res.values():
+                    if isinstance(val, list):
+                        res = val
+                        break
         if isinstance(res, list):
             validated = []
             for item in res:
