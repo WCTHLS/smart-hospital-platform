@@ -451,10 +451,33 @@ export default function CareTeamWorkspace() {
                        lowercaseName.includes("maham");
       const genderSymbol = isFemale ? "♀" : "♂";
 
-      // Deterministic Shifts
-      let shift = "Day (7 AM - 3 PM)";
-      if (i % 3 === 1) shift = "Evening (3 PM - 11 PM)";
-      else if (i % 3 === 2) shift = "Night (11 PM - 7 AM)";
+      // Dynamic shift assignment based on database roster
+      const dayOfWeek = (new Date().getDay() + 6) % 7;
+      const todaySched = doc.schedules?.find((s: any) => s.day_of_week === dayOfWeek && s.active);
+
+      let shift = "";
+      if (todaySched) {
+        const startHour = parseInt(todaySched.start_time.split(":")[0], 10);
+        let shiftCategory = "Day";
+        if (startHour >= 14 && startHour < 22) {
+          shiftCategory = "Evening";
+        } else if (startHour >= 22 || startHour < 6) {
+          shiftCategory = "Night";
+        }
+        
+        const formatTime12h = (tStr: string) => {
+          const [h, m] = tStr.split(":").map(Number);
+          const ampm = h >= 12 ? "PM" : "AM";
+          const h12 = h % 12 || 12;
+          return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+        };
+        shift = `${shiftCategory} (${formatTime12h(todaySched.start_time)} - ${formatTime12h(todaySched.end_time)})`;
+      } else {
+        // Fallback to deterministic shift
+        shift = "Day (7:00 AM - 3:00 PM)";
+        if (i % 3 === 1) shift = "Evening (3:00 PM - 11:00 PM)";
+        else if (i % 3 === 2) shift = "Night (11:00 PM - 7:00 AM)";
+      }
 
       const ptsCount = activeCountMap[doc.doctor_id || doc.staff_id] || (doc.experience_years ? (doc.experience_years % 4) + 2 : 2);
 

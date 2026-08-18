@@ -54,6 +54,21 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
     
     out = []
     for d in doctors:
+        schedules = db.scalars(
+            select(models.DoctorSchedule)
+            .where(models.DoctorSchedule.doctor_id == d.staff_id)
+            .where(models.DoctorSchedule.active.is_(True))
+        ).all()
+        sched_list = [
+            {
+                "day_of_week": s.day_of_week,
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "active": s.active
+            }
+            for s in schedules
+        ]
+        
         out.append({
             "doctor_id": d.staff_id,
             "name": d.name,
@@ -66,6 +81,7 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
             "access_pin": d.access_pin or "1234",
             "opd_fee": d.opd_fee or 0.0,
             "available": d.available,
+            "schedules": sched_list,
         })
     return out
 
