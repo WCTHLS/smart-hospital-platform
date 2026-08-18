@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   HeartPulse, ShieldCheck, Network, Users, PieChart, User, Lock, Eye, EyeOff,
   KeyRound, ChevronDown, Stethoscope, Loader2, AlertCircle, HeartHandshake,
@@ -19,6 +19,7 @@ const PRIMARY_ROLES: { label: RoleType; roleKey: string; icon: ComponentType<{ s
   { label: "Admin", roleKey: "admin", icon: ShieldCheck },
   { label: "Patient", roleKey: "patient", icon: HeartHandshake },
 ];
+
 
 const MORE_STAFF_ROLES: {
   label: RoleType;
@@ -81,13 +82,39 @@ function HospitalArt() {
 
 export default function LoginOS() {
   const navigate = useNavigate();
-  const [role, setRole] = useState<RoleType>("Doctor");
+  const [searchParams] = useSearchParams();
+
+  const getInitialRole = (): RoleType => {
+    const p = searchParams.get("role")?.toLowerCase();
+    if (p === "patient") return "Patient";
+    if (p === "admin") return "Admin";
+    if (p === "nurse") return "Nurse";
+    if (p === "pharmacy" || p === "pharmacist") return "Pharmacy";
+    if (p === "lab") return "Lab Technician";
+    if (p === "reception" || p === "receptionist") return "Reception Desk";
+    return "Doctor";
+  };
+
+  const [role, setRole] = useState<RoleType>(getInitialRole);
   const [moreDropdownOpen, setMoreDropdownOpen] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Sync role when URL search params change
+  useEffect(() => {
+    const p = searchParams.get("role")?.toLowerCase();
+    if (p === "patient") setRole("Patient");
+    else if (p === "admin") setRole("Admin");
+    else if (p === "nurse") setRole("Nurse");
+    else if (p === "pharmacy" || p === "pharmacist") setRole("Pharmacy");
+    else if (p === "lab") setRole("Lab Technician");
+    else if (p === "reception" || p === "receptionist") setRole("Reception Desk");
+    else if (p === "doctor") setRole("Doctor");
+  }, [searchParams]);
+
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
