@@ -222,6 +222,15 @@ export default function PatientDashboard() {
     enabled: !!portalPatientId,
   });
 
+  const { data: familyProfilesData } = useQuery({
+    queryKey: ["family-profiles", portalPatientId, portalSession?.mobile],
+    queryFn: () => api.familyProfiles(portalPatientId, portalSession?.mobile),
+    enabled: Boolean(portalPatientId || portalSession?.mobile),
+    staleTime: 30_000,
+  });
+
+
+
   const handleSignOut = () => {
     clearPortalPatient();
     journey.reset();
@@ -652,7 +661,10 @@ export default function PatientDashboard() {
               </div>
             ))}
           </div>
+
           <div className="mt-4 border-t border-[var(--line)] pt-4">
+
+
             <input
               id="patient-profile-photo"
               className="hidden"

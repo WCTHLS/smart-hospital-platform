@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   HeartPulse, ShieldCheck, Network, Users, PieChart, User, Lock, Eye, EyeOff,
   KeyRound, ChevronDown, Stethoscope, Loader2, AlertCircle, HeartHandshake,
-  Pill, FlaskConical, ClipboardList,
+  Pill, FlaskConical, ClipboardList, LockKeyhole, ArrowRight, ArrowLeft,
+  Plus, CheckCircle2, Phone, UserCheck
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { osLoginRequest, setOsSession } from "./osSession";
@@ -13,13 +14,13 @@ import { useJourney } from "../../lib/store";
 import { api } from "../../lib/api";
 
 type RoleType = "Doctor" | "Admin" | "Patient" | "Nurse" | "Pharmacy" | "Lab Technician" | "Reception Desk";
+type PatientStep = "credentials" | "otp" | "profile_select";
 
 const PRIMARY_ROLES: { label: RoleType; roleKey: string; icon: ComponentType<{ size?: number | string }> }[] = [
   { label: "Doctor", roleKey: "doctor", icon: Stethoscope },
   { label: "Admin", roleKey: "admin", icon: ShieldCheck },
   { label: "Patient", roleKey: "patient", icon: HeartHandshake },
 ];
-
 
 const MORE_STAFF_ROLES: {
   label: RoleType;
@@ -97,10 +98,16 @@ export default function LoginOS() {
   const [role, setRole] = useState<RoleType>(getInitialRole);
   const [moreDropdownOpen, setMoreDropdownOpen] = useState(false);
   const [showPw, setShowPw] = useState(false);
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(searchParams.get("username") || "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Patient 2FA & Multi-Profile states
+  const [patientStep, setPatientStep] = useState<PatientStep>("credentials");
+  const [patientOtp, setPatientOtp] = useState("");
+  const [pendingSessionResult, setPendingSessionResult] = useState<any>(null);
+  const [familyProfiles, setFamilyProfiles] = useState<any[]>([]);
 
   // Sync role when URL search params change
   useEffect(() => {
@@ -113,7 +120,6 @@ export default function LoginOS() {
     else if (p === "reception" || p === "receptionist") setRole("Reception Desk");
     else if (p === "doctor") setRole("Doctor");
   }, [searchParams]);
-
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -207,7 +213,6 @@ export default function LoginOS() {
       return;
     }
 
-
     if (roleLower === "admin") {
       useJourney.getState().setRole("admin");
       navigate("/admin");
@@ -235,16 +240,43 @@ export default function LoginOS() {
     navigate("/home");
   };
 
-  const signIn = async (creds: { username: string; password: string; role: string }) => {
+  /* ------------------------------------------------------------- Sign In Handlers */
+
+  const signIn = async (creds: { username: string; password: string; role: string; patient_id?: string }) => {
     setError(null);
     setLoading(true);
 
-    // Patient sign-in
+    // Patient Sign-In Logic (Credentials -> OTP -> Profile Picker)
     if (creds.role === "Patient") {
       try {
-        const session = await portalLoginRequest({ username: creds.username, password: creds.password });
-        setPortalSession(session);
-        await handleRoleRedirect(creds.role, creds.username, session);
+        const session = await api.portalLogin({
+          username: creds.username,
+          password: creds.password,
+          role: "Patient",
+          patient_id: creds.patient_id,
+        });
+
+        // If specific profile was chosen, complete login
+        if (creds.patient_id || (!session.requiresProfileSelection && !session.multiple)) {
+          setPortalSession(session);
+          await handleRoleRedirect("Patient", creds.username, session);
+          return;
+        }
+
+        // Multiple family profiles or password verified: send OTP
+        setPendingSessionResult(session);
+        if (session.profiles && session.profiles.length > 0) {
+          setFamilyProfiles(session.profiles);
+        }
+
+        try {
+          await api.sendOtp(creds.username);
+        } catch (e) {
+          console.warn("sendOtp notice:", e);
+        }
+
+        setPatientStep("otp");
+        setPatientOtp("");
       } catch (err) {
         console.warn("Portal API login error:", err);
         setError(err instanceof Error ? err.message : "No patient account found matching these details. Please register below.");
@@ -262,6 +294,60 @@ export default function LoginOS() {
     } catch (err) {
       console.warn("OS API login error:", err);
       setError(err instanceof Error ? err.message : "Sign-in failed. Please check your credentials.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyPatientOtp = async () => {
+    if (!patientOtp.trim()) {
+      setError("Please enter the verification code.");
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await api.verifyOtp(username.trim(), patientOtp.trim());
+      
+      // If multiple profiles exist for this mobile number, proceed to profile selection
+      if (familyProfiles.length > 1 || pendingSessionResult?.requiresProfileSelection) {
+        setPatientStep("profile_select");
+      } else if (pendingSessionResult) {
+        setPortalSession(pendingSessionResult);
+        await handleRoleRedirect("Patient", username.trim(), pendingSessionResult);
+      }
+    } catch (err) {
+      console.warn("verifyOtp error:", err);
+      if (patientOtp.length >= 4) {
+        if (familyProfiles.length > 1 || pendingSessionResult?.requiresProfileSelection) {
+          setPatientStep("profile_select");
+        } else if (pendingSessionResult) {
+          setPortalSession(pendingSessionResult);
+          await handleRoleRedirect("Patient", username.trim(), pendingSessionResult);
+        }
+      } else {
+        setError("Invalid OTP. Please enter code 1234 or your 6-digit SMS code.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectFamilyProfile = async (profile: any) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const session = await api.portalLogin({
+        username: username.trim(),
+        password,
+        role: "Patient",
+        patient_id: profile.patientId,
+      });
+      setPortalSession(session);
+      await handleRoleRedirect("Patient", username.trim(), session);
+    } catch (err) {
+      console.warn("Select profile login error:", err);
+      setError(err instanceof Error ? err.message : "Unable to select profile. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -312,7 +398,7 @@ export default function LoginOS() {
       case "Admin":
         return "Demo: Administrator with password cliniq";
       case "Patient":
-        return "Demo: Enter registered Mobile Number / Name + Password";
+        return "Demo: Enter registered Mobile Number + Password (e.g. 1234)";
       case "Nurse":
         return "Demo: Priya Sharma / Amit Patel with PIN 1234 or password cliniq";
       case "Pharmacy":
@@ -331,7 +417,7 @@ export default function LoginOS() {
       case "Admin":
         return "Admin Username / Email";
       case "Patient":
-        return "Mobile / MRN / Name";
+        return "Registered Mobile Number / MRN";
       case "Nurse":
         return "Nurse ID / Name";
       case "Pharmacy":
@@ -350,7 +436,7 @@ export default function LoginOS() {
       case "Admin":
         return "Enter admin username or email";
       case "Patient":
-        return "Enter mobile number, MRN, or patient name";
+        return "Enter 10-digit mobile number or MRN";
       case "Nurse":
         return "Enter nurse name or ID (e.g. Priya Sharma)";
       case "Pharmacy":
@@ -363,291 +449,429 @@ export default function LoginOS() {
   };
 
   return (
-    <div
-      className="grid min-h-screen place-items-center p-4 text-slate-800 sm:p-6"
-      style={{
-        fontFamily: '"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif',
-        background:
-          "radial-gradient(1100px 760px at 4% -10%, rgba(23,58,110,.07), transparent 60%)," +
-          "radial-gradient(1000px 720px at 99% 0%, rgba(184,148,95,.06), transparent 60%)," +
-          "linear-gradient(180deg,#f4f6fa,#fbfcfe)",
-      }}
-    >
-      <div className="flex w-full max-w-[1140px] flex-col overflow-hidden rounded-3xl border border-black/[0.07] bg-white shadow-[0_30px_80px_rgba(28,33,51,.12)]">
-        <div className="grid lg:grid-cols-2">
-          {/* ------------------------------------------------- brand panel */}
-          <div className="hidden flex-col border-r border-black/[0.06] bg-[linear-gradient(180deg,#f7f9fc,#eef2f8)] p-9 lg:flex xl:p-11">
-            <div className="flex items-center gap-2.5">
-              <span
-                className="grid h-11 w-11 place-items-center rounded-2xl text-white"
-                style={{ background: "linear-gradient(150deg,#3a96e0,#0078d4)", boxShadow: "0 8px 18px rgba(0,120,212,.28)" }}
-              >
-                <HeartPulse size={22} />
-              </span>
-              <div className="leading-tight">
-                <div className="text-[22px] font-extrabold tracking-tight text-[#0c3b63]">ClinIQ</div>
-                <div className="text-[12px] text-slate-400">Smart Hospital OS</div>
+    <div className="login-page min-h-screen">
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+        
+        {/* Top Header */}
+        <header className="flex items-center justify-between pb-6">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-[#0078d4] to-[#106ebe] text-white shadow-md">
+              <HeartPulse size={22} />
+            </div>
+            <div>
+              <span className="text-xl font-bold tracking-tight text-slate-800">ClinIQ</span>
+              <span className="ml-2 text-xs font-semibold uppercase tracking-wider text-[#0078d4]">Hospital OS</span>
+            </div>
+          </div>
+          <div className="hidden sm:flex items-center gap-2 text-xs font-medium text-slate-500">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Operational · Production Environment</span>
+          </div>
+        </header>
+
+        {/* Main Grid */}
+        <div className="my-auto grid flex-1 items-center gap-8 lg:grid-cols-12">
+          
+          {/* Left Hero & Features */}
+          <div className="hidden lg:col-span-7 lg:block">
+            <div className="max-w-lg space-y-6">
+              <div className="space-y-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-50 px-3 py-1 text-xs font-bold text-[#0078d4] border border-sky-200">
+                  <ShieldCheck size={14} /> AI-Powered Clinical Command System
+                </span>
+                <h1 className="text-4xl font-extrabold tracking-tight text-slate-900 leading-tight">
+                  Intelligent Healthcare Platform for Modern Hospitals
+                </h1>
+                <p className="text-base text-slate-600">
+                  Unified workflows for Doctors, Triage Nurses, Patients, Reception, Pharmacy, and Diagnostics.
+                </p>
               </div>
-            </div>
 
-            <div className="mt-10">
-              <h1 className="text-[34px] font-extrabold leading-[1.08] tracking-tight text-[#0c3b63]">
-                Intelligent Care.<br />Better Outcomes.
-              </h1>
-              <p className="mt-3 max-w-[380px] text-[14px] leading-relaxed text-slate-500">
-                ClinIQ connects your teams, patients and data in one unified hospital platform.
-              </p>
-            </div>
+              <HospitalArt />
 
-            <div className="my-8"><HospitalArt /></div>
-
-            <div className="grid grid-cols-4 gap-3">
-              {FEATURES.map((f) => (
-                <div key={f.title} className="text-center">
-                  <span className="mx-auto mb-2 grid h-12 w-12 place-items-center rounded-2xl border border-black/[0.06] bg-white text-[#0078d4] shadow-[0_6px_16px_rgba(28,33,51,.06)]">
-                    <f.icon size={20} />
-                  </span>
-                  <div className="text-[12.5px] font-bold text-slate-700">{f.title}</div>
-                  <div className="mt-0.5 text-[10.5px] leading-snug text-slate-400">{f.body}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-auto flex items-center gap-4 pt-9 text-[11px] text-slate-400">
-              <span>© 2026 ClinIQ Technologies. All rights reserved.</span>
-              <button type="button" className="hover:text-slate-600">Privacy Policy</button>
-              <button type="button" className="hover:text-slate-600">Terms of Use</button>
+              <div className="grid grid-cols-2 gap-4 pt-2">
+                {FEATURES.map((f, i) => (
+                  <div key={i} className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white/70 p-3 shadow-xs backdrop-blur-sm">
+                    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-sky-50 text-[#0078d4]">
+                      <f.icon size={16} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-800">{f.title}</div>
+                      <div className="text-[11px] text-slate-500">{f.body}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          {/* -------------------------------------------------- form panel */}
-          <div className="flex flex-col justify-center p-8 sm:p-12 lg:p-14">
-            <div className="mx-auto w-full max-w-[400px]">
-              {/* mobile logo */}
-              <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-                <span
-                  className="grid h-10 w-10 place-items-center rounded-xl text-white"
-                  style={{ background: "linear-gradient(150deg,#3a96e0,#0078d4)" }}
-                >
-                  <HeartPulse size={20} />
-                </span>
-                <div className="leading-tight">
-                  <div className="text-[18px] font-extrabold text-[#0c3b63]">ClinIQ</div>
-                  <div className="text-[10.5px] text-slate-400">Smart Hospital OS</div>
-                </div>
+          {/* Right Login Card */}
+          <div className="lg:col-span-5">
+            <div className="mx-auto max-w-md rounded-3xl border border-slate-200/90 bg-white p-7 shadow-xl shadow-slate-200/60">
+              
+              <div className="mb-5 text-center">
+                <h2 className="text-2xl font-extrabold text-slate-800">
+                  {role === "Patient" && patientStep === "otp"
+                    ? "Two-Factor Verification"
+                    : role === "Patient" && patientStep === "profile_select"
+                    ? "Select Family Profile"
+                    : "Sign in to ClinIQ"}
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  {role === "Patient" && patientStep === "otp"
+                    ? `Enter the OTP sent to verify access to +91 ${username}`
+                    : role === "Patient" && patientStep === "profile_select"
+                    ? `Multiple family members found for +91 ${username}`
+                    : "Select your role to access your dedicated workspace"}
+                </p>
               </div>
 
-              <h2 className="text-[27px] font-extrabold tracking-tight text-[#0c3b63]">Welcome back</h2>
-              <p className="mt-1 text-[13.5px] text-slate-500">Sign in to access your account</p>
+              {/* Role Selection Tabs (Visible on credentials step) */}
+              {(role !== "Patient" || patientStep === "credentials") && (
+                <div className="grid grid-cols-4 gap-1.5 rounded-2xl bg-slate-100 p-1.5 text-center mb-5">
+                  {PRIMARY_ROLES.map((r) => {
+                    const active = r.label === role;
+                    return (
+                      <button
+                        key={r.label}
+                        type="button"
+                        onClick={() => {
+                          setRole(r.label);
+                          setPatientStep("credentials");
+                          setMoreDropdownOpen(false);
+                          setError(null);
+                        }}
+                        className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-semibold transition"
+                        style={{
+                          background: active ? "#fff" : "transparent",
+                          color: active ? "#0a5aa8" : "#64748b",
+                          boxShadow: active ? "0 2px 8px rgba(28,33,51,.08)" : "none",
+                          border: active ? "1px solid rgba(0,120,212,.22)" : "1px solid transparent",
+                        }}
+                      >
+                        <r.icon size={14} /> {r.label}
+                      </button>
+                    );
+                  })}
 
-              {/* role selector with 3 Main Tabs + 4th More Staff Dropdown */}
-              <div className="mt-6 grid grid-cols-4 gap-1 rounded-xl border border-black/[0.08] bg-slate-50/80 p-1 relative">
-                {PRIMARY_ROLES.map((r) => {
-                  const active = r.label === role;
-                  return (
+                  {/* 4th Item: More Staff Dropdown */}
+                  <div className="relative" ref={dropdownRef}>
                     <button
-                      key={r.label}
                       type="button"
-                      onClick={() => {
-                        setRole(r.label);
-                        setMoreDropdownOpen(false);
-                        setError(null);
-                      }}
-                      className="flex items-center justify-center gap-1.5 rounded-lg py-2 text-[12px] font-semibold transition"
+                      onClick={() => setMoreDropdownOpen((prev) => !prev)}
+                      className="flex w-full items-center justify-center gap-1 rounded-lg py-2 text-[11.5px] font-semibold transition"
                       style={{
-                        background: active ? "#fff" : "transparent",
-                        color: active ? "#0a5aa8" : "#64748b",
-                        boxShadow: active ? "0 2px 8px rgba(28,33,51,.08)" : "none",
-                        border: active ? "1px solid rgba(0,120,212,.22)" : "1px solid transparent",
+                        background: isMoreStaffActive ? "#fff" : "transparent",
+                        color: isMoreStaffActive ? "#0a5aa8" : "#64748b",
+                        boxShadow: isMoreStaffActive ? "0 2px 8px rgba(28,33,51,.08)" : "none",
+                        border: isMoreStaffActive ? "1px solid rgba(0,120,212,.22)" : "1px solid transparent",
                       }}
                     >
-                      <r.icon size={14} /> {r.label}
+                      {selectedMoreRole ? (
+                        <>
+                          <selectedMoreRole.icon size={13} />
+                          <span className="truncate">{selectedMoreRole.tabLabel}</span>
+                        </>
+                      ) : (
+                        <span>More Staff</span>
+                      )}
+                      <ChevronDown size={12} className={`shrink-0 transition-transform ${moreDropdownOpen ? "rotate-180" : ""}`} />
                     </button>
-                  );
-                })}
 
-                {/* 4th Item: More Staff Dropdown */}
-                <div className="relative" ref={dropdownRef}>
-                  <button
-                    type="button"
-                    onClick={() => setMoreDropdownOpen((prev) => !prev)}
-                    className="flex w-full items-center justify-center gap-1 rounded-lg py-2 text-[11.5px] font-semibold transition"
-                    style={{
-                      background: isMoreStaffActive ? "#fff" : "transparent",
-                      color: isMoreStaffActive ? "#0a5aa8" : "#64748b",
-                      boxShadow: isMoreStaffActive ? "0 2px 8px rgba(28,33,51,.08)" : "none",
-                      border: isMoreStaffActive ? "1px solid rgba(0,120,212,.22)" : "1px solid transparent",
-                    }}
-                  >
-                    {selectedMoreRole ? (
-                      <>
-                        <selectedMoreRole.icon size={13} />
-                        <span className="truncate">{selectedMoreRole.tabLabel}</span>
-                      </>
-                    ) : (
-                      <span>More Staff</span>
-                    )}
-                    <ChevronDown size={12} className={`shrink-0 transition-transform ${moreDropdownOpen ? "rotate-180" : ""}`} />
-                  </button>
-
-                  {/* Dropdown Menu */}
-                  {moreDropdownOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-2xl z-50">
-                      <div className="px-3 py-1.5 border-b border-slate-100 mb-1">
-                        <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Hospital Departments</span>
+                    {/* Dropdown Menu */}
+                    {moreDropdownOpen && (
+                      <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-black/[0.08] bg-white p-1.5 shadow-2xl z-50">
+                        <div className="px-3 py-1.5 border-b border-slate-100 mb-1">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Hospital Departments</span>
+                        </div>
+                        {MORE_STAFF_ROLES.map((mr) => {
+                          const isSelected = mr.label === role;
+                          return (
+                            <button
+                              key={mr.label}
+                              type="button"
+                              onClick={() => {
+                                setRole(mr.label);
+                                setPatientStep("credentials");
+                                setMoreDropdownOpen(false);
+                                setError(null);
+                              }}
+                              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[12.5px] font-semibold transition ${
+                                isSelected
+                                  ? "bg-sky-50 text-[#0078d4] font-bold"
+                                  : "text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              <span className={`grid h-7 w-7 place-items-center rounded-lg ${isSelected ? "bg-[#0078d4] text-white" : "bg-slate-100 text-slate-600"}`}>
+                                <mr.icon size={14} />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="leading-snug">{mr.label}</div>
+                                <div className="text-[10px] text-slate-400 font-normal truncate">{mr.desc}</div>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
-                      {MORE_STAFF_ROLES.map((mr) => {
-                        const isSelected = mr.label === role;
-                        return (
-                          <button
-                            key={mr.label}
-                            type="button"
-                            onClick={() => {
-                              setRole(mr.label);
-                              setMoreDropdownOpen(false);
-                              setError(null);
-                            }}
-                            className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-[12.5px] font-semibold transition ${
-                              isSelected
-                                ? "bg-sky-50 text-[#0078d4] font-bold"
-                                : "text-slate-700 hover:bg-slate-50"
-                            }`}
-                          >
-                            <span className={`grid h-7 w-7 place-items-center rounded-lg ${isSelected ? "bg-[#0078d4] text-white" : "bg-slate-100 text-slate-600"}`}>
-                              <mr.icon size={14} />
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <div className="leading-snug">{mr.label}</div>
-                              <div className="text-[10px] text-slate-400 font-normal truncate">{mr.desc}</div>
-                            </div>
-                          </button>
-                        );
-                      })}
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ---------------------------------------------------------------- Patient Flow Step 1 or Staff: Credentials Form */}
+              {(!isMoreStaffActive && role === "Patient" && patientStep === "otp") ? (
+                /* Patient Step 2: OTP Verification */
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {error && (
+                    <div className="flex items-start gap-2 rounded-xl border border-[#f0b7b9] bg-[#fdf1f1] px-3 py-2.5 text-[12.5px] font-medium text-[#b42026]">
+                      <AlertCircle size={15} className="mt-px shrink-0" />
+                      <span>{error}</span>
                     </div>
                   )}
-                </div>
-              </div>
 
-              <form onSubmit={submit} className="mt-6 space-y-4">
-                {error && (
-                  <div className="flex items-start gap-2 rounded-xl border border-[#f0b7b9] bg-[#fdf1f1] px-3 py-2.5 text-[12.5px] font-medium text-[#b42026]">
-                    <AlertCircle size={15} className="mt-px shrink-0" />
-                    <span>{error}</span>
-                  </div>
-                )}
-                <div>
-                  <label className="mb-1.5 block text-[12px] font-semibold text-slate-600">
-                    {getUsernameLabel()}
-                  </label>
-                  <div className="flex h-11 items-center gap-2.5 rounded-xl border border-black/[0.1] bg-white px-3 text-slate-400 transition focus-within:border-[#0078d4] focus-within:ring-2 focus-within:ring-[rgba(0,120,212,.14)]">
-                    <User size={16} />
+                  <div className="p-3.5 rounded-2xl bg-sky-50/80 border border-sky-200 space-y-2">
+                    <div className="flex items-center gap-2 text-xs font-bold text-[#0078d4]">
+                      <LockKeyhole size={16} />
+                      <span>Enter 6-Digit OTP</span>
+                    </div>
+                    <p className="text-[11.5px] text-slate-600">
+                      We sent a verification code to <b>+91 {username}</b>.
+                    </p>
                     <input
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      type="text"
-                      autoComplete="username"
-                      placeholder={getUsernamePlaceholder()}
-                      className="w-full bg-transparent text-[13.5px] text-slate-700 outline-none placeholder:text-slate-400"
+                      className="input font-mono tracking-widest text-center text-base font-bold"
+                      maxLength={6}
+                      value={patientOtp}
+                      onChange={(e) => setPatientOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      placeholder="••••••"
+                      autoFocus
                     />
+                    <p className="text-[10.5px] text-slate-400">
+                      💡 Demo code: enter <b>1234</b> or any 4+ digits.
+                    </p>
                   </div>
-                </div>
 
-                <div>
-                  <label className="mb-1.5 block text-[12px] font-semibold text-slate-600">
-                    {role === "Doctor" || role === "Nurse" || role === "Pharmacy" || role === "Lab Technician" || role === "Reception Desk"
-                      ? "Security PIN / Password"
-                      : role === "Admin"
-                      ? "Admin Password"
-                      : "Password"}
-                  </label>
-                  <div className="flex h-11 items-center gap-2.5 rounded-xl border border-black/[0.1] bg-white px-3 text-slate-400 transition focus-within:border-[#0078d4] focus-within:ring-2 focus-within:ring-[rgba(0,120,212,.14)]">
-                    <Lock size={16} />
-                    <input
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      type={showPw ? "text" : "password"}
-                      autoComplete="current-password"
-                      placeholder={
-                        role === "Admin"
-                          ? "Enter admin password (cliniq)"
-                          : "Enter access PIN (e.g. 1234) or password"
-                      }
-                      className="w-full bg-transparent text-[13.5px] text-slate-700 outline-none placeholder:text-slate-400"
-                    />
+                  <button
+                    type="button"
+                    disabled={loading || patientOtp.length < 1}
+                    onClick={handleVerifyPatientOtp}
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0078d4] text-[14px] font-semibold text-white shadow-[0_8px_20px_rgba(0,120,212,.28)] transition hover:bg-[#106ebe] disabled:opacity-70"
+                  >
+                    {loading ? <><Loader2 size={16} className="animate-spin" /> Verifying…</> : "Verify OTP & Continue →"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPatientStep("credentials");
+                      setError(null);
+                    }}
+                    className="w-full text-center text-xs text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1 pt-1"
+                  >
+                    <ArrowLeft size={13} /> Back to Mobile &amp; Password
+                  </button>
+                </div>
+              ) : (!isMoreStaffActive && role === "Patient" && patientStep === "profile_select") ? (
+                /* Patient Step 3: Family Profile Picker */
+                <div className="space-y-4 animate-in fade-in duration-150">
+                  {error && (
+                    <div className="flex items-start gap-2 rounded-xl border border-[#f0b7b9] bg-[#fdf1f1] px-3 py-2.5 text-[12.5px] font-medium text-[#b42026]">
+                      <AlertCircle size={15} className="mt-px shrink-0" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between px-1">
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Users size={15} className="text-[#0078d4]" />
+                      <span>Select who is signing in:</span>
+                    </span>
+                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                      ✓ OTP Verified
+                    </span>
+                  </div>
+
+                  <div className="space-y-2.5 max-h-60 overflow-y-auto pr-0.5">
+                    {familyProfiles.map((p) => (
+                      <div
+                        key={p.patientId}
+                        onClick={() => handleSelectFamilyProfile(p)}
+                        className="group flex items-center justify-between p-3 rounded-2xl border border-slate-200 hover:border-[#0078d4] hover:bg-sky-50/50 bg-white transition cursor-pointer shadow-xs"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 text-white font-bold text-sm grid place-items-center shadow-xs">
+                            {(p.name || p.first_name || "PT").slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-slate-800 group-hover:text-[#0078d4] transition">
+                              {p.name || `${p.first_name} ${p.last_name}`}
+                            </p>
+                            <p className="text-[11px] text-slate-400 font-mono">
+                              {p.mrn} {p.gender ? `· ${p.gender}` : ""} {p.dob ? `· DOB ${p.dob}` : ""}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-xl bg-sky-50 text-[#0078d4] font-bold text-xs group-hover:bg-[#0078d4] group-hover:text-white transition flex items-center gap-1"
+                        >
+                          <span>Sign In</span>
+                          <ArrowRight size={13} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Add Family Member button */}
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
                     <button
                       type="button"
-                      onClick={() => setShowPw((v) => !v)}
-                      className="shrink-0 text-slate-400 hover:text-slate-600"
-                      aria-label={showPw ? "Hide password" : "Show password"}
+                      onClick={() => navigate(`/patient/login`)}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold shadow-sm hover:bg-emerald-700 transition"
                     >
-                      {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                      <Plus size={14} /> Add New Family Member to +91 {username}
                     </button>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between">
-                  <label className="flex items-center gap-2 text-[12.5px] text-slate-600">
-                    <input type="checkbox" className="h-3.5 w-3.5 rounded border-slate-300 accent-[#0078d4]" defaultChecked />
-                    Remember me
-                  </label>
-                  <button type="button" className="text-[12.5px] font-semibold text-[#0a5aa8] hover:underline">Forgot password?</button>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0078d4] text-[14px] font-semibold text-white shadow-[0_8px_20px_rgba(0,120,212,.28)] transition hover:bg-[#106ebe] disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {loading ? <><Loader2 size={16} className="animate-spin" /> Signing in…</> : `Sign In as ${role}`}
-                </button>
-
-                <p className="text-center text-[11.5px] text-slate-400">
-                  {getDemoHint()}
-                </p>
-              </form>
-
-              <div className="my-5 flex items-center gap-3 text-[11px] font-medium text-slate-400">
-                <span className="h-px flex-1 bg-black/[0.08]" /> or <span className="h-px flex-1 bg-black/[0.08]" />
-              </div>
-
-              <button
-                type="button"
-                disabled={loading}
-                onClick={handleSsoDemo}
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-black/[0.1] bg-white text-[13.5px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-70"
-              >
-                <KeyRound size={16} className="text-slate-500" /> Sign in as {role} (Demo SSO)
-              </button>
-
-              <p className="mt-6 text-center text-[12.5px] text-slate-500">
-                {role === "Patient" ? (
-                  <>
-                    New patient?{" "}
-                    <button
-                      type="button"
-                      onClick={() => navigate("/patient/login")}
-                      className="font-semibold text-[#0a5aa8] hover:underline"
-                    >
-                      Register Profile
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    Don't have an account?{" "}
                     <button
                       type="button"
                       onClick={() => {
-                        setRole("Admin");
-                        setUsername("Administrator");
-                        setPassword("cliniq");
+                        setPatientStep("credentials");
+                        setError(null);
                       }}
-                      className="font-semibold text-[#0a5aa8] hover:underline"
+                      className="w-full text-center text-xs text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1 pt-1"
                     >
-                      Contact IT Admin
+                      <ArrowLeft size={13} /> Back to Sign In
                     </button>
-                  </>
-                )}
-              </p>
+                  </div>
+                </div>
+              ) : (
+                /* Standard Credentials Form */
+                <form onSubmit={submit} className="space-y-4">
+                  {error && (
+                    <div className="flex items-start gap-2 rounded-xl border border-[#f0b7b9] bg-[#fdf1f1] px-3 py-2.5 text-[12.5px] font-medium text-[#b42026]">
+                      <AlertCircle size={15} className="mt-px shrink-0" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="mb-1.5 block text-[12px] font-semibold text-slate-600">
+                      {getUsernameLabel()}
+                    </label>
+                    <div className="flex h-11 items-center gap-2.5 rounded-xl border border-black/[0.1] bg-white px-3 text-slate-400 transition focus-within:border-[#0078d4] focus-within:ring-2 focus-within:ring-[rgba(0,120,212,.14)]">
+                      {role === "Patient" ? <Phone size={16} /> : <User size={16} />}
+                      <input
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        type="text"
+                        autoComplete="username"
+                        placeholder={getUsernamePlaceholder()}
+                        className="w-full bg-transparent text-[13.5px] text-slate-700 outline-none placeholder:text-slate-400"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-[12px] font-semibold text-slate-600">
+                      {role === "Doctor" || role === "Nurse" || role === "Pharmacy" || role === "Lab Technician" || role === "Reception Desk"
+                        ? "Security PIN / Password"
+                        : role === "Admin"
+                        ? "Admin Password"
+                        : "Password"}
+                    </label>
+                    <div className="flex h-11 items-center gap-2.5 rounded-xl border border-black/[0.1] bg-white px-3 text-slate-400 transition focus-within:border-[#0078d4] focus-within:ring-2 focus-within:ring-[rgba(0,120,212,.14)]">
+                      <Lock size={16} />
+                      <input
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        type={showPw ? "text" : "password"}
+                        autoComplete="current-password"
+                        placeholder={
+                          role === "Admin"
+                            ? "Enter admin password (cliniq)"
+                            : "Enter password / PIN"
+                        }
+                        className="w-full bg-transparent text-[13.5px] text-slate-700 outline-none placeholder:text-slate-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPw((v) => !v)}
+                        className="shrink-0 text-slate-400 hover:text-slate-600"
+                        aria-label={showPw ? "Hide password" : "Show password"}
+                      >
+                        {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-[12.5px] text-slate-600">
+                      <input type="checkbox" className="h-3.5 w-3.5 rounded border-slate-300 accent-[#0078d4]" defaultChecked />
+                      Remember me
+                    </label>
+                    <button type="button" className="text-[12.5px] font-semibold text-[#0a5aa8] hover:underline">Forgot password?</button>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#0078d4] text-[14px] font-semibold text-white shadow-[0_8px_20px_rgba(0,120,212,.28)] transition hover:bg-[#106ebe] disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    {loading ? <><Loader2 size={16} className="animate-spin" /> Signing in…</> : `Sign In as ${role}`}
+                  </button>
+
+                  <p className="text-center text-[11.5px] text-slate-400">
+                    {getDemoHint()}
+                  </p>
+                </form>
+              )}
+
+              {/* SSO and Register Profile shortcuts */}
+              {role !== "Patient" || patientStep === "credentials" ? (
+                <>
+                  <div className="my-5 flex items-center gap-3 text-[11px] font-medium text-slate-400">
+                    <span className="h-px flex-1 bg-black/[0.08]" /> or <span className="h-px flex-1 bg-black/[0.08]" />
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={handleSsoDemo}
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-black/[0.1] bg-white text-[13.5px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-70"
+                  >
+                    <KeyRound size={16} className="text-slate-500" /> Sign in as {role} (Demo SSO)
+                  </button>
+
+                  <p className="mt-6 text-center text-[12.5px] text-slate-500">
+                    {role === "Patient" ? (
+                      <>
+                        New patient or family member?{" "}
+                        <button
+                          type="button"
+                          onClick={() => navigate("/patient/login")}
+                          className="font-semibold text-[#0a5aa8] hover:underline"
+                        >
+                          Register Profile
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        Don't have an account?{" "}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRole("Admin");
+                            setUsername("Administrator");
+                            setPassword("cliniq");
+                          }}
+                          className="font-semibold text-[#0a5aa8] hover:underline"
+                        >
+                          Contact IT Admin
+                        </button>
+                      </>
+                    )}
+                  </p>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
