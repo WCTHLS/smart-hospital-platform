@@ -234,11 +234,12 @@ export default function Layout({ children }: { children: ReactNode }) {
           ) : (
             <button
               type="button"
-              onClick={() => nav("/login")}
+              onClick={() => nav(isPatient ? "/login?role=patient" : "/login")}
               className="flex items-center gap-1.5 rounded-xl bg-[#0078d4] px-3 py-1.5 text-[12.5px] font-semibold text-white shadow-sm transition hover:bg-[#106ebe]"
             >
               <User size={14} /> Sign In
             </button>
+
           )}
         </div>
       </header>
