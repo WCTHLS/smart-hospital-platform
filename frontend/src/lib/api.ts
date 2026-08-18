@@ -6,9 +6,9 @@ export class ApiError extends Error {
   constructor(status: number, detail: unknown) {
     const validationMessage = Array.isArray(detail)
       ? detail.map((item) => {
-          const field = Array.isArray(item?.loc) ? item.loc.filter((part: unknown) => part !== "body").join(".") : "";
-          return [field, item?.msg].filter(Boolean).join(": ");
-        }).filter(Boolean).join("; ")
+        const field = Array.isArray(item?.loc) ? item.loc.filter((part: unknown) => part !== "body").join(".") : "";
+        return [field, item?.msg].filter(Boolean).join(": ");
+      }).filter(Boolean).join("; ")
       : "";
     super(typeof detail === "string" ? detail : validationMessage || `Request failed (${status})`);
     this.status = status;

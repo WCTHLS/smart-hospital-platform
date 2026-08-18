@@ -12,7 +12,8 @@ import {
   TestTubes, Droplet, Beaker, FileCheck, XCircle,
   TrendingUp, CheckCircle2, CalendarPlus, Ticket, ShieldCheck, MapPin, UserRound, ArrowLeft, Camera, AlertCircle,
   Heart, Info, Video, Navigation, CreditCard, LoaderCircle, Check, Shield, UserCheck, Stethoscope as DoctorIcon, User, History,
-  FolderOpen, Upload, Trash2, Save, Lock, FileUp, Mail
+  FolderOpen, Upload, Trash2, Save, Lock, FileUp, Mail, Home,
+  PanelLeftClose, PanelLeft, Menu
 } from "lucide-react";
 import { api, ApiError } from "../../lib/api";
 import { loadRazorpayScript, type RazorpaySuccess } from "../../lib/razorpay";
@@ -28,7 +29,16 @@ import LabReportsSection from "./components/LabReportsSection";
 import LabOrdersAlert from "./components/LabOrdersAlert";
 import { BillingSection } from "./components/AppointmentBillCard";
 
-/* ------------------------------------------------------------------ data --- */
+const PATIENT_SIDEBAR_NAV = [
+  { tab: "My Health Overview", label: "Overview", icon: Home, section: "MAIN" },
+  { tab: "Appointments", label: "Appointments", icon: Calendar, section: "MAIN" },
+  { tab: "My Vitals", label: "Vitals", icon: HeartPulse, section: "MAIN" },
+  { tab: "My Lab Reports", label: "Labs & Scans", icon: FlaskConical, section: "MAIN" },
+  { tab: "My Prescriptions", label: "Prescriptions", icon: PillIcon, section: "MAIN" },
+  { tab: "Billing", label: "Billing", icon: Receipt, section: "MAIN" },
+  { tab: "My Documents", label: "Documents", icon: FolderOpen, section: "MAIN" },
+  { tab: "My Profile", label: "My Profile", icon: User, section: "ACCOUNT" },
+];
 
 const PATIENT_TABS = [
   { id: "My Health Overview", label: "My Health Overview", icon: Activity },
@@ -43,6 +53,8 @@ const PATIENT_TABS = [
   { id: "Care Timeline", label: "Care Timeline", icon: History },
   { id: "My Profile", label: "My Profile", icon: User },
 ];
+
+/* ------------------------------------------------------------------ MAIN COMPONENT */
 
 const CARE_TEAM_OV = [
   { name: "Dr. Ahmed Ali", role: "Your Cardiologist", badge: "Attending Physician" },
@@ -207,6 +219,7 @@ export default function PatientDashboard() {
     setTabState(newTab);
     setSearchParams({ tab: newTab });
   };
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== "undefined" ? window.innerWidth >= 1024 : true);
   const [copilotTab, setCopilotTab] = useState("Health Tips");
   const [search, setSearch] = useState("");
   const [chatInput, setChatInput] = useState("");
@@ -1088,13 +1101,134 @@ export default function PatientDashboard() {
     : "None recorded in DB";
 
   return (
-    <div className="flex min-h-[calc(100vh-5rem)] flex-col gap-4 text-slate-700 font-sans">
+    <div className="min-h-[calc(100vh-5rem)] text-slate-700 font-sans">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-20 bg-black/50 backdrop-blur-xs lg:hidden"
+          aria-label="Close menu"
+        />
+      )}
+
+      {/* ================= PATIENT WORKSPACE SIDE PANEL (Dark Navy Theme with Bright White Text & Toggle) ================= */}
+      <aside
+        className={`fixed bottom-0 left-0 top-16 z-20 flex w-[240px] flex-col gap-1 p-3.5 bg-[#0b1329] border-r border-slate-800/80 shadow-2xl overflow-y-auto select-none transition-transform duration-200 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        {/* Top Header Row with Title + Collapse button */}
+        <div className="flex items-center justify-between px-2.5 pt-1.5 pb-2 border-b border-slate-800/60 mb-1">
+          <span
+            className="text-[11px] font-extrabold uppercase tracking-wider"
+            style={{ color: "#94a3b8", letterSpacing: "0.08em" }}
+          >
+            MAIN MENU
+          </span>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            title="Collapse Sidebar"
+            className="grid h-7 w-7 place-items-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition"
+          >
+            <PanelLeftClose size={17} />
+          </button>
+        </div>
+
+        {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "MAIN").map((n) => {
+          const isActive =
+            (n.tab === "My Health Overview" && (!tab || tab === "My Health Overview")) ||
+            tab === n.tab ||
+            (n.tab === "Appointments" && tab === "Book Consultation") ||
+            (n.tab === "My Lab Reports" && (tab === "Scans & Imaging" || tab === "My Lab Reports"));
+
+          return (
+            <button
+              key={n.label}
+              type="button"
+              onClick={() => {
+                setTab(n.tab);
+                if (window.innerWidth < 1024) setSidebarOpen(false);
+              }}
+              className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-bold transition text-left ${
+                isActive
+                  ? "bg-[#0078d4] text-white shadow-md shadow-blue-500/20"
+                  : "hover:bg-white/10"
+              }`}
+              style={{
+                color: isActive ? "#ffffff" : "#f8fafc",
+              }}
+            >
+              <n.icon size={18} color={isActive ? "#ffffff" : "#f8fafc"} className="shrink-0" />
+              <span style={{ color: isActive ? "#ffffff" : "#f8fafc" }}>{n.label}</span>
+            </button>
+          );
+        })}
+
+        {/* ACCOUNT & SETTINGS */}
+        <div
+          className="px-2.5 pt-4 pb-2 text-[11px] font-extrabold uppercase tracking-wider mt-2"
+          style={{ color: "#94a3b8", letterSpacing: "0.08em", borderTop: "1px solid rgba(51, 65, 85, 0.8)" }}
+        >
+          ACCOUNT &amp; SETTINGS
+        </div>
+
+        {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "ACCOUNT").map((n) => {
+          const isActive = tab === n.tab;
+          return (
+            <button
+              key={n.label}
+              type="button"
+              onClick={() => {
+                setTab(n.tab);
+                if (window.innerWidth < 1024) setSidebarOpen(false);
+              }}
+              className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-bold transition text-left ${
+                isActive
+                  ? "bg-[#0078d4] text-white shadow-md shadow-blue-500/20"
+                  : "hover:bg-white/10"
+              }`}
+              style={{
+                color: isActive ? "#ffffff" : "#f8fafc",
+              }}
+            >
+              <n.icon size={18} color={isActive ? "#ffffff" : "#f8fafc"} className="shrink-0" />
+              <span style={{ color: isActive ? "#ffffff" : "#f8fafc" }}>{n.label}</span>
+            </button>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition text-left hover:bg-rose-950/40 hover:text-rose-100 mt-1"
+          style={{ color: "#fca5a5" }}
+        >
+          <LogOut size={18} className="shrink-0" color="#f87171" />
+          <span style={{ color: "#fca5a5" }}>Log Out</span>
+        </button>
+      </aside>
+
       {/* ================= MAIN CONTENT + AI ASSISTANT ================= */}
-      <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
-        {/* CENTER / LEFT: HERO BANNER + TABS + OVERVIEW */}
-        <div className="space-y-4 min-w-0">
-          {/* ================= PATIENT PROFILE CARD ================= */}
-          <div className={`${card} p-4 sm:p-5 bg-white`}>
+      <div className={`min-w-0 transition-[padding] duration-200 ${sidebarOpen ? "lg:pl-[240px]" : "pl-0"}`}>
+        {!sidebarOpen && (
+          <div className="mb-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-bold text-slate-700 shadow-xs hover:border-[#0078d4] hover:text-[#0078d4] hover:shadow-sm transition"
+            >
+              <PanelLeft size={15} className="text-[#0078d4]" />
+              <span>Show Navigation Menu</span>
+            </button>
+          </div>
+        )}
+        <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+          {/* CENTER / LEFT: HERO BANNER + TABS + OVERVIEW */}
+          <div className="space-y-4 min-w-0">
+            {/* ================= PATIENT PROFILE CARD ================= */}
+            <div className={`${card} p-4 sm:p-5 bg-white`}>
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               {/* Profile Details */}
               <div className="flex items-start gap-4">
@@ -3306,6 +3440,7 @@ export default function PatientDashboard() {
           </div>
         </aside>
       </div>
+    </div>
 
       {/* ================= BOOKING MODAL (ClinIQ Multi-Step DB Sync) ================= */}
       {showBookingModal && (

@@ -9,8 +9,6 @@ import {
   Settings, X
 } from "lucide-react";
 
-
-
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
 import { getOsSession, clearOsSession, osInitials } from "../features/os/osSession";
@@ -99,11 +97,12 @@ export default function Layout({ children }: { children: ReactNode }) {
   const activeRole = journey.activeRole;
   const osSession = getOsSession();
   const portalPatient = getPortalPatient();
+
   useEffect(() => {
     if (portalPatient?.patient_id || portalPatient?.mobile) {
       api.familyProfiles(portalPatient?.patient_id, portalPatient?.mobile).then((res) => {
         if (res?.profiles) setFamilyMembers(res.profiles);
-      }).catch(() => { });
+      }).catch(() => {});
     }
   }, [portalPatient?.patient_id, portalPatient?.mobile]);
 
@@ -305,14 +304,16 @@ export default function Layout({ children }: { children: ReactNode }) {
                                   setUserDropdownOpen(false);
                                   window.location.reload();
                                 }}
-                                className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-[11.5px] transition ${isCurrent
+                                className={`flex w-full items-center justify-between rounded-xl px-2.5 py-1.5 text-left text-[11.5px] transition ${
+                                  isCurrent
                                     ? "bg-sky-50 text-[#0078d4] font-bold border border-sky-200/80 shadow-2xs cursor-default"
                                     : "text-slate-700 hover:bg-slate-50 font-medium border border-transparent cursor-pointer"
-                                  }`}
+                                }`}
                               >
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <div className={`w-5 h-5 rounded-md text-[9px] font-bold grid place-items-center shrink-0 ${isCurrent ? "bg-[#0078d4] text-white" : "bg-slate-100 text-slate-600"
-                                    }`}>
+                                  <div className={`w-5 h-5 rounded-md text-[9px] font-bold grid place-items-center shrink-0 ${
+                                    isCurrent ? "bg-[#0078d4] text-white" : "bg-slate-100 text-slate-600"
+                                  }`}>
                                     {(fm.name || "PT").slice(0, 2).toUpperCase()}
                                   </div>
                                   <span className="truncate">{fm.name}</span>
@@ -351,8 +352,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                     </button>
                   )}
 
-
-
                   <button
                     type="button"
                     onClick={() => {
@@ -372,7 +371,6 @@ export default function Layout({ children }: { children: ReactNode }) {
                   </button>
                 </div>
               )}
-
             </div>
           ) : (
             <button
@@ -382,7 +380,6 @@ export default function Layout({ children }: { children: ReactNode }) {
             >
               <User size={14} /> Sign In
             </button>
-
           )}
         </div>
       </header>
@@ -410,7 +407,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Workspace</div>
                 <div className="space-y-0.5">
                   {DOCTOR_WORKSPACE_NAV.map((n) => {
-                    const isActive = n.end
+                    const isActive = n.end 
                       ? loc.pathname === "/copilot" && !loc.search
                       : loc.pathname + loc.search === n.to || (n.to.includes("?view=") && loc.search === "?" + n.to.split("?")[1]);
                     return (
@@ -494,9 +491,9 @@ export default function Layout({ children }: { children: ReactNode }) {
                           <n.icon size={15} className={isActive ? "text-[#0078d4]" : "text-slate-450 shrink-0"} />
                           <span className="truncate">{n.label}</span>
                         </span>
-                        {n.badge && (
+                        {n.badge ? (
                           <span className="rounded-full bg-slate-100 px-1.5 py-0.2 text-[9px] font-extrabold text-[#0078d4]">{n.badge}</span>
-                        )}
+                        ) : null}
                       </NavLink>
                     );
                   })}
@@ -507,7 +504,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <div className="space-y-1">
               <div className="mb-2 px-3 text-[10.5px] font-bold uppercase tracking-wider text-slate-400">Care Team Portal</div>
               {CARE_TEAM_NAV.map((n) => {
-                const isActive = n.end
+                const isActive = n.end 
                   ? loc.pathname === n.to && !loc.search
                   : loc.pathname + loc.search === n.to || (n.to.includes("?tab=") && loc.search === "?" + n.to.split("?")[1]);
                 return (
