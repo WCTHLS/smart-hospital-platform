@@ -3,7 +3,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   HeartPulse, MonitorDot, ShieldAlert, BellRing, Menu, PanelLeftClose,
-  ChevronDown, LogOut, User,
+  ChevronDown, LogOut, User, Home, Calendar, FlaskConical, Pill, Receipt, FolderOpen,
 } from "lucide-react";
 import { useJourney } from "../lib/store";
 import { useRealtime, useRealtimeConnection, LiveEvent } from "../lib/realtime";
@@ -13,6 +13,17 @@ import { getPortalPatient, clearPortalPatient } from "../lib/patientAuth";
 const ADMIN_NAV = [
   { to: "/admin", label: "Admin Workspace", icon: ShieldAlert },
   { to: "/command", label: "Command Center", icon: MonitorDot },
+];
+
+const PATIENT_NAV = [
+  { to: "/patient?tab=My Health Overview", tab: "My Health Overview", label: "Overview", icon: Home, section: "MAIN" },
+  { to: "/patient?tab=Appointments", tab: "Appointments", label: "Appointments", icon: Calendar, section: "MAIN" },
+  { to: "/patient?tab=My Vitals", tab: "My Vitals", label: "Vitals", icon: HeartPulse, section: "MAIN" },
+  { to: "/patient?tab=My Lab Reports", tab: "My Lab Reports", label: "Labs & Scans", icon: FlaskConical, section: "MAIN" },
+  { to: "/patient?tab=My Prescriptions", tab: "My Prescriptions", label: "Prescriptions", icon: Pill, section: "MAIN" },
+  { to: "/patient?tab=Billing", tab: "Billing", label: "Billing", icon: Receipt, section: "MAIN" },
+  { to: "/patient?tab=My Documents", tab: "My Documents", label: "Documents", icon: FolderOpen, section: "MAIN" },
+  { to: "/patient?tab=My Profile", tab: "My Profile", label: "My Profile", icon: User, section: "ACCOUNT" },
 ];
 
 function criticalText(e: LiveEvent): string {
@@ -50,7 +61,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const nav = useNavigate();
   const connected = useRealtime((s) => s.connected);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => window.matchMedia("(min-width: 1024px)").matches);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   const activeRole = journey.activeRole;
@@ -65,9 +76,8 @@ export default function Layout({ children }: { children: ReactNode }) {
   const isReception = Boolean(osSession?.role === "RECEPTIONIST" || loc.pathname === "/reception");
   const isAdmin = Boolean(osSession?.role === "ADMIN" || loc.pathname === "/admin" || loc.pathname === "/command");
 
-  // Single-role dedicated pages (Patient, Doctor, Nurse, Lab, Pharmacy, Reception) have NO sidebar.
-  // Only Admin has an optional admin navigation sidebar.
-  const hasSidebar = isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command");
+  // Show sidebar for Admin and Patient Portal
+  const hasSidebar = (isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command")) || isPatient;
 
   const currentUser = osSession ? {
     name: osSession.name,
@@ -252,38 +262,100 @@ export default function Layout({ children }: { children: ReactNode }) {
         />
       )}
 
-      {/* Sidebar (Admin only) */}
+      {/* Sidebar (Admin & Patient) */}
       {hasSidebar && (
-        <aside className={`fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
-          style={{
-            borderRight: "1px solid var(--line)",
-            backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
-            backdropFilter: "blur(28px) saturate(180%)",
-          }}>
-          {ADMIN_NAV.map((n) => (
-            <NavLink to={n.to} key={n.to} onClick={closeSidebarOnMobile}
-              className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-[13.5px] font-semibold transition"
-              style={({ isActive }: any) => ({
-                color: isActive ? "#123a7a" : "var(--muted)",
-                background: isActive ? "linear-gradient(90deg, rgba(37,100,207,.14), rgba(26,79,180,.14))" : "transparent",
-                border: isActive ? "1px solid var(--line2)" : "1px solid transparent",
-                boxShadow: isActive ? "0 0 14px rgba(37,100,207,.12)" : "none",
-              })}>
-              <n.icon size={17} />
-              {n.label}
-            </NavLink>
-          ))}
+        <aside
+          className={`sidebar-dark fixed bottom-0 left-0 top-16 z-20 flex w-[240px] flex-col gap-1 p-3.5 transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
+            } bg-[#0b1329] border-r border-slate-800/80 shadow-xl`}
+        >
+          {isPatient ? (
+            <div className="flex flex-col gap-1 flex-1 overflow-y-auto scrollbar-none">
+              {/* MAIN Section */}
+              <div className="nav-section-title px-3 pt-2 pb-1.5">
+                Main Menu
+              </div>
+              {PATIENT_NAV.filter((n) => n.section === "MAIN").map((n) => {
+                const searchTab = new URLSearchParams(loc.search).get("tab") || "My Health Overview";
+                const isActive =
+                  loc.pathname === "/patient" &&
+                  ((n.tab === "My Health Overview" &&
+                    (!new URLSearchParams(loc.search).get("tab") || searchTab === "My Health Overview")) ||
+                    searchTab === n.tab ||
+                    (n.tab === "Appointments" &&
+                      (searchTab === "Appointments" || searchTab === "Book Consultation")) ||
+                    (n.tab === "My Lab Reports" &&
+                      (searchTab === "My Lab Reports" || searchTab === "Scans & Imaging")));
 
-          <div className="mt-auto space-y-2">
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-[12.5px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
-            >
-              <LogOut size={15} />
-              <span>Sign Out</span>
-            </button>
-          </div>
+                return (
+                  <button
+                    key={n.label}
+                    type="button"
+                    onClick={() => {
+                      closeSidebarOnMobile();
+                      nav(n.to);
+                    }}
+                    className={`nav-item flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition text-left ${isActive ? "is-active font-bold" : ""
+                      }`}
+                  >
+                    <n.icon size={18} className="nav-icon shrink-0" />
+                    <span>{n.label}</span>
+                  </button>
+                );
+              })}
+
+              {/* ACCOUNT Section */}
+              <div className="nav-section-title px-3 pt-4 pb-1.5">
+                Account &amp; Settings
+              </div>
+              {PATIENT_NAV.filter((n) => n.section === "ACCOUNT").map((n) => {
+                const searchTab = new URLSearchParams(loc.search).get("tab") || "My Health Overview";
+                const isActive = loc.pathname === "/patient" && searchTab === n.tab;
+
+                return (
+                  <button
+                    key={n.label}
+                    type="button"
+                    onClick={() => {
+                      closeSidebarOnMobile();
+                      nav(n.to);
+                    }}
+                    className={`nav-item flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition text-left ${isActive ? "is-active font-bold" : ""
+                      }`}
+                  >
+                    <n.icon size={18} className="nav-icon shrink-0" />
+                    <span>{n.label}</span>
+                  </button>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => {
+                  closeSidebarOnMobile();
+                  handleLogout();
+                }}
+                className="nav-item nav-item-logout flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition text-left mt-0.5"
+              >
+                <LogOut size={18} className="nav-icon shrink-0" />
+                <span>Log Out</span>
+              </button>
+            </div>
+          ) : (
+            ADMIN_NAV.map((n) => (
+              <NavLink
+                to={n.to}
+                key={n.to}
+                onClick={closeSidebarOnMobile}
+                className={({ isActive }: any) =>
+                  `nav-item flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-[13px] font-semibold transition ${isActive ? "is-active font-bold" : ""
+                  }`
+                }
+              >
+                <n.icon size={18} className="nav-icon shrink-0" />
+                {n.label}
+              </NavLink>
+            ))
+          )}
         </aside>
       )}
 

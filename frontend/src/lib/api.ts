@@ -95,7 +95,7 @@ export const api = {
     }
   },
   generateSummary: (patient_id: string) => post<any>(`/api/v1/patients/${patient_id}/summary`),
-  addPatientIssue: (patient_id: string, body: { issue_name: string; onset_info?: string }) =>
+  addPatientIssue: (patient_id: string, body: { issue_name: string; onset_info?: string; status?: string }) =>
     post<any>(`/api/v1/patients/${patient_id}/issues`, body),
   addPatientMedication: (patient_id: string, body: { drug_name: string; dosage?: string }) =>
     post<any>(`/api/v1/patients/${patient_id}/medications`, body),
@@ -245,10 +245,19 @@ export const api = {
   listDoctorSchedule: (doctor_id: string) => get<any[]>(`/api/v1/admin/doctors/${doctor_id}/schedule`),
   updateDoctorSchedule: (doctor_id: string, body: any[]) => post<any>(`/api/v1/admin/doctors/${doctor_id}/schedule`, body),
 
+  // patient profile & medical demographics
+  addPatientAllergy: (patientId: string, body: any) => post<any>(`/api/v1/patients/${patientId}/allergies`, body),
+  deletePatientAllergy: (patientId: string, allergyId: string) => del<any>(`/api/v1/patients/${patientId}/allergies/${allergyId}`),
+  deletePatientIssue: (patientId: string, issueId: string) => del<any>(`/api/v1/patients/${patientId}/issues/${issueId}`),
+  getPatientDocuments: (patientId: string) => get<any[]>(`/api/v1/patients/${patientId}/documents`),
+  deletePatientDocument: (patientId: string, documentId: string) => del<any>(`/api/v1/patients/${patientId}/documents/${documentId}`),
+
   // revisit & econsult
-  uploadPatientDocument: (patientId: string, file: File) => {
+  uploadPatientDocument: (patientId: string, file: File, docType: string = "LAB_REPORT", title?: string) => {
     const formData = new FormData();
     formData.append("file", file);
+    formData.append("doc_type", docType);
+    if (title) formData.append("title", title);
     return fetch(`${BASE}/api/v1/patients/${patientId}/upload-document`, {
       method: "POST",
       body: formData,

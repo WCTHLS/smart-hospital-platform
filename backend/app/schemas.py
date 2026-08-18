@@ -120,11 +120,29 @@ class PatientCheckAvailableRequest(BaseModel):
     email: str | None = None
 
 
+class AllergyIn(BaseModel):
+    substance: str
+    drug_class: str | None = None
+    severity: str = "MILD"
+    reaction: str | None = None
+
+
+class DocumentIn(BaseModel):
+    title: str
+    document_type: str = "OTHER"
+    file_url: str | None = None
+    file_data: str | None = None
+    mime_type: str | None = None
+
+
 class PatientProfileUpdateRequest(BaseModel):
-    email: str
-    gender: str
-    blood_group: str
-    address: str
+    first_name: str | None = None
+    last_name: str | None = None
+    email: str | None = None
+    gender: str | None = None
+    blood_group: str | None = None
+    address: str | None = None
+    dob: date | None = None
     allergies: list[AllergyIn] = Field(default_factory=list)
     documents: list[DocumentIn] = Field(default_factory=list)
 
