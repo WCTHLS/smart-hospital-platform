@@ -1633,7 +1633,9 @@ export default function DoctorWorkspace() {
                             { label: "HR", value: p360Data?.latest_vitals?.heart_rate ? `${p360Data.latest_vitals.heart_rate} bpm` : "—", color: "#D13438" },
                             { label: "SpO₂", value: p360Data?.latest_vitals?.spo2 ? `${p360Data.latest_vitals.spo2}%` : "—", color: "#16a34a" },
                             { label: "Temp", value: p360Data?.latest_vitals?.temperature ? `${p360Data.latest_vitals.temperature}°F` : "—", color: "#CA5010" },
-                            { label: "RR", value: p360Data?.latest_vitals?.resp_rate ? `${p360Data.latest_vitals.resp_rate} /min` : "—", color: "#8764B8" },
+                            { label: "RR", value: p360Data?.latest_vitals?.respiratory_rate ? `${p360Data.latest_vitals.respiratory_rate} /min` : "—", color: "#8764B8" },
+                            { label: "Weight", value: p360Data?.latest_vitals?.weight_kg ? `${p360Data.latest_vitals.weight_kg} kg` : "—", color: "#038387" },
+                            { label: "Height", value: p360Data?.latest_vitals?.height_cm ? `${p360Data.latest_vitals.height_cm} cm` : "—", color: "#0078d4" },
                           ].map((v) => (
                             <div key={v.label} className="flex items-center justify-between text-[11.5px] font-semibold text-slate-600">
                               <span className="text-slate-400 font-bold w-10">{v.label}</span>
@@ -1719,7 +1721,9 @@ export default function DoctorWorkspace() {
                           { label: "Heart Rate", value: p360Data.latest_vitals.heart_rate != null ? String(p360Data.latest_vitals.heart_rate) : "—", unit: "bpm", color: "#D13438" },
                           { label: "SpO₂", value: p360Data.latest_vitals.spo2 != null ? `${p360Data.latest_vitals.spo2}%` : "—", unit: "%", color: "#16a34a" },
                           { label: "Temperature", value: p360Data.latest_vitals.temperature != null ? `${p360Data.latest_vitals.temperature}°F` : "—", unit: "°F", color: "#CA5010" },
-                          { label: "Resp Rate", value: p360Data.latest_vitals.resp_rate != null ? String(p360Data.latest_vitals.resp_rate) : "—", unit: "/min", color: "#8764B8" },
+                          {label: "Resp Rate", value: p360Data.latest_vitals.respiratory_rate != null ? String(p360Data.latest_vitals.respiratory_rate) : "—", unit: "/min", color: "#8764B8" },
+                          { label: "Weight", value: p360Data.latest_vitals.weight_kg != null ? String(p360Data.latest_vitals.weight_kg) : "—", unit: "kg", color: "#038387" },
+                          { label: "Height", value: p360Data.latest_vitals.height_cm != null ? String(p360Data.latest_vitals.height_cm) : "—", unit: "cm", color: "#0078d4" },
                         ].map((v) => (
                           <div key={v.label} className={`${cardClass} p-3 flex flex-col justify-between h-[100px]`}>
                             <div className="flex items-center justify-between text-slate-500 font-bold text-[11px]">{v.label}</div>
@@ -1747,6 +1751,8 @@ export default function DoctorWorkspace() {
                               <th className={cellHead}>SpO₂</th>
                               <th className={cellHead}>Temp</th>
                               <th className={cellHead}>RR</th>
+                              <th className={cellHead}>Weight</th>
+                              <th className={cellHead}>Height</th>
                               <th className="pb-1.5 font-bold">Source</th>
                             </tr>
                           </thead>
@@ -1758,7 +1764,9 @@ export default function DoctorWorkspace() {
                                 <td className="py-2.5 pr-3 text-slate-600">{p360Data.latest_vitals.heart_rate || "—"}</td>
                                 <td className="py-2.5 pr-3 text-slate-600">{p360Data.latest_vitals.spo2 ? `${p360Data.latest_vitals.spo2}%` : "—"}</td>
                                 <td className="py-2.5 pr-3 text-slate-600">{p360Data.latest_vitals.temperature ? `${p360Data.latest_vitals.temperature}°F` : "—"}</td>
-                                <td className="py-2.5 pr-3 text-slate-600">{p360Data.latest_vitals.resp_rate || "—"}</td>
+                                <td className="py-2.5 pr-3 text-slate-600">{p360Data.latest_vitals.respiratory_rate || "—"}</td>
+                                <td className="py-2.5 pr-3 text-slate-600">{p360Data.latest_vitals.weight_kg ? `${p360Data.latest_vitals.weight_kg} kg` : "—"}</td>
+                                <td className="py-2.5 pr-3 text-slate-600">{p360Data.latest_vitals.height_cm ? `${p360Data.latest_vitals.height_cm} cm` : "—"}</td>
                                 <td className="py-2.5 text-slate-400 font-bold">Encounter Vitals</td>
                               </tr>
                             )}
