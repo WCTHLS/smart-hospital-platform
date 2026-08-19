@@ -317,8 +317,8 @@ export default function LabOrdersAlert({
               </span>
             </div>
 
-            {/* List of Pending Orders with Checkbox, Category & Price */}
-            <div className="space-y-2">
+            {/* List of Pending Orders with Checkbox, Category, Price & Upload Button */}
+            <div className="space-y-2.5">
               {pendingOrders.map((o: any) => {
                 const orderId = o.lab_order_id || o.order_id || o.id;
                 const isChecked = selectedOrderIds.includes(orderId);
@@ -328,40 +328,59 @@ export default function LabOrdersAlert({
                 return (
                   <div
                     key={orderId}
-                    className={`flex items-center justify-between gap-2.5 p-3 rounded-xl border transition ${
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border transition ${
                       isChecked 
                         ? "bg-white border-[#0078d4]/40 shadow-xs" 
-                        : "bg-white/60 border-slate-200 opacity-80"
+                        : "bg-white/80 border-slate-200"
                     }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-3.5 min-w-0">
                       <input
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => handleToggleOrder(orderId)}
-                        className="h-4 w-4 rounded border-slate-300 text-[#0078d4] focus:ring-[#0078d4] cursor-pointer"
+                        className="h-4 w-4 rounded border-slate-300 text-[#0078d4] focus:ring-[#0078d4] cursor-pointer shrink-0"
                       />
-                      <div className="grid h-8 w-8 place-items-center rounded-lg bg-blue-50 text-[#0078d4] shrink-0">
-                        {isScan ? <ScanLine size={16} /> : <FlaskConical size={16} />}
+                      <div className={`grid h-9 w-9 place-items-center rounded-xl shrink-0 ${
+                        isScan ? "bg-purple-50 text-purple-700 border border-purple-200" : "bg-blue-50 text-[#0078d4] border border-blue-200"
+                      }`}>
+                        {isScan ? <ScanLine size={17} /> : <FlaskConical size={17} />}
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-[13px] text-slate-800 truncate">{o.test || o.name}</span>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            isScan ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"
+                          <span className="font-extrabold text-[13.5px] text-slate-800">{o.test || o.name}</span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                            isScan ? "bg-purple-100 text-purple-700 border border-purple-200" : "bg-blue-100 text-[#0078d4] border border-blue-200"
                           }`}>
-                            {isScan ? "Imaging / Scan" : "Lab Test"}
+                            {isScan ? "IMAGING / SCAN" : "LAB TEST"}
                           </span>
                         </div>
-                        <div className="text-[11px] text-slate-500 mt-0.5">
-                          {o.panel || "Laboratory Investigation"} · Ordered on: {o.date || "Today"}
+                        <div className="text-[11.5px] text-slate-500 mt-0.5">
+                          {o.test || o.name} · Ordered on: {o.date || "Today"}
                         </div>
                       </div>
                     </div>
 
-                    <div className="text-right shrink-0 pl-3">
-                      <span className="text-[10px] text-slate-400 block font-semibold">TEST CHARGE</span>
-                      <span className="font-extrabold text-[13.5px] text-slate-800">₹{price}</span>
+                    <div className="flex items-center justify-between sm:justify-end gap-3.5 shrink-0 pl-7 sm:pl-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                      <div className="text-left sm:text-right">
+                        <span className="text-[9.5px] text-slate-400 block font-bold uppercase tracking-wider">TEST CHARGE</span>
+                        <span className="font-extrabold text-[14.5px] text-slate-900">₹{price}</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setUploadingOrder(o);
+                          setUploadFile(null);
+                          setUploadNotes("");
+                          setUploadError("");
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-bold text-[12px] shadow-2xs hover:border-slate-400 transition"
+                      >
+                        <Upload size={13} className="text-slate-600" />
+                        <span>Upload Report</span>
+                      </button>
                     </div>
                   </div>
                 );
@@ -369,7 +388,7 @@ export default function LabOrdersAlert({
             </div>
 
             {/* Bottom Total, Already Completed Upload Link & Book Slot Button */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2.5 border-t border-amber-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-amber-200">
               <div className="text-[12.5px] text-amber-950 font-medium">
                 Selected <b className="text-slate-900">{selectedOrderIds.length} of {pendingOrders.length}</b> tests · Estimated Total: <b className="text-[16px] text-slate-900 font-extrabold">₹{totalCharges}</b>
               </div>
@@ -383,7 +402,7 @@ export default function LabOrdersAlert({
                     setUploadNotes("");
                     setUploadError("");
                   }}
-                  className="text-[12px] font-bold text-[#0078d4] hover:underline flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg hover:bg-blue-50/70 border border-dashed border-[#0078d4]/30"
+                  className="text-[12px] font-bold text-[#0078d4] hover:underline flex items-center justify-center gap-1.5 py-2 px-3.5 rounded-xl hover:bg-blue-50/70 border border-dashed border-[#0078d4]/40"
                 >
                   <Upload size={13} /> Already completed tests? Upload reports
                 </button>
@@ -392,7 +411,7 @@ export default function LabOrdersAlert({
                   type="button"
                   disabled={selectedOrderIds.length === 0}
                   onClick={() => setStep("date")}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0078d4] hover:bg-[#0a6ec2] text-white font-bold text-[12.5px] px-5 py-2 shadow-sm transition disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[#0078d4] hover:bg-[#0a6ec2] text-white font-bold text-[12.5px] px-5 py-2.5 shadow-sm transition disabled:opacity-50"
                 >
                   Book Slot &amp; Pay <ChevronRight size={15} />
                 </button>
