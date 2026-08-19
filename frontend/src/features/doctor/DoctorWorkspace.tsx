@@ -1246,6 +1246,7 @@ export default function DoctorWorkspace() {
         events.push({
           id: `enc-${e.encounter_id}`,
           timestamp,
+          stageRank: 2,
           title: e.visit_type === "LAB" ? "Lab Check-in" : "Patient Admission",
           status: e.status === "DISCHARGED" || e.status === "COMPLETED" ? "Completed" : "Active",
           statusColor: e.status === "DISCHARGED" || e.status === "COMPLETED" ? "#16a34a" : "#0078d4",
@@ -1288,6 +1289,7 @@ export default function DoctorWorkspace() {
         events.push({
           id: `result-${orderId}`,
           timestamp,
+          stageRank: 6,
           title: isRadiology ? "Imaging Report Signed" : "Laboratory Findings Updated",
           status: isAbnormal ? "Abnormal" : "Completed",
           statusColor: isAbnormal ? "#CA5010" : "#16a34a",
@@ -1325,6 +1327,7 @@ export default function DoctorWorkspace() {
         events.push({
           id: `med-timeline-${m.medication_id}`,
           timestamp,
+          stageRank: 5,
           title: "Prescription Authorized",
           status: m.status === "ACTIVE" ? "E-Signed" : "Cancelled",
           statusColor: m.status === "ACTIVE" ? "#16a34a" : "#D13438",
@@ -1339,8 +1342,12 @@ export default function DoctorWorkspace() {
       });
     }
 
-    // Sort by timestamp desc
-    events.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+    // Sort by timestamp and clinical stage order
+    events.sort((a, b) => {
+      const diff = b.timestamp.getTime() - a.timestamp.getTime();
+      if (Math.abs(diff) > 60000) return diff;
+      return (b.stageRank || 0) - (a.stageRank || 0);
+    });
 
     return events;
   };

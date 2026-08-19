@@ -50,15 +50,18 @@ export default function RadiologyWorkspace() {
     refetchInterval: 5000,
   });
 
-  // Filter orders to render only RADIOLOGY modality scans
-  const todayStr = new Date().toLocaleDateString('sv').split('T')[0];
+  // Filter orders to render all RADIOLOGY modality scans directly from DB
   const radiologyOrders = orders?.filter((o: any) => {
-    if (o.category !== "RADIOLOGY") return false;
-    // Hide unpaid orders
-    if (o.status === "CREATED") return false;
-    // Only show on the booked date
-    if (o.booking_date && o.booking_date !== todayStr) return false;
-    return true;
+    const testName = (o.test_name || o.test || "").toLowerCase();
+    const panelName = (o.panel || o.modality || "").toUpperCase();
+    const isRadiology =
+      o.category === "RADIOLOGY" ||
+      ["RADIOLOGY", "IMAGING", "SCANS", "X-RAY", "MRI", "CT", "ULTRASOUND"].includes(panelName) ||
+      Boolean(o.is_imaging) ||
+      ["x-ray", "xray", "ct", "mri", "ultrasound", "usg", "scan", "imaging", "mammogram", "dexa"].some((k) =>
+        testName.includes(k)
+      );
+    return isRadiology;
   }) || [];
 
   // Filter based on modality tabs
@@ -341,10 +344,31 @@ export default function RadiologyWorkspace() {
                           <td className="py-2.5 pr-3">{o.test_name}</td>
                           <td className="py-2.5 pr-3 text-slate-500">{o.ordered_by || "Dr. Ananya Mehta"}</td>
                           <td className="py-2.5 pr-3">
-                            {o.status === "CONFIRMED" && <span className="text-amber-600 bg-amber-50 border border-amber-200/50 px-1.5 py-0.5 rounded text-[10px]">NOT CHECKED IN</span>}
-                            {o.status === "CHECKED_IN" && <span className="text-[#0078d4] bg-blue-50 border border-blue-200/50 px-1.5 py-0.5 rounded text-[10px]">CHECKED IN</span>}
-                            {o.status === "SAMPLE_COLLECTED" && <span className="text-[#0078d4] bg-blue-50 border border-blue-200/50 px-1.5 py-0.5 rounded text-[10px]">IN REVIEW</span>}
-                            {o.status === "RESULTED" && <span className="text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-1.5 py-0.5 rounded text-[10px]">READY</span>}
+                            {(!o.status || o.status === "CREATED" || o.status === "PENDING" || o.status === "ORDERED") && (
+                              <span className="text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                ORDERED
+                              </span>
+                            )}
+                            {(o.status === "CONFIRMED" || o.status === "BOOKED" || o.status === "SCHEDULED") && (
+                              <span className="text-amber-600 bg-amber-50 border border-amber-200/50 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                SLOT BOOKED
+                              </span>
+                            )}
+                            {o.status === "CHECKED_IN" && (
+                              <span className="text-[#0078d4] bg-blue-50 border border-blue-200/50 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                CHECKED IN
+                              </span>
+                            )}
+                            {o.status === "SAMPLE_COLLECTED" && (
+                              <span className="text-indigo-700 bg-indigo-50 border border-indigo-200/50 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                SCAN ACQUIRED
+                              </span>
+                            )}
+                            {(o.status === "RESULTED" || o.status === "COMPLETED" || o.status === "DISCHARGED") && (
+                              <span className="text-emerald-700 bg-emerald-50 border border-emerald-200/50 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                                REPORT READY
+                              </span>
+                            )}
                           </td>
                           <td className="py-2.5">
                             <button 

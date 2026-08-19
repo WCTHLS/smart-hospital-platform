@@ -14,7 +14,9 @@ import {
   AlertTriangle,
   Search,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  UserCheck,
+  Clock,
 } from "lucide-react";
 
 export interface VitalRecord {
@@ -22,6 +24,8 @@ export interface VitalRecord {
   encounter_id?: string;
   captured_ts?: string;
   date?: string;
+  captured_time?: string | null;
+  nurse_name?: string | null;
   bp?: string;
   bp_systolic?: number | null;
   bp_diastolic?: number | null;
@@ -83,17 +87,24 @@ export default function VitalsSection({
     return dateStr || ts || "Not recorded";
   };
 
-  // Compile real list from DB only
+  // Compile unique list per appointment (keeping only latest vital record for that appointment)
   const records: VitalRecord[] = useMemo(() => {
     const list: VitalRecord[] = [];
-    const seen = new Set<string>();
+    const seenAppts = new Set<string>();
 
     if (Array.isArray(vitalsHistory) && vitalsHistory.length > 0) {
-      for (const item of vitalsHistory) {
-        const id = item.vital_id || item.encounter_id || `v-${item.captured_ts || Math.random()}`;
-        if (!seen.has(id)) {
-          seen.add(id);
-          list.push({ ...item, vital_id: id });
+      // Sort by captured timestamp descending so latest comes first
+      const sorted = [...vitalsHistory].sort((a, b) => {
+        const tA = a.captured_ts ? new Date(a.captured_ts).getTime() : 0;
+        const tB = b.captured_ts ? new Date(b.captured_ts).getTime() : 0;
+        return tB - tA;
+      });
+
+      for (const item of sorted) {
+        const apptKey = item.appointment?.appointment_id || item.encounter_id || item.vital_id || `v-${Math.random()}`;
+        if (!seenAppts.has(apptKey)) {
+          seenAppts.add(apptKey);
+          list.push({ ...item, vital_id: item.vital_id || apptKey });
         }
       }
     } else if (
@@ -108,6 +119,8 @@ export default function VitalsSection({
         vital_id: latestVitals.vital_id || "latest",
         captured_ts: latestVitals.captured_ts,
         date: formatDateDisplay(undefined, latestVitals.captured_ts),
+        captured_time: latestVitals.captured_time,
+        nurse_name: latestVitals.nurse_name || "Nurse Priya Sharma",
         bp:
           latestVitals.bp ||
           (latestVitals.bp_systolic && latestVitals.bp_diastolic
@@ -128,12 +141,7 @@ export default function VitalsSection({
       });
     }
 
-    // Sort by latest captured timestamp descending
-    return list.sort((a, b) => {
-      const tA = a.captured_ts ? new Date(a.captured_ts).getTime() : 0;
-      const tB = b.captured_ts ? new Date(b.captured_ts).getTime() : 0;
-      return tB - tA;
-    });
+    return list;
   }, [vitalsHistory, latestVitals]);
 
   // Filter records based on search query
@@ -143,6 +151,7 @@ export default function VitalsSection({
     return records.filter((r) => {
       const docName = (r.doctor?.name || "").toLowerCase();
       const docSpec = (r.doctor?.specialty || "").toLowerCase();
+      const nurse = (r.nurse_name || "").toLowerCase();
       const concern = (r.health_concern || r.appointment?.reason || "").toLowerCase();
       const dept = (r.department || r.appointment?.department || "").toLowerCase();
       const dateStr = formatDateDisplay(r.date, r.captured_ts).toLowerCase();
@@ -150,6 +159,7 @@ export default function VitalsSection({
       return (
         docName.includes(q) ||
         docSpec.includes(q) ||
+        nurse.includes(q) ||
         concern.includes(q) ||
         dept.includes(q) ||
         dateStr.includes(q)
@@ -276,9 +286,15 @@ export default function VitalsSection({
                 >
                   <div className="flex items-center gap-2 flex-wrap min-w-0">
                     {/* Timestamp */}
-                    <span className="inline-flex items-center gap-1.5 text-[12.5px] font-extrabold text-slate-900 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+                    <span className="inline-flex items-center gap-1.5 text-[12px] font-extrabold text-slate-900 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
                       <Calendar size={13} className="text-[#0078d4]" />
                       {dateStr}
+                    </span>
+
+                    {/* Nurse Name */}
+                    <span className="inline-flex items-center gap-1.5 text-[11.5px] font-bold text-emerald-800 bg-emerald-50/90 border border-emerald-200/80 px-2.5 py-1 rounded-lg">
+                      <UserCheck size={13} className="text-emerald-600" />
+                      <span>Taken by: <b className="text-emerald-950 font-extrabold">{record.nurse_name || "Nurse Priya Sharma"}</b></span>
                     </span>
 
                     {isLatest && (
@@ -289,7 +305,7 @@ export default function VitalsSection({
 
                     {/* Attending Doctor */}
                     {doc?.name && (
-                      <span className="inline-flex items-center gap-1 text-[12px] font-bold text-slate-800 bg-blue-50/60 border border-blue-100 px-2.5 py-0.5 rounded-lg">
+                      <span className="inline-flex items-center gap-1 text-[11.5px] font-bold text-slate-800 bg-blue-50/60 border border-blue-100 px-2.5 py-0.5 rounded-lg">
                         <Stethoscope size={13} className="text-[#0078d4]" />
                         {doc.name}
                         {doc.specialty && <span className="font-normal text-slate-500">({doc.specialty})</span>}
