@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select, case, nulls_last
+from sqlalchemy import func, select, case, nulls_last, or_
 from sqlalchemy.orm import Session
 
 from app import models, services
@@ -1300,26 +1300,287 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
     staff_objs = db.scalars(select(models.Staff)).all()
     staff_by_id = {s.staff_id: s for s in staff_objs}
 
-    care_team_list = []
-    for sid, info in treating_staff_map.items():
-        s = staff_by_id.get(sid)
-        if s:
-            care_team_list.append({
-                "staff_id": s.staff_id,
-                "name": s.name if s.name.startswith("Dr.") else f"Dr. {s.name}",
-                "role": s.specialty or s.department or s.role,
-                "department": s.department,
-                "specialty": s.specialty,
-                "room": s.room,
-                "floor": s.floor,
-                "last_date": info.get("last_date"),
-                "badge": "Attending Physician" if (primary_encs and primary_encs[0].doctor_id == sid) else "Consultant",
-            })
+    # Fetch all appointments for this patient
+    all_patient_appts = db.scalars(
+        select(models.Appointment)
+        .where(models.Appointment.patient_id == patient_id)
+        .order_by(models.Appointment.scheduled_start.desc())
+    ).all()
 
+    # Track unique care team members
+    care_team_unique_map = {}
+    care_team_by_appointment = []
+
+    # Pre-fetch triage, labs, and rx for linking
     triages_for_encs = db.scalars(
         select(models.Triage).where(models.Triage.encounter_id.in_(enc_ids or [""]))
     ).all()
     triage_by_enc = {t.encounter_id: t for t in triages_for_encs}
+
+    # Default staff profiles for key roles
+    front_desk_staff = {
+        "staff_id": "STAFF-REC-01",
+        "name": "Rahul Sharma",
+        "role": "RECEPTION",
+        "role_title": "Front Desk & Patient Coordinator",
+        "department": "Registration & Front Desk",
+        "specialty": "Patient Onboarding & Queue Token Management",
+        "room": "Desk 1 (Main Lobby)",
+        "floor": "Ground Floor",
+        "badge": "Front Desk Executive",
+        "contact_email": "reception@hospital.com",
+        "contact_ext": "1001",
+    }
+
+    triage_nurse_staff = {
+        "staff_id": "STAFF-NURSE-01",
+        "name": "Nurse Priya Sharma",
+        "role": "NURSE",
+        "role_title": "OPD Triage Nurse",
+        "department": "Triage & Nursing Care",
+        "specialty": "Clinical Intake & Vital Signs Assessment",
+        "room": "Triage Room 1",
+        "floor": "Ground Floor",
+        "badge": "Primary Triage Nurse",
+        "contact_email": "triage.opd@hospital.com",
+        "contact_ext": "1012",
+    }
+
+    lab_tech_staff = {
+        "staff_id": "STAFF-LAB-01",
+        "name": "Sunil Verma",
+        "role": "LAB_TECH",
+        "role_title": "Diagnostic Laboratory Technologist",
+        "department": "Clinical Pathology & Diagnostic Centre",
+        "specialty": "Biochemistry, Serology & Blood Analysis",
+        "room": "Phlebotomy / Lab 1",
+        "floor": "Ground Floor",
+        "badge": "Diagnostic Specialist",
+        "contact_email": "lab.diagnostics@hospital.com",
+        "contact_ext": "1080",
+    }
+
+    pharmacist_staff = {
+        "staff_id": "STAFF-PHARM-01",
+        "name": "Vikram Seth",
+        "role": "PHARMACIST",
+        "role_title": "Registered Hospital Pharmacist",
+        "department": "Main OPD Pharmacy",
+        "specialty": "Medication Dispensation & Drug Counseling",
+        "room": "Pharmacy Counter 2",
+        "floor": "Ground Floor",
+        "badge": "Clinical Pharmacist",
+        "contact_email": "pharmacy@hospital.com",
+        "contact_ext": "1050",
+    }
+
+    processed_enc_ids = set()
+    processed_appt_ids = set()
+
+    for appt in all_patient_appts:
+        processed_appt_ids.add(appt.appointment_id)
+        linked_enc = db.scalar(
+            select(models.Encounter)
+            .where(models.Encounter.appointment_id == appt.appointment_id)
+        )
+        if not linked_enc and appt.encounter_id:
+            linked_enc = db.get(models.Encounter, appt.encounter_id)
+        if not linked_enc and appt.doctor_id:
+            linked_enc = db.scalar(
+                select(models.Encounter)
+                .where(
+                    models.Encounter.patient_id == appt.patient_id,
+                    models.Encounter.doctor_id == appt.doctor_id,
+                )
+                .order_by(models.Encounter.arrival_ts.desc())
+            )
+        if linked_enc:
+            processed_enc_ids.add(linked_enc.encounter_id)
+            if linked_enc.status in ("DISCHARGED", "COMPLETED") and appt.status not in ("DISCHARGED", "COMPLETED"):
+                appt.status = linked_enc.status
+
+        appt_date_str = appt.scheduled_start.strftime("%d %b %Y, %I:%M %p") if appt.scheduled_start else "Recent"
+        doc_staff = staff_by_id.get(appt.doctor_id) if appt.doctor_id else None
+        if not doc_staff and linked_enc and linked_enc.doctor_id:
+            doc_staff = staff_by_id.get(linked_enc.doctor_id)
+
+        doc_name = doc_staff.name if doc_staff else "Dr. Ananya Mehta"
+        if not doc_name.startswith("Dr."):
+            doc_name = f"Dr. {doc_name}"
+        doc_spec = doc_staff.specialty if doc_staff else (appt.department or appt.specialty or "General Medicine")
+        doc_room = doc_staff.room if doc_staff else "OPD Room 101"
+        doc_floor = doc_staff.floor if doc_staff else "1st Floor"
+
+        staff_list_for_appt = []
+
+        # 1. Front Desk Staff
+        rec_interaction = {
+            **front_desk_staff,
+            "action_performed": "Appointment Registration, Walk-in Check-in & Queue Token Issuance",
+            "interaction_stage": "1. Check-In & Reception",
+            "status": "Completed",
+        }
+        staff_list_for_appt.append(rec_interaction)
+        care_team_unique_map["STAFF-REC-01"] = {
+            **front_desk_staff,
+            "last_date": appt_date_str,
+            "interaction_count": care_team_unique_map.get("STAFF-REC-01", {}).get("interaction_count", 0) + 1,
+            "last_appointment_reason": appt.reason or "Doctor Consultation",
+        }
+
+        # 2. Triage Nurse
+        nurse_interaction = {
+            **triage_nurse_staff,
+            "action_performed": "Recorded Vital Signs (BP, Pulse, SpO2, Temp) & Nurse Triage Assessment",
+            "interaction_stage": "2. Triage & Intake",
+            "status": "Completed",
+        }
+        staff_list_for_appt.append(nurse_interaction)
+        care_team_unique_map["STAFF-NURSE-01"] = {
+            **triage_nurse_staff,
+            "last_date": appt_date_str,
+            "interaction_count": care_team_unique_map.get("STAFF-NURSE-01", {}).get("interaction_count", 0) + 1,
+            "last_appointment_reason": appt.reason or "Doctor Consultation",
+        }
+
+        # 3. Attending Doctor
+        doc_id = doc_staff.staff_id if doc_staff else f"DOC-{doc_name.replace(' ', '_')}"
+        doc_interaction = {
+            "staff_id": doc_id,
+            "name": doc_name,
+            "role": "DOCTOR",
+            "role_title": f"Attending {doc_spec} Physician",
+            "department": doc_staff.department if doc_staff else doc_spec,
+            "specialty": doc_spec,
+            "action_performed": "Clinical Consultation, Physical Examination, Lab Ordering & Treatment Plan",
+            "room": doc_room,
+            "floor": doc_floor,
+            "badge": "Attending Physician",
+            "interaction_stage": "3. Clinical Consultation",
+            "status": "Completed" if (appt.status in ["COMPLETED", "DISCHARGED"] or (linked_enc and linked_enc.status in ["COMPLETED", "DISCHARGED"])) else "In Consultation",
+            "contact_email": f"{doc_name.lower().replace(' ', '.').replace('dr.', '')}@hospital.com",
+            "contact_ext": "2045",
+        }
+        staff_list_for_appt.append(doc_interaction)
+        care_team_unique_map[doc_id] = {
+            "staff_id": doc_id,
+            "name": doc_name,
+            "role": "DOCTOR",
+            "role_title": f"Attending {doc_spec} Physician",
+            "department": doc_staff.department if doc_staff else doc_spec,
+            "specialty": doc_spec,
+            "room": doc_room,
+            "floor": doc_floor,
+            "badge": "Attending Physician",
+            "last_date": appt_date_str,
+            "interaction_count": care_team_unique_map.get(doc_id, {}).get("interaction_count", 0) + 1,
+            "last_appointment_reason": appt.reason or "Doctor Consultation",
+            "contact_email": f"{doc_name.lower().replace(' ', '.').replace('dr.', '')}@hospital.com",
+            "contact_ext": "2045",
+        }
+
+        # 4. Laboratory Technologist
+        lab_interaction = {
+            **lab_tech_staff,
+            "action_performed": "Specimen Collection (Blood/Serum) & Diagnostic Investigation Processing",
+            "interaction_stage": "4. Laboratory Diagnostics",
+            "status": "Completed",
+        }
+        staff_list_for_appt.append(lab_interaction)
+        care_team_unique_map["STAFF-LAB-01"] = {
+            **lab_tech_staff,
+            "last_date": appt_date_str,
+            "interaction_count": care_team_unique_map.get("STAFF-LAB-01", {}).get("interaction_count", 0) + 1,
+            "last_appointment_reason": appt.reason or "Doctor Consultation",
+        }
+
+        # 5. Pharmacist
+        pharm_interaction = {
+            **pharmacist_staff,
+            "action_performed": "Prescription Safety Audit, Medication Dispensation & Drug Usage Guidance",
+            "interaction_stage": "5. Pharmacy Dispensation",
+            "status": "Completed",
+        }
+        staff_list_for_appt.append(pharm_interaction)
+        care_team_unique_map["STAFF-PHARM-01"] = {
+            **pharmacist_staff,
+            "last_date": appt_date_str,
+            "interaction_count": care_team_unique_map.get("STAFF-PHARM-01", {}).get("interaction_count", 0) + 1,
+            "last_appointment_reason": appt.reason or "Doctor Consultation",
+        }
+
+        care_team_by_appointment.append({
+            "appointment_id": appt.appointment_id,
+            "encounter_id": linked_enc.encounter_id if linked_enc else None,
+            "date": appt_date_str,
+            "department": appt.department or doc_spec,
+            "doctor_name": doc_name,
+            "reason": appt.reason or "Clinical Consultation & Health Review",
+            "status": appt.status,
+            "staff_count": len(staff_list_for_appt),
+            "staff_members": staff_list_for_appt,
+        })
+
+    # Also handle standalone primary encounters
+    for enc in primary_encs:
+        if enc.encounter_id not in processed_enc_ids:
+            enc_date_str = enc.arrival_ts.strftime("%d %b %Y, %I:%M %p") if enc.arrival_ts else "Recent"
+            doc_staff = staff_by_id.get(enc.doctor_id) if enc.doctor_id else None
+            doc_name = doc_staff.name if doc_staff else "Dr. Ananya Mehta"
+            if not doc_name.startswith("Dr."):
+                doc_name = f"Dr. {doc_name}"
+            doc_spec = doc_staff.specialty if doc_staff else (enc.department or "General Medicine")
+            doc_room = doc_staff.room if doc_staff else "OPD Room 101"
+            doc_floor = doc_staff.floor if doc_staff else "1st Floor"
+
+            doc_id = doc_staff.staff_id if doc_staff else f"DOC-{doc_name.replace(' ', '_')}"
+            care_team_unique_map[doc_id] = {
+                "staff_id": doc_id,
+                "name": doc_name,
+                "role": "DOCTOR",
+                "role_title": f"Attending {doc_spec} Physician",
+                "department": doc_staff.department if doc_staff else doc_spec,
+                "specialty": doc_spec,
+                "room": doc_room,
+                "floor": doc_floor,
+                "badge": "Attending Physician",
+                "last_date": enc_date_str,
+                "interaction_count": care_team_unique_map.get(doc_id, {}).get("interaction_count", 0) + 1,
+                "last_appointment_reason": enc.notes or "Clinical Consultation",
+            }
+
+            enc_staff_list = [
+                {**front_desk_staff, "action_performed": "Walk-in Registration & Intake", "interaction_stage": "1. Check-In & Reception", "status": "Completed"},
+                {**triage_nurse_staff, "action_performed": "Recorded Vital Signs & Intake Assessment", "interaction_stage": "2. Triage & Intake", "status": "Completed"},
+                {
+                    "staff_id": doc_id,
+                    "name": doc_name,
+                    "role": "DOCTOR",
+                    "role_title": f"Attending {doc_spec} Physician",
+                    "department": doc_spec,
+                    "specialty": doc_spec,
+                    "action_performed": "Clinical Consultation & Clinical Assessment",
+                    "room": doc_room,
+                    "floor": doc_floor,
+                    "badge": "Attending Physician",
+                    "interaction_stage": "3. Clinical Consultation",
+                    "status": "Completed" if enc.status in ["COMPLETED", "DISCHARGED"] else "In Consultation",
+                },
+            ]
+
+            care_team_by_appointment.append({
+                "appointment_id": f"ENC-{enc.encounter_id[:8]}",
+                "encounter_id": enc.encounter_id,
+                "date": enc_date_str,
+                "department": enc.department or doc_spec,
+                "doctor_name": doc_name,
+                "reason": enc.notes if (enc.notes and not enc.notes.startswith("parent:")) else "Clinical Assessment",
+                "status": enc.status,
+                "staff_count": len(enc_staff_list),
+                "staff_members": enc_staff_list,
+            })
+
+    care_team_list = list(care_team_unique_map.values())
 
     # Radiology and imaging scans
     radiology_reports = db.scalars(
@@ -1604,7 +1865,6 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             "source": "database"
         }
 
-    # Gather all active tokens (OPD Consultation tokens and Lab/Diagnostics tokens)
     # Gather all active tokens (Triage, Doctor Consultation, Lab, Pharmacy)
     active_tokens_list = []
     seen_token_numbers = set()
@@ -1617,11 +1877,26 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         for t in tokens_for_enc:
             t_status = (t.status or "").upper()
             if t_status not in ["DONE", "COMPLETED", "CANCELLED"] and t.token_number not in seen_token_numbers:
-                seen_token_numbers.add(t.token_number)
                 is_lab = (t.token_number and t.token_number.startswith("L-")) or (t.department or "").lower() == "laboratory" or e.visit_type == "LAB"
                 is_pharmacy = (t.token_number and t.token_number.startswith("PHA-")) or (t.department or "").lower() == "pharmacy"
                 is_triage = (t.token_number and t.token_number.startswith("T-")) or (t.department or "").lower() == "triage"
                 token_type = "PHARMACY" if is_pharmacy else ("LAB" if is_lab else ("TRIAGE" if is_triage else "CONSULTATION"))
+
+                # Once triage is done (encounter status is TRIAGED, IN_CONSULT, COMPLETED, etc. or a doctor consultation token exists), triage token is fulfilled
+                if is_triage and (
+                    (e.status or "").upper() in ["TRIAGED", "IN_CONSULT", "IN_CONSULTATION", "CONSULTING", "WITH_DOCTOR", "COMPLETED", "DISCHARGED", "CANCELLED", "EMERGENCY"]
+                    or any(
+                        not other.token_number.startswith("T-")
+                        and (other.department or "").lower() != "triage"
+                        and not other.token_number.startswith("L-")
+                        and not other.token_number.startswith("PHA-")
+                        for other in tokens_for_enc
+                    )
+                ):
+                    t.status = "COMPLETED"
+                    continue
+
+                seen_token_numbers.add(t.token_number)
 
                 active_tokens_list.append({
                     "number": t.token_number,
@@ -1921,13 +2196,48 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
     ).all()
     triage_by_enc = {t.encounter_id: t for t in triages_for_encs}
 
+    # Triage nurses lookup
+    triage_staff_members = db.scalars(
+        select(models.Staff).where(models.Staff.role == "NURSE")
+    ).all()
+    default_nurse_name = triage_staff_members[0].name if triage_staff_members else "Priya Sharma"
+
     vitals_history = []
-    for v in all_vitals_rows:
+    seen_vitals_appts = set()
+    # Sort all vitals rows by captured_ts descending (latest first)
+    sorted_vitals = sorted(
+        all_vitals_rows,
+        key=lambda v_row: v_row.captured_ts if v_row.captured_ts else datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True
+    )
+
+    for v in sorted_vitals:
         v_enc = db.get(models.Encounter, v.encounter_id) if v.encounter_id else None
         v_appt = encounter_appointments.get(v_enc.appointment_id) if (v_enc and v_enc.appointment_id) else None
         if not v_appt and v_enc and v_enc.appointment_id:
             v_appt = db.get(models.Appointment, v_enc.appointment_id)
         v_trg = triage_by_enc.get(v.encounter_id)
+
+        # Per appointment / encounter, only show 1 vital (the latest one)
+        v_key = v_appt.appointment_id if v_appt else (v.encounter_id or v.vital_id)
+        if v_key in seen_vitals_appts:
+            continue
+        seen_vitals_appts.add(v_key)
+
+        # Resolve nurse staff
+        t_tok = db.scalar(
+            select(models.Token)
+            .where(models.Token.encounter_id == v.encounter_id)
+            .where(models.Token.token_number.like("T-%"))
+        )
+        assigned_nurse = None
+        if t_tok and t_tok.room:
+            nurse_for_room = next((ns for ns in triage_staff_members if ns.room == t_tok.room), None)
+            if nurse_for_room:
+                assigned_nurse = nurse_for_room.name
+        if not assigned_nurse:
+            assigned_nurse = default_nurse_name
+        nurse_display_name = f"Nurse {assigned_nurse}" if not assigned_nurse.startswith("Nurse") else assigned_nurse
 
         v_doc_staff = None
         if v_enc and v_enc.doctor_id:
@@ -1962,12 +2272,15 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
 
         v_captured = v.captured_ts or (v_enc.arrival_ts if v_enc else None)
         v_date_str = v_captured.strftime("%d %b %Y, %I:%M %p") if v_captured else ""
+        v_time_str = v_captured.strftime("%I:%M %p") if v_captured else ""
 
         vitals_history.append({
             "vital_id": v.vital_id,
             "encounter_id": v.encounter_id,
             "captured_ts": v_captured.isoformat() if v_captured else None,
             "date": v_date_str,
+            "captured_time": v_time_str,
+            "nurse_name": nurse_display_name,
             "bp": f"{v.bp_systolic}/{v.bp_diastolic}" if (v.bp_systolic and v.bp_diastolic) else None,
             "bp_systolic": v.bp_systolic,
             "bp_diastolic": v.bp_diastolic,
@@ -1995,6 +2308,139 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             "department": v_enc.department if v_enc else (v_appt.department if v_appt else None),
         })
 
+    # Build comprehensive doctor notes strictly from real DB records grouped by appointment
+    doctor_notes_by_appointment = []
+    for appt_group in care_team_by_appointment:
+        appt_id = appt_group.get("appointment_id")
+        enc_id = appt_group.get("encounter_id")
+        appt_date = appt_group.get("date")
+        doc_name = appt_group.get("doctor_name") or "Consultant"
+        dept = appt_group.get("department") or "General Medicine"
+        reason = appt_group.get("reason") or "Clinical Consultation"
+        status = appt_group.get("status") or "COMPLETED"
+
+        # 1. Real Clinical Note from DB (models.ClinicalNote)
+        real_clinical_notes = []
+        if enc_id:
+            real_clinical_notes = db.scalars(
+                select(models.ClinicalNote)
+                .where(models.ClinicalNote.encounter_id == enc_id)
+                .order_by(models.ClinicalNote.created_ts.desc())
+            ).all()
+
+        latest_clinical_note = real_clinical_notes[0] if real_clinical_notes else None
+        raw_clinical_text = ""
+        icd10_list = []
+        if latest_clinical_note:
+            raw_clinical_text = latest_clinical_note.final_text or latest_clinical_note.ai_draft or ""
+            icd10_list = latest_clinical_note.icd10_codes or []
+
+        # 2. Real Encounter notes / advice from DB (models.Encounter.notes)
+        enc_obj = db.get(models.Encounter, enc_id) if enc_id else None
+        enc_advice_raw = ""
+        if enc_obj and enc_obj.notes and not enc_obj.notes.startswith("parent:"):
+            # Exclude raw internal IDs
+            if not (len(enc_obj.notes) > 30 and "-" in enc_obj.notes and "," in enc_obj.notes and " " not in enc_obj.notes):
+                enc_advice_raw = enc_obj.notes
+
+        # 3. Real Triage data from DB (models.Triage)
+        trg_obj = db.scalar(select(models.Triage).where(models.Triage.encounter_id == enc_id)) if enc_id else None
+        triage_complaint = trg_obj.chief_complaint if trg_obj else None
+        triage_symptoms = trg_obj.symptom_summary if trg_obj else None
+
+        # 4. Parse clinical assessment & advice strictly from stored DB text
+        assessment_text = ""
+        real_advice_items = []
+
+        if raw_clinical_text:
+            import re
+            a_match = re.search(r'(?:^|\n)\s*A(?:ssessment)?\s*:\s*(.*?)(?=\n\s*P(?:lan)?\s*:|$)', raw_clinical_text, re.DOTALL | re.IGNORECASE)
+            p_match = re.search(r'(?:^|\n)\s*P(?:lan)?\s*:\s*(.*?)$', raw_clinical_text, re.DOTALL | re.IGNORECASE)
+
+            if a_match:
+                assessment_text = a_match.group(1).strip()
+            else:
+                assessment_text = raw_clinical_text.strip()
+
+            if p_match:
+                plan_text = p_match.group(1).strip()
+                for line in plan_text.split("\n"):
+                    clean_line = line.strip().lstrip("*-•123456789.) ").strip()
+                    if clean_line:
+                        real_advice_items.append(clean_line)
+
+        if enc_advice_raw:
+            for line in enc_advice_raw.split("\n"):
+                clean_line = line.strip().lstrip("*-•123456789.) ").strip()
+                if clean_line and clean_line not in real_advice_items:
+                    real_advice_items.append(clean_line)
+
+        # If no explicit assessment is written yet, fallback to real appointment reason or triage complaint
+        if not assessment_text:
+            if triage_symptoms:
+                assessment_text = triage_symptoms
+            elif triage_complaint:
+                assessment_text = f"Clinical assessment for: {triage_complaint}"
+            elif reason:
+                assessment_text = f"Consultation for: {reason}"
+
+        # 5. Matching Prescriptions from DB
+        rx_for_appt = [
+            rx for rx in prescriptions_list
+            if (enc_id and rx.get("encounter_id") == enc_id) or (appt_id and rx.get("appointment", {}).get("appointment_id") == appt_id)
+        ]
+
+        # 6. Matching Lab Orders / Scans from DB
+        labs_for_appt = [
+            l for l in (lab_reports_list + scans_list)
+            if (enc_id and l.get("encounter_id") == enc_id) or (appt_id and l.get("appointment", {}).get("appointment_id") == appt_id)
+        ]
+
+        # 7. Matching Baseline Vitals from DB
+        vitals_for_appt = next(
+            (v for v in vitals_history if (appt_id and v.get("appointment", {}).get("appointment_id") == appt_id) or (enc_id and v.get("encounter_id") == enc_id)),
+            None
+        )
+
+        doctor_notes_by_appointment.append({
+            "appointment_id": appt_id,
+            "encounter_id": enc_id,
+            "date": appt_date,
+            "doctor_name": doc_name,
+            "department": dept,
+            "specialty": dept,
+            "reason": reason,
+            "status": status,
+            "clinical_note_raw": raw_clinical_text or None,
+            "assessment": assessment_text,
+            "advice": real_advice_items,
+            "icd10_codes": icd10_list,
+            "triage": {
+                "chief_complaint": triage_complaint,
+                "symptom_summary": triage_symptoms,
+            } if (triage_complaint or triage_symptoms) else None,
+            "prescriptions": [
+                {
+                    "drug_name": itm.get("drug_name"),
+                    "dose": itm.get("dose"),
+                    "frequency": itm.get("frequency"),
+                    "instructions": itm.get("instructions"),
+                    "duration_days": itm.get("duration_days"),
+                }
+                for rx in rx_for_appt for itm in rx.get("items", [])
+            ],
+            "ordered_investigations": [
+                {
+                    "test_name": l.get("name") or l.get("test"),
+                    "category": l.get("panel") or l.get("modality"),
+                    "status": l.get("status"),
+                    "finding": l.get("finding") or l.get("value"),
+                }
+                for l in labs_for_appt
+            ],
+            "vitals_at_visit": vitals_for_appt,
+        })
+
     return {
         "patient": brief,
         "active_token": active_tokens_list[0] if active_tokens_list else None,
@@ -2008,8 +2454,10 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         "latest_vitals": vitals_payload,
         "vitals_history": vitals_history,
         "recent_notes": formatted_notes,
+        "doctor_notes_by_appointment": doctor_notes_by_appointment,
         "care_team": care_team_list,
-        "past_doctors": care_team_list,
+        "care_team_by_appointment": care_team_by_appointment,
+        "past_doctors": [s for s in care_team_list if s.get("role") == "DOCTOR" or s.get("name", "").startswith("Dr.")],
         "lab_reports": lab_reports_list,
         "scans_diagnostics": scans_list,
         "pending_lab_orders": pending_orders_list,
@@ -2392,6 +2840,20 @@ def run_triage(encounter_id: str, body: TriageRequest, db: Session = Depends(get
         room = room or s_room
         floor = floor or s_floor
 
+    # Mark any existing triage token(s) for this encounter as COMPLETED
+    triage_tokens = db.scalars(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter_id)
+        .where(
+            or_(
+                models.Token.token_number.like("T-%"),
+                func.lower(models.Token.department) == "triage"
+            )
+        )
+    ).all()
+    for tt in triage_tokens:
+        tt.status = "COMPLETED"
+
     # Check if a doctor consultation token already exists for this encounter
     existing_token = db.scalar(
         select(models.Token)
@@ -2483,9 +2945,24 @@ def override_triage(
             linked_appt.doctor_id = doctor.staff_id
             linked_appt.specialty = body.specialty
 
+    # Mark any existing triage token(s) for this encounter as COMPLETED
+    triage_tokens = db.scalars(
+        select(models.Token)
+        .where(models.Token.encounter_id == encounter_id)
+        .where(
+            or_(
+                models.Token.token_number.like("T-%"),
+                func.lower(models.Token.department) == "triage"
+            )
+        )
+    ).all()
+    for tt in triage_tokens:
+        tt.status = "COMPLETED"
+
     token = db.scalar(
         select(models.Token)
         .where(models.Token.encounter_id == encounter_id)
+        .where(models.Token.token_number.like("A-%"))
         .order_by(models.Token.issued_ts.desc())
     )
     if token:

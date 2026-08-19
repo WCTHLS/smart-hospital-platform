@@ -14,8 +14,14 @@ import {
   Stethoscope,
   Sparkles,
   User,
-  MapPin
+  MapPin,
+  Upload,
+  XCircle,
+  AlertCircle,
+  Check,
+  LoaderCircle
 } from "lucide-react";
+import { api } from "../../../lib/api";
 
 export interface LabResultItem {
   result_id?: string;
@@ -84,15 +90,56 @@ interface ConsultationLabGroup {
 interface LabReportsSectionProps {
   labReports?: LabReportRecord[];
   scansAndDiagnostics?: LabReportRecord[];
+  refetchP360?: () => void;
 }
 
 export default function LabReportsSection({
   labReports = [],
   scansAndDiagnostics = [],
+  refetchP360,
 }: LabReportsSectionProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"ALL" | "LAB" | "IMAGING">("ALL");
   const [expandedPastGroupIds, setExpandedPastGroupIds] = useState<Set<string>>(new Set());
+
+  // Upload modal state
+  const [uploadingItem, setUploadingItem] = useState<LabReportRecord | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadNotes, setUploadNotes] = useState("");
+  const [uploadingBusy, setUploadingBusy] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadingItem || !uploadFile) {
+      setUploadError("Please choose a file to upload.");
+      return;
+    }
+    const orderId = uploadingItem.lab_order_id || uploadingItem.order_id || uploadingItem.report_id;
+    if (!orderId) {
+      setUploadError("Missing order reference.");
+      return;
+    }
+
+    setUploadingBusy(true);
+    setUploadError("");
+    try {
+      await api.uploadLabOrderReport(orderId, uploadFile, uploadNotes || "External report uploaded by patient");
+      setUploadSuccess(true);
+      setTimeout(async () => {
+        setUploadingItem(null);
+        setUploadFile(null);
+        setUploadNotes("");
+        setUploadSuccess(false);
+        if (refetchP360) await refetchP360();
+      }, 1200);
+    } catch (err: any) {
+      setUploadError(err?.message || "Failed to upload report. Please try again.");
+    } finally {
+      setUploadingBusy(false);
+    }
+  };
 
   // Format date helper (Date only, e.g. 18 Aug 2026)
   const formatDateDisplay = (dateStr?: string) => {
@@ -288,33 +335,30 @@ export default function LabReportsSection({
         <button
           type="button"
           onClick={() => setActiveTab("ALL")}
-          className={`rounded-xl px-3.5 py-1.5 text-[12px] font-bold transition ${
-            activeTab === "ALL"
+          className={`rounded-xl px-3.5 py-1.5 text-[12px] font-bold transition ${activeTab === "ALL"
               ? "bg-[#0078d4] text-white shadow-sm"
               : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+            }`}
         >
           All Reports ({totalAllCount})
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("LAB")}
-          className={`rounded-xl px-3.5 py-1.5 text-[12px] font-bold transition flex items-center gap-1.5 ${
-            activeTab === "LAB"
+          className={`rounded-xl px-3.5 py-1.5 text-[12px] font-bold transition flex items-center gap-1.5 ${activeTab === "LAB"
               ? "bg-[#0078d4] text-white shadow-sm"
               : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+            }`}
         >
           <TestTubes size={14} /> Laboratory Tests ({totalLabCount})
         </button>
         <button
           type="button"
           onClick={() => setActiveTab("IMAGING")}
-          className={`rounded-xl px-3.5 py-1.5 text-[12px] font-bold transition flex items-center gap-1.5 ${
-            activeTab === "IMAGING"
+          className={`rounded-xl px-3.5 py-1.5 text-[12px] font-bold transition flex items-center gap-1.5 ${activeTab === "IMAGING"
               ? "bg-[#0078d4] text-white shadow-sm"
               : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-          }`}
+            }`}
         >
           <ScanLine size={14} /> Scans &amp; Imaging ({totalScanCount})
         </button>
@@ -344,18 +388,16 @@ export default function LabReportsSection({
             return (
               <div
                 key={group.groupId}
-                className={`rounded-2xl border bg-white shadow-sm transition overflow-hidden ${
-                  isLatestGroup
+                className={`rounded-2xl border bg-white shadow-sm transition overflow-hidden ${isLatestGroup
                     ? "border-blue-300 ring-1 ring-blue-500/10"
                     : "border-slate-200/80 hover:border-slate-300"
-                }`}
+                  }`}
               >
                 {/* 1. TOP CONSULTATION CONTEXT HEADER BAR */}
                 <div
                   onClick={() => !isLatestGroup && togglePastGroupExpand(group.groupId)}
-                  className={`p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${
-                    !isLatestGroup ? "cursor-pointer select-none hover:bg-slate-50/70" : ""
-                  }`}
+                  className={`p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3 ${!isLatestGroup ? "cursor-pointer select-none hover:bg-slate-50/70" : ""
+                    }`}
                 >
                   <div className="flex items-center gap-2.5 flex-wrap min-w-0">
                     {/* Date */}
@@ -474,11 +516,10 @@ export default function LabReportsSection({
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <div
-                                  className={`grid h-7 w-7 place-items-center rounded-lg border shrink-0 ${
-                                    item.is_imaging
+                                  className={`grid h-7 w-7 place-items-center rounded-lg border shrink-0 ${item.is_imaging
                                       ? "bg-indigo-50 text-indigo-700 border-indigo-200/60"
                                       : "bg-blue-50 text-[#0078d4] border-blue-200/60"
-                                  }`}
+                                    }`}
                                 >
                                   {item.is_imaging ? (
                                     <ScanLine size={14} />
@@ -497,8 +538,8 @@ export default function LabReportsSection({
                                 </span>
                               </div>
 
-                              {/* Status Badge */}
-                              <div>
+                              {/* Status Badge & Upload Action */}
+                              <div className="flex items-center gap-2 flex-wrap">
                                 {isCompleted ? (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 text-[10.5px] font-extrabold">
                                     <CheckCircle2 size={12} />{" "}
@@ -516,6 +557,19 @@ export default function LabReportsSection({
                                   <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300 px-2.5 py-0.5 text-[10.5px] font-bold">
                                     <Clock size={11} className="text-amber-600 animate-pulse" /> Pending Collection
                                   </span>
+                                )}
+
+                                {item.attachment_uri && (
+                                  <a
+                                    href={item.attachment_uri}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-[#0078d4] hover:text-[#0a6ec2] font-bold text-[11px] shadow-2xs transition"
+                                    title="View attached diagnostic report"
+                                  >
+                                    <FileText size={12} />
+                                    <span>View Attached Report</span>
+                                  </a>
                                 )}
                               </div>
                             </div>
@@ -640,7 +694,7 @@ export default function LabReportsSection({
                                 <a
                                   href={
                                     item.attachment_uri.startsWith("http") ||
-                                    item.attachment_uri.startsWith("/imaging")
+                                      item.attachment_uri.startsWith("/imaging")
                                       ? item.attachment_uri
                                       : `${import.meta.env.VITE_API_BASE_URL ?? ""}${item.attachment_uri}`
                                   }
@@ -661,6 +715,107 @@ export default function LabReportsSection({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* UPLOAD REPORT MODAL */}
+      {uploadingItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="grid h-8 w-8 place-items-center rounded-xl bg-blue-50 text-[#0078d4]">
+                  <Upload size={16} />
+                </div>
+                <div>
+                  <h3 className="text-[14.5px] font-extrabold text-slate-800">Upload External Test Report</h3>
+                  <p className="text-[11px] text-slate-500">Attach report completed at external clinic/lab</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUploadingItem(null)}
+                className="text-slate-400 hover:text-slate-600 font-bold"
+              >
+                <XCircle size={18} />
+              </button>
+            </div>
+
+            {uploadError && (
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-[12px] font-semibold flex items-center gap-2">
+                <AlertCircle size={15} /> {uploadError}
+              </div>
+            )}
+
+            {uploadSuccess ? (
+              <div className="py-6 text-center space-y-2">
+                <div className="grid h-12 w-12 mx-auto place-items-center rounded-full bg-emerald-100 text-emerald-700">
+                  <Check size={24} />
+                </div>
+                <h4 className="font-extrabold text-[14.5px] text-slate-800">Report Uploaded Successfully!</h4>
+                <p className="text-[12px] text-slate-500">
+                  Test <b>{uploadingItem.test || uploadingItem.name}</b> marked as Completed.
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleUploadSubmit} className="space-y-3.5">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase">Prescribed Investigation</div>
+                  <div className="text-[13px] font-extrabold text-slate-800">{uploadingItem.test || uploadingItem.name}</div>
+                  <div className="text-[11px] text-slate-500">{uploadingItem.panel || uploadingItem.modality || "Diagnostic Test"}</div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 uppercase block mb-1">
+                    Attach Report File (PDF, Image) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
+                    className="w-full rounded-xl border border-slate-300 bg-white p-2 text-[12px] text-slate-700 outline-none focus:border-[#0078d4] shadow-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-[#0078d4] file:text-white cursor-pointer"
+                    required
+                  />
+                  {uploadFile && (
+                    <div className="mt-1.5 text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                      <FileText size={12} /> {uploadFile.name} ({(uploadFile.size / 1024).toFixed(1)} KB)
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-bold text-slate-600 uppercase block mb-1">
+                    Diagnostic Lab / Clinic Notes (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={uploadNotes}
+                    onChange={(e) => setUploadNotes(e.target.value)}
+                    placeholder="e.g. Conducted at Suburban Diagnostics, normal reference findings..."
+                    className="w-full rounded-xl border border-slate-300 bg-white p-2.5 text-[12px] text-slate-800 placeholder:text-slate-400 outline-none focus:border-[#0078d4] shadow-sm resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setUploadingItem(null)}
+                    className="flex-1 py-2 rounded-xl bg-slate-100 text-[12px] font-bold text-slate-600 hover:bg-slate-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!uploadFile || uploadingBusy}
+                    className="flex-1 py-2 rounded-xl bg-[#0078d4] hover:bg-[#0a6ec2] text-white text-[12px] font-bold shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  >
+                    {uploadingBusy ? <LoaderCircle size={14} className="animate-spin" /> : <Upload size={14} />}
+                    <span>{uploadingBusy ? "Uploading..." : "Submit & Complete Test"}</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
     </div>
