@@ -113,6 +113,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const isPharmacy = Boolean(osSession?.role === "PHARMACIST" || loc.pathname === "/pharmacy");
   const isReception = Boolean(osSession?.role === "RECEPTIONIST" || loc.pathname === "/reception");
   const isCareTeam = Boolean(osSession?.role === "CARE_TEAM" || loc.pathname === "/care-team");
+  const isInventory = Boolean(osSession?.role === "INVENTORY" || loc.pathname === "/inventory");
   const isAdmin = Boolean(osSession?.role === "ADMIN" || loc.pathname === "/admin" || loc.pathname === "/command");
 
   const hasSidebar = (isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command")) ||
@@ -146,6 +147,8 @@ export default function Layout({ children }: { children: ReactNode }) {
       journey.setRole("admin");
     } else if (path === "/care-team" && activeRole !== "care_team") {
       journey.setRole("care_team" as any);
+    } else if (path === "/inventory" && activeRole !== ("inventory" as any)) {
+      journey.setRole("inventory" as any);
     } else if (path.startsWith("/patient") && activeRole !== "patient") {
       journey.setRole("patient");
     }
@@ -172,12 +175,15 @@ export default function Layout({ children }: { children: ReactNode }) {
       nav("/copilot");
     } else if (isNurse) {
       nav("/triage");
+    } else if (isInventory) {
+      nav("/inventory");
     } else if (isAdmin) {
       nav("/admin");
     } else {
       nav("/login");
     }
   };
+
 
   const getHeaderTitle = () => {
     if (loc.pathname === "/care-team") return "Care Team Workspace";

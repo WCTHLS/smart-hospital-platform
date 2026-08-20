@@ -88,6 +88,22 @@ def seed() -> None:
             opd_fee=0.0,
         ))
 
+        # ---------------------------------------------------------------- Staff (Inventory Manager)
+        db.add(models.Staff(
+            hpr_id="HPR-4001",
+            name="Inventory Manager",
+            role="INVENTORY",
+            department="Central Store",
+            specialty="Central Store & Logistics",
+            available=True,
+            experience_years=8,
+            room="Warehouse Store 1",
+            floor="Basement 1",
+            access_pin="1234",
+            opd_fee=0.0,
+        ))
+
+
         # ---------------------------------------------------------------- Pharmacy stock catalog
         stock = [
             ("Azithromycin 500mg", "Azithromycin", "macrolide", 120, 18.0, True),
@@ -130,13 +146,22 @@ def seed() -> None:
                 ))
 
         db.commit()
-        print("Database seeded with Staff, Schedules, and Pharmacy Stock only.")
+
+        try:
+            from seed_inventory import seed_inventory
+            seed_inventory(db)
+        except Exception as e:
+            print("seed_inventory error:", e)
+
+        print("Database seeded with Staff, Schedules, Pharmacy Stock, and Inventory.")
         print(f"  Doctors seeded  : {len(doctors_data)}")
         print(f"  Nurses seeded   : 2 (Priya Sharma, Amit Patel)")
+        print(f"  Inventory seeded: 1 (Inventory Manager)")
         print(f"  Schedules seeded: Mon-Sun 10:00 AM - 8:00 PM for each doctor")
         print(f"  Stock catalog   : {len(stock)} items")
     finally:
         db.close()
+
 
 
 if __name__ == "__main__":

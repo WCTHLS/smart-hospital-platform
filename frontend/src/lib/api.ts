@@ -323,7 +323,9 @@ export const api = {
     const qs = params.toString();
     return get<any>(`/api/v1/os/portal/family-profiles${qs ? `?${qs}` : ""}`);
   },
+  inventory: () => get<any>("/api/v1/os/inventory"),
 };
+
 
 
 
