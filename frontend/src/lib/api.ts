@@ -16,9 +16,21 @@ export class ApiError extends Error {
   }
 }
 
+function getAuthHeaders(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem("cliniq.os.session");
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed?.token ? { Authorization: `Bearer ${parsed.token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const authHeaders = getAuthHeaders();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders, ...(options.headers || {}) },
     ...options,
   });
   const text = await res.text();
@@ -28,6 +40,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   return data as T;
 }
+
 
 const get = <T>(p: string) => request<T>(p);
 const post = <T>(p: string, body?: unknown) =>

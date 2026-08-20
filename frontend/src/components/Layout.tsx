@@ -27,16 +27,14 @@ const CARE_TEAM_NAV = [
 ];
 
 const DOCTOR_WORKSPACE_NAV = [
-  { to: "/copilot?view=patient360", label: "Command Center", icon: LayoutGrid },
+  { to: "/command", label: "Command Center", icon: LayoutGrid },
+  { to: "/triage", label: "Triage", icon: HeartPulse },
   { to: "/copilot", label: "Patients", icon: Users, end: true },
-  { to: "/copilot?view=admissions", label: "Admissions", icon: ClipboardList },
-  { to: "/copilot?view=care-team", label: "Care Team", icon: UserCog },
-  { to: "/copilot?view=labs", label: "Labs", icon: FlaskConical },
-  { to: "/copilot?view=radiology", label: "Radiology", icon: Scan },
-  { to: "/copilot?view=pharmacy", label: "Pharmacy", icon: Pill },
-  { to: "/copilot?view=surgery", label: "Surgery / OT", icon: Syringe },
-  { to: "/copilot?view=icu", label: "ICU", icon: HeartPulse },
-  { to: "/copilot?view=emergency", label: "Emergency", icon: AlertTriangle },
+  { to: "/reception", label: "Admissions", icon: ClipboardList },
+  { to: "/care-team", label: "Care Team", icon: UserCog },
+  { to: "/lab", label: "Labs", icon: FlaskConical },
+  { to: "/radiology", label: "Radiology", icon: Scan },
+  { to: "/pharmacy", label: "Pharmacy", icon: Pill },
   { to: "/copilot?view=billing", label: "Billing", icon: BookOpen },
   { to: "/copilot?view=inventory", label: "Inventory", icon: HardDrive },
   { to: "/copilot?view=reports", label: "Reports", icon: FileText },
@@ -116,9 +114,15 @@ export default function Layout({ children }: { children: ReactNode }) {
   const isInventory = Boolean(osSession?.role === "INVENTORY" || loc.pathname === "/inventory");
   const isAdmin = Boolean(osSession?.role === "ADMIN" || loc.pathname === "/admin" || loc.pathname === "/command");
 
-  const hasSidebar = (isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command")) ||
-    (isDoctor && (loc.pathname === "/copilot" || loc.pathname === "/oncology")) ||
-    (isCareTeam && loc.pathname === "/care-team");
+  const hasSidebar = !loc.pathname.startsWith("/patient") &&
+    !loc.pathname.startsWith("/login") &&
+    !loc.pathname.startsWith("/signup") &&
+    (
+      (isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command")) ||
+      (isDoctor && (loc.pathname === "/copilot" || loc.pathname === "/oncology")) ||
+      loc.pathname === "/triage" ||
+      (isCareTeam && loc.pathname === "/care-team")
+    );
 
   const currentUser = osSession ? {
     name: osSession.name,
@@ -407,7 +411,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
             backdropFilter: "blur(28px) saturate(180%)",
           }}>
-          {isDoctor ? (
+          {(isDoctor || isNurse || loc.pathname === "/triage") ? (
             <div className="flex-1 overflow-y-auto pr-1 space-y-4 select-none scrollbar-thin text-left">
               <div>
                 <div className="mb-2 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">Workspace</div>

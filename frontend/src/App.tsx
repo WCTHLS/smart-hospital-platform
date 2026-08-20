@@ -52,12 +52,14 @@ export default function App() {
             <Route path="/os/login" element={<LoginOS />} />
             <Route path="/os" element={<CommandCenterOS />} />
             <Route path="/portal" element={<PatientPortal />} />
+            <Route path="/inventory" element={<InventoryWorkspace />} />
             <Route
               path="/*"
               element={
                 <Layout>
                   <Routes>
                     <Route path="/" element={<Home />} />
+
                     <Route path="/home" element={<Home />} />
                     <Route path="/triage" element={<TriageWorkspace />} />
                     <Route path="/copilot" element={<DoctorWorkspace />} />
