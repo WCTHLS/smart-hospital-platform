@@ -342,243 +342,219 @@ class SpecialtyRule(TypedDict):
 
 # Rules are explicitly prioritized. More specific specialties should be evaluated first.
 SPECIALTY_ROUTING_RULES: list[SpecialtyRule] = [
-    # Oncology
-    {
-        "specialty": "Medical Oncology",
-        "priority": 100,
-        "keywords": (
-            "known cancer",
-            "cancer follow-up",
-            "cancer treatment",
-            "chemotherapy",
-            "chemo",
-            "immunotherapy",
-            "targeted therapy",
-            "tumour marker",
-            "tumor marker",
-            "metastatic cancer",
-            "metastasis",
-            "cancer recurrence",
-            "cancer relapse",
-            "oncology consultation",
-        ),
-    },
-    {
-        "specialty": "Radiation Oncology",
-        "priority": 100,
-        "keywords": (
-            "radiotherapy",
-            "radiation therapy",
-            "radiation treatment",
-            "radiation planning",
-            "radiation follow-up",
-        ),
-    },
-    {
-        "specialty": "Surgical Oncology",
-        "priority": 95,
-        "keywords": (
-            "cancer surgery",
-            "tumour removal",
-            "tumor removal",
-            "oncologic surgery",
-            "mastectomy",
-            "lumpectomy",
-            "cancer operation",
-        ),
-    },
-    {
-        "specialty": "Haematology & Oncology",
-        "priority": 95,
-        "keywords": (
-            "leukaemia",
-            "leukemia",
-            "lymphoma",
-            "multiple myeloma",
-            "bone marrow cancer",
-            "blood cancer",
-            "abnormal bone marrow",
-        ),
-    },
+    # Oncology (Priority 100)
     {
         "specialty": "Oncology",
-        "priority": 90,
+        "priority": 100,
         "keywords": (
-            "suspected cancer",
-            "possible cancer",
-            "malignancy",
-            "malignant",
-            "abnormal biopsy",
-            "positive biopsy",
-            "biopsy shows cancer",
-            "tumour",
-            "tumor",
-            "unexplained lump",
-            "persistent lump",
-            "breast lump",
-            "neck lump",
-            "unexplained weight loss",
-            "non-healing ulcer",
-            "non healing ulcer",
-            "cancer screening abnormal",
+            "cancer", "oncology", "oncologist", "malignancy", "malignant", "carcinoma", "sarcoma",
+            "lymphoma", "leukaemia", "leukemia", "chemotherapy", "chemo", "radiotherapy",
+            "radiation therapy", "radiation treatment", "tumour", "tumor", "biopsy shows", "positive biopsy",
+            "metastasis", "metastatic", "breast lump", "neck lump", "unexplained lump",
+            "abnormal bone marrow", "mastectomy", "lumpectomy", "pet scan cancer", "oncologic",
+            "cancer recurrence", "cancer follow-up", "cancer treatment", "cancer screening abnormal",
         ),
     },
 
-    # Other specialties
+    # Paediatrics (Priority 90 - when patient is a child / baby / infant)
+    {
+        "specialty": "Paediatrics",
+        "priority": 90,
+        "keywords": (
+            "paediatric", "pediatric", "paediatrician", "pediatrician", "newborn",
+            "infant", "baby", "babies", "toddler", "toddlers", "child", "children",
+            "neonatal", "vaccination for baby", "childhood", "milestones delay", "pediatric consultation",
+        ),
+    },
+
+    # Dentistry (Priority 85)
+    {
+        "specialty": "Dentistry",
+        "priority": 85,
+        "keywords": (
+            "tooth", "teeth", "dental", "dentist", "dentistry", "toothache", "tooth pain",
+            "teeth pain", "wisdom tooth", "gum", "gums", "bleeding gum", "bleeding gums",
+            "gum bleeding", "gum swelling", "swollen gum", "cavity", "cavities", "root canal",
+            "rct", "molar", "incisor", "denture", "dentures", "braces", "orthodontic",
+            "gingivitis", "periodontitis", "jaw pain", "dental caries", "tooth sensitivity",
+            "mouth ulcer", "mouth pain", "dental abscess", "bleeding in mouth",
+        ),
+    },
+
+    # Cardiology (Priority 80)
     {
         "specialty": "Cardiology",
         "priority": 80,
         "keywords": (
-            "chest pain",
-            "chest pressure",
-            "palpitation",
-            "irregular heartbeat",
-            "heart failure",
+            "cardiology", "cardiologist", "cardiac", "heart", "angina", "palpitation", "palpitations",
+            "chest pain", "chest pressure", "chest tightness", "chest heaviness", "chest burning",
+            "chest discomfort", "irregular heartbeat", "arrhythmia", "tachycardia", "bradycardia",
+            "heart failure", "heart attack", "myocardial infarction", "high bp", "hypertension",
+            "high blood pressure", "elevated blood pressure", "ecg", "ekg", "echocardiogram", "echo test",
+            "coronary", "stent", "bypass surgery", "cabg", "cardiovascular", "heart flutter",
+            "heart racing", "heart skipping", "breathless on exertion", "cardiac health",
         ),
     },
+
+    # Pulmonology / Respiratory (Priority 78)
     {
         "specialty": "Pulmonology",
-        "priority": 75,
+        "priority": 78,
         "keywords": (
-            "breathless",
-            "shortness of breath",
-            "difficulty breathing",
-            "wheezing",
-            "asthma",
-            "coughing blood",
+            "pulmonology", "pulmonologist", "respiratory", "lungs", "lung", "asthma", "asthmatic",
+            "copd", "bronchitis", "pneumonia", "wheeze", "wheezing", "breathless", "breathlessness",
+            "shortness of breath", "short of breath", "difficulty breathing", "trouble breathing",
+            "cannot breathe", "coughing blood", "cough up blood", "blood in sputum", "hemoptysis",
+            "chronic cough", "persistent cough", "chest congestion", "lung congestion", "tuberculosis",
+            "pleurisy", "inhaler", "nebulizer", "spirometry", "heavy phlegm", "lung infection",
         ),
     },
-    {
-        "specialty": "Endocrinology",
-        "priority": 70,
-        "keywords": (
-            "diabetes",
-            "diabetic",
-            "high sugar",
-            "low sugar",
-            "thyroid",
-            "hormonal problem",
-        ),
-    },
-    {
-        "specialty": "Obstetrics & Gynaecology",
-        "priority": 70,
-        "keywords": (
-            "pregnant",
-            "pregnancy",
-            "antenatal",
-            "vaginal bleeding",
-            "menstrual problem",
-            "pelvic pain",
-        ),
-    },
-    {
-        "specialty": "Paediatrics",
-        "priority": 65,
-        "keywords": (
-            "child",
-            "infant",
-            "baby",
-            "newborn",
-            "paediatric",
-            "pediatric",
-        ),
-    },
-    {
-        "specialty": "Gastroenterology",
-        "priority": 60,
-        "keywords": (
-            "abdominal pain",
-            "abdomen pain",
-            "stomach pain",
-            "blood in stool",
-            "black stool",
-            "jaundice",
-            "acid reflux",
-        ),
-    },
+
+    # Orthopaedics / Musculoskeletal (Priority 75)
     {
         "specialty": "Orthopaedics",
-        "priority": 60,
+        "priority": 75,
         "keywords": (
-            "joint pain",
-            "knee pain",
-            "back pain",
-            "fracture",
-            "bone pain",
-            "shoulder pain",
+            # Explicit terms & conditions
+            "orthopaedics", "orthopedics", "orthopaedic", "orthopedic", "ortho", "fracture",
+            "broken bone", "bone fracture", "dislocation", "dislocated", "subluxation",
+            "arthritis", "osteoarthritis", "rheumatoid arthritis", "gout", "uric acid joint",
+            "spondylosis", "spondylitis", "ankylosing", "sciatica", "slip disc", "slipped disc",
+            "herniated disc", "frozen shoulder", "carpal tunnel", "bursitis", "synovitis",
+            "osteoporosis", "bone density", "scoliosis", "tennis elbow", "golfer elbow",
+            "plantar fasciitis", "achilles tendon", "ligament tear", "torn ligament",
+            "meniscus tear", "acl tear", "pcl tear", "rotator cuff", "cartilage damage",
+            "bone pain", "joint pain", "joint swelling", "swollen joint", "joint stiffness",
+            "stiff joints", "back pain", "lower back pain", "lumbago", "backache",
+            "neck pain", "cervical pain", "spine pain", "spinal pain",
+            # Key anatomical indicators
+            "knee", "knees", "knee pain", "swelling knee", "swollen knee", "knee swelling",
+            "knee injury", "knee stiffness", "shoulder", "shoulder pain", "swollen shoulder",
+            "ankle", "ankle pain", "ankle sprain", "swollen ankle", "twisted ankle",
+            "elbow", "elbow pain", "wrist", "wrist pain", "hip pain", "hip joint",
+            "heel pain", "foot pain", "bone crack", "bone ache", "musculoskeletal",
+            "sprain", "strain", "muscle tear", "tendonitis", "tendinitis", "cannot walk",
+            "unable to walk", "limping",
         ),
     },
+
+    # Dermatology (Priority 70)
     {
         "specialty": "Dermatology",
-        "priority": 55,
+        "priority": 70,
         "keywords": (
-            "skin rash",
-            "rash",
-            "itching",
-            "skin lesion",
-            "acne",
+            "dermatology", "dermatologist", "skin", "derma", "rash", "rashes", "skin rash",
+            "itching", "itchy skin", "eczema", "psoriasis", "acne", "pimples", "pimple",
+            "urticaria", "hives", "skin allergy", "allergic rash", "dermatitis", "vitiligo",
+            "alopecia", "hair loss", "hair fall", "dandruff", "fungal infection", "ringworm",
+            "tinea", "scabies", "warts", "mole", "moles", "skin pigmentation", "rosacea",
+            "blister", "blisters", "boil", "boils", "skin lesion", "skin peeling",
+            "dry scaly skin", "red patches on skin", "skin infection",
         ),
     },
+
+    # Gastroenterology (Priority 68)
     {
-        "specialty": "Psychiatry",
-        "priority": 55,
+        "specialty": "Gastroenterology",
+        "priority": 68,
         "keywords": (
-            "anxiety",
-            "depression",
-            "depressed",
-            "panic attack",
-            "suicidal",
+            "gastro", "gastroenterology", "gastroenterologist", "stomach pain", "abdominal pain",
+            "abdomen pain", "belly pain", "gastric pain", "stomach ache", "acidity",
+            "acid reflux", "gerd", "heartburn", "stomach burning", "gastritis", "peptic ulcer",
+            "stomach ulcer", "endoscopy", "colonoscopy", "blood in stool", "black stool",
+            "melena", "rectal bleeding", "jaundice", "yellow eyes liver", "liver problem",
+            "fatty liver", "hepatitis", "cirrhosis", "gallstone", "gallstones", "gallbladder",
+            "pancreatitis", "severe constipation", "bloating", "indigestion", "irritable bowel",
+            "ibs", "crohn", "colitis", "gut infection",
         ),
     },
+
+    # Neurology (Priority 65)
+    {
+        "specialty": "Neurology",
+        "priority": 65,
+        "keywords": (
+            "neurology", "neurologist", "neuro", "stroke", "paralysis", "seizure", "seizures",
+            "epilepsy", "convulsion", "convulsions", "fits", "migraine", "severe migraine",
+            "vertigo", "dizziness", "unsteadiness", "loss of balance", "tremor", "tremors",
+            "parkinson", "neuropathy", "nerve pain", "tingling in hands", "numbness in fingers",
+            "loss of sensation", "facial palsy", "bell palsy", "slurred speech", "syncope",
+            "fainting", "memory loss", "amnesia", "dementia", "nerve disorder",
+        ),
+    },
+
+    # Endocrinology (Priority 62)
+    {
+        "specialty": "Endocrinology",
+        "priority": 62,
+        "keywords": (
+            "endocrinology", "endocrinologist", "diabetes", "diabetic", "high sugar", "low sugar",
+            "blood sugar", "hba1c", "insulin", "thyroid", "hypothyroidism", "hyperthyroidism",
+            "tsh", "goiter", "hormonal imbalance", "hormone problem", "pcos", "pcod",
+            "metabolic disorder", "pituitary", "adrenal",
+        ),
+    },
+
+    # Obstetrics & Gynaecology (Priority 60)
+    {
+        "specialty": "Obstetrics & Gynaecology",
+        "priority": 60,
+        "keywords": (
+            "gynaecology", "gynecology", "gynaecologist", "gynecologist", "obstetrics", "obgyn",
+            "pregnant", "pregnancy", "prenatal", "antenatal", "postnatal", "missed period",
+            "menstrual", "period pain", "dysmenorrhea", "irregular periods", "heavy menstrual bleeding",
+            "vaginal bleeding", "vaginal discharge", "white discharge", "pelvic pain",
+            "ovarian cyst", "fibroid", "uterus", "infertility", "conception",
+        ),
+    },
+
+    # Ophthalmology (Priority 58)
     {
         "specialty": "Ophthalmology",
-        "priority": 50,
+        "priority": 58,
         "keywords": (
-            "eye pain",
-            "blurred vision",
-            "vision loss",
-            "red eye",
+            "ophthalmology", "ophthalmologist", "eye", "eyes", "eye pain", "blurred vision",
+            "blurry vision", "vision loss", "loss of vision", "double vision", "red eye",
+            "watery eyes", "dry eyes", "cataract", "glaucoma", "conjunctivitis", "eye infection",
+            "eye strain", "cornea", "retina", "spectacles", "lasik", "eye irritation",
         ),
     },
+
+    # ENT - Ear, Nose, Throat (Priority 55)
     {
         "specialty": "ENT",
-        "priority": 50,
+        "priority": 55,
         "keywords": (
-            "ear pain",
-            "hearing loss",
-            "nose bleed",
-            "nasal blockage",
-            "tonsil",
+            "ent", "ear", "ears", "ear pain", "earache", "ear discharge", "hearing loss",
+            "hard of hearing", "tinnitus", "ringing in ear", "nose", "nasal", "nose bleed",
+            "epistaxis", "nasal blockage", "blocked nose", "sinus", "sinusitis", "sinus pressure",
+            "throat", "tonsil", "tonsils", "tonsillitis", "sore throat", "hoarse voice",
+            "loss of voice", "difficulty swallowing", "pain on swallowing", "adenoids",
         ),
     },
+
+    # Psychiatry / Mental Health (Priority 52)
     {
-        "specialty": "Dentistry",
-        "priority": 50,
+        "specialty": "Psychiatry",
+        "priority": 52,
         "keywords": (
-            "tooth pain",
-            "toothache",
-            "dental pain",
-            "gum swelling",
+            "psychiatry", "psychiatrist", "psychology", "psychologist", "mental health",
+            "depression", "depressed", "anxiety", "anxious", "panic attack", "panic attacks",
+            "insomnia", "cannot sleep", "sleep disorder", "hallucination", "bipolar",
+            "schizophrenia", "ocd", "phobia", "suicidal", "severe stress", "mood swings",
         ),
     },
+
+    # General Medicine (Priority 10 - Constitutional / systemic complaints)
     {
         "specialty": "General Medicine",
         "priority": 10,
         "keywords": (
-            "fever",
-            "cough",
-            "cold",
-            "sore throat",
-            "headache",
-            "body ache",
-            "diarrhea",
-            "diarrhoea",
-            "vomiting",
-            "fatigue",
-            "weakness",
-            "high bp",
-            "hypertension",
+            "general medicine", "physician", "fever", "high temperature", "chills", "cold",
+            "runny nose", "flu", "viral", "headache", "body ache", "body pain", "fatigue",
+            "weakness", "tiredness", "exhaustion", "malaise", "diarrhea", "diarrhoea",
+            "loose motions", "vomiting", "nausea", "food poisoning", "infection",
+            "general checkup", "routine checkup", "health checkup", "unwell",
         ),
     },
 ]
@@ -587,7 +563,13 @@ DEFAULT_SPECIALTY = "General Medicine"
 
 
 def route_specialty(text: str) -> str:
-    """Return the highest-priority specialty matching the complaint."""
+    """Return the clinical specialty matching the patient's complaint with advanced multi-word & anatomical inference."""
+    if not text or not text.strip():
+        return DEFAULT_SPECIALTY
+
+    text_l = normalize_text(text)
+
+    # 1. First check prioritized explicit keywords & phrases
     sorted_rules = sorted(
         SPECIALTY_ROUTING_RULES,
         key=lambda item: item["priority"],
@@ -595,8 +577,103 @@ def route_specialty(text: str) -> str:
     )
 
     for rule in sorted_rules:
-        if contains_any(text, rule["keywords"]):
+        if contains_any(text_l, rule["keywords"]):
             return rule["specialty"]
+
+    # 2. Secondary Compound / Semantic anatomical matching for natural language queries
+    # e.g. "severe pain and swelling knee" -> Orthopedic anatomy ("knee") + Orthopedic symptom ("pain", "swelling")
+    
+    # Orthopaedics Composite Rule (bone/joint/limb + pain/swelling/ache/injury)
+    ortho_anatomy = (
+        "knee", "knees", "shoulder", "shoulders", "elbow", "elbows", "wrist", "wrists",
+        "ankle", "ankles", "hip", "hips", "joint", "joints", "bone", "bones", "spine",
+        "spinal", "back", "lumbar", "cervical", "neck", "ligament", "tendon", "cartilage",
+        "meniscus", "patella", "heel", "foot", "feet", "toe", "toes", "finger", "fingers",
+        "arm", "arms", "leg", "legs", "thigh", "thighs", "calf", "rib", "ribs", "clavicle",
+    )
+    ortho_symptoms = (
+        "pain", "swelling", "swollen", "stiff", "stiffness", "ache", "aching", "injury",
+        "injured", "fracture", "crack", "sprain", "strain", "dislocation", "tenderness",
+        "cramp", "cramps", "tear", "torn", "fall", "twist", "twisted", "walk", "walking",
+        "limp", "limping", "sore", "soreness", "immobility", "mobility", "bend", "bending",
+    )
+    if contains_any(text_l, ortho_anatomy) and contains_any(text_l, ortho_symptoms):
+        return "Orthopaedics"
+
+    # Cardiology Composite Rule (chest/heart/cardio + pressure/burning/tightness/heavy/pain)
+    cardio_anatomy = ("chest", "heart", "cardiac")
+    cardio_symptoms = (
+        "pain", "pressure", "tightness", "tight", "heaviness", "heavy", "burning",
+        "discomfort", "flutter", "fluttering", "palpitation", "palpitations", "squeeze",
+        "squeezing", "skip", "skipping", "racing", "rate", "pulse",
+    )
+    if contains_any(text_l, cardio_anatomy) and contains_any(text_l, cardio_symptoms):
+        return "Cardiology"
+
+    # Pulmonology Composite Rule (breathing/lungs + difficulty/shortness/wheeze/phlegm)
+    pulmo_anatomy = ("lung", "lungs", "breath", "breathing", "respiratory", "airway", "chest")
+    pulmo_symptoms = (
+        "difficulty", "trouble", "short", "shortness", "hard", "cannot", "wheeze",
+        "wheezing", "phlegm", "cough", "blood", "congestion", "gasping",
+    )
+    if contains_any(text_l, pulmo_anatomy) and contains_any(text_l, pulmo_symptoms):
+        return "Pulmonology"
+
+    # Dermatology Composite Rule (skin/face/scalp + rash/itching/allergy/redness/patches)
+    derma_anatomy = ("skin", "face", "scalp", "forehead", "arm", "arms", "leg", "legs", "hand", "hands", "body")
+    derma_symptoms = (
+        "rash", "rashes", "itching", "itchy", "allergy", "allergic", "redness", "red",
+        "spots", "patches", "dry", "peeling", "bumps", "lesion", "lesions", "boil", "boils",
+        "blister", "blisters", "pimple", "pimples", "acne", "scab", "scaly",
+    )
+    if contains_any(text_l, derma_anatomy) and contains_any(text_l, derma_symptoms):
+        return "Dermatology"
+
+    # Dentistry Composite Rule (tooth/teeth/gum/jaw + pain/swelling/bleeding)
+    dental_anatomy = ("tooth", "teeth", "gum", "gums", "jaw", "mouth", "molar", "incisor")
+    dental_symptoms = (
+        "pain", "ache", "aching", "swelling", "swollen", "bleed", "bleeding", "sensitive",
+        "sensitivity", "cavity", "cavities", "ulcer", "ulcers", "decay", "broken",
+    )
+    if contains_any(text_l, dental_anatomy) and contains_any(text_l, dental_symptoms):
+        return "Dentistry"
+
+    # Gastroenterology Composite Rule (stomach/abdomen/belly + pain/cramp/burning/reflux)
+    gastro_anatomy = ("stomach", "abdomen", "abdominal", "belly", "gut", "bowel", "liver")
+    gastro_symptoms = (
+        "pain", "ache", "aching", "cramp", "cramps", "burning", "burn", "acid", "acidity",
+        "reflux", "bloating", "bloated", "gas", "constipation", "constipated", "stool",
+        "motion", "motions", "vomit", "vomiting", "spasm",
+    )
+    if contains_any(text_l, gastro_anatomy) and contains_any(text_l, gastro_symptoms):
+        return "Gastroenterology"
+
+    # ENT Composite Rule (ear/nose/throat + pain/blockage/bleeding/infection)
+    ent_anatomy = ("ear", "ears", "nose", "nasal", "throat", "sinus", "tonsil", "tonsils")
+    ent_symptoms = (
+        "pain", "ache", "aching", "block", "blocked", "blockage", "bleed", "bleeding",
+        "discharge", "hearing", "ringing", "infection", "sore", "hoarse", "swallow",
+        "swallowing", "drainage",
+    )
+    if contains_any(text_l, ent_anatomy) and contains_any(text_l, ent_symptoms):
+        return "ENT"
+
+    # Ophthalmology Composite Rule (eye/eyes/vision + pain/blur/red/watery)
+    eye_anatomy = ("eye", "eyes", "vision", "sight")
+    eye_symptoms = (
+        "pain", "blur", "blurry", "blurred", "red", "redness", "water", "watery", "itchy",
+        "itching", "strain", "loss", "double", "irritation", "burning",
+    )
+    if contains_any(text_l, eye_anatomy) and contains_any(text_l, eye_symptoms):
+        return "Ophthalmology"
+
+    # Paediatrics Composite Rule (child/baby/infant/kid/son/daughter)
+    paed_terms = (
+        "child", "children", "baby", "babies", "infant", "infants", "toddler", "toddlers",
+        "kid", "kids", "son", "daughter", "months old", "year old", "years old",
+    )
+    if contains_any(text_l, paed_terms):
+        return "Paediatrics"
 
     return DEFAULT_SPECIALTY
 
