@@ -496,14 +496,14 @@ def upload_lab_attachment(
             lab_order_id=lab_order_id,
             test_code=order.test_code or "EXT",
             test_name=order.test_name,
-            value="Report Attached (External)",
+            value=None,
             unit="",
             reference_range="See Uploaded File",
             abnormal_flag="N",
             status="FINAL",
         ))
     else:
-        existing_res.value = "Report Attached (External)"
+        existing_res.value = None
         existing_res.status = "FINAL"
 
     db.commit()
