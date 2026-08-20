@@ -56,6 +56,31 @@ export default function LabOrdersAlert({
   const [uploadError, setUploadError] = useState("");
   const [uploadSuccess, setUploadSuccess] = useState(false);
 
+  // Check-in states
+  const [checkInBusy, setCheckInBusy] = useState(false);
+  const [issuedToken, setIssuedToken] = useState<string | null>(null);
+
+  const handleCheckIn = async () => {
+    const pId = propPatientId || (confirmedOrders[0]?.patient_id);
+    if (!pId) return;
+    setCheckInBusy(true);
+    try {
+      const res = await api.labCheckIn({
+        patient_id: pId,
+        booking_date: selectedDate || todayIso(),
+        booking_slot: selectedSlot || "09:00 AM",
+      });
+      setIssuedToken(res.token_number);
+      if (refetchLab) await refetchLab();
+      if (refetchEnc) await refetchEnc();
+      await refetchP360();
+    } catch (err: any) {
+      alert(err?.message || "Failed to check in for lab.");
+    } finally {
+      setCheckInBusy(false);
+    }
+  };
+
   // Filter pending orders (created or pending payment/sample)
   const pendingOrders = useMemo(() => {
     return (orders || []).filter((o: any) => {
@@ -562,32 +587,62 @@ export default function LabOrdersAlert({
           </div>
         )}
 
-        {/* STEP 5: Success Confirmation */}
+        {/* STEP 5: Success Confirmation / Check-in State */}
         {currentStep === "success" && (
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-2">
-            <div className="flex items-center gap-3">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
-                <CheckCircle2 size={20} />
+            {issuedToken ? (
+              <div className="flex items-center gap-3">
+                <div className="grid h-9 w-9 place-items-center rounded-xl bg-sky-100 text-[#0078d4] border border-sky-200">
+                  <FlaskConical size={18} />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-[13.5px] text-slate-800">
+                    Checked In! Lab Token: <b className="text-[#0078d4] font-mono text-[14px]">{issuedToken}</b>
+                  </h4>
+                  <p className="text-[11.5px] text-slate-500">
+                    Please proceed to Phlebotomy / Lab Room 1 for sample collection.
+                  </p>
+                </div>
               </div>
-              <div>
-                <h4 className="font-extrabold text-[13.5px] text-slate-800">
-                  Lab &amp; Diagnostic Order Confirmed!
-                </h4>
-                <p className="text-[11.5px] text-slate-500">
-                  Your tests are booked. Proceed to the diagnostic counter at your scheduled time.
-                </p>
+            ) : (
+              <div className="flex items-center gap-3">
+                <div className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+                  <CheckCircle2 size={20} />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-[13.5px] text-slate-800">
+                    Lab &amp; Diagnostic Order Confirmed!
+                  </h4>
+                  <p className="text-[11.5px] text-slate-500">
+                    Slot booked for {selectedDate || "Today"} at {selectedSlot || "09:00 AM"}. Click Check In when you arrive at the hospital to receive your token.
+                  </p>
+                </div>
               </div>
+            )}
+
+            <div className="flex items-center gap-2 shrink-0">
+              {!issuedToken && (
+                <button
+                  type="button"
+                  onClick={handleCheckIn}
+                  disabled={checkInBusy}
+                  className="py-1.5 px-3.5 rounded-lg bg-[#0078d4] hover:bg-[#0a6ec2] text-white font-bold text-[11.5px] shadow-sm flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                >
+                  <FlaskConical size={14} />
+                  <span>{checkInBusy ? "Checking In..." : "Check In for Lab Test"}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (onNavigateToTab) onNavigateToTab("My Lab Reports");
+                  setStep("alert");
+                }}
+                className="py-1.5 px-3.5 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 font-bold text-[11.5px]"
+              >
+                View Lab Reports ›
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (onNavigateToTab) onNavigateToTab("My Lab Reports");
-                setStep("alert");
-              }}
-              className="py-1.5 px-3.5 rounded-lg bg-emerald-600 text-white font-bold text-[11.5px] hover:bg-emerald-700 shrink-0"
-            >
-              View Lab Reports ›
-            </button>
           </div>
         )}
       </div>

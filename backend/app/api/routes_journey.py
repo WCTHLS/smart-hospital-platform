@@ -3919,11 +3919,11 @@ def lab_check_in(body: LabCheckInRequest, db: Session = Depends(get_db)) -> dict
     dt_local = datetime.combine(body.booking_date, time_part, tzinfo=ZoneInfo("Asia/Kolkata"))
     dt_utc = dt_local.astimezone(timezone.utc)
 
-    # Find confirmed lab orders for this patient to track during check-in
+    # Find confirmed/booked lab orders for this patient to track during check-in
     confirmed_orders = db.scalars(
         select(models.LabOrder)
         .where(models.LabOrder.patient_id == body.patient_id)
-        .where(models.LabOrder.status == "CONFIRMED")
+        .where(models.LabOrder.status.in_(["CONFIRMED", "BOOKED", "PREPAID", "CREATED", "PENDING", "CHECKED_IN"]))
     ).all()
     for o in confirmed_orders:
         o.status = "CHECKED_IN"
