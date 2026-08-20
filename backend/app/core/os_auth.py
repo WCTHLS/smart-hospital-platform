@@ -80,6 +80,16 @@ def require_os_staff(
     return claims
 
 
+def require_os_staff_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+) -> dict | None:
+    """FastAPI dependency: return verified OS claims if bearer token provided, else None."""
+    if credentials and credentials.scheme.lower() == "bearer":
+        return verify_os_token(credentials.credentials)
+    return None
+
+
+
 def require_portal_patient(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> dict:

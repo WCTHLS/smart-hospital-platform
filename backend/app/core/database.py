@@ -97,3 +97,10 @@ def init_db() -> None:
     if "booking_slot" not in columns:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE lab_order ADD COLUMN booking_slot VARCHAR(20)"))
+
+    try:
+        from seed_inventory import seed_inventory
+        seed_inventory()
+    except Exception as e:
+        pass
+

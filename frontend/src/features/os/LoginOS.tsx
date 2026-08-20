@@ -4,7 +4,7 @@ import {
   HeartPulse, ShieldCheck, Network, Users, PieChart, User, Lock, Eye, EyeOff,
   KeyRound, ChevronDown, Stethoscope, Loader2, AlertCircle, HeartHandshake,
   Pill, FlaskConical, ClipboardList, LockKeyhole, ArrowRight, ArrowLeft,
-  Plus, CheckCircle2, Phone, UserCheck
+  Plus, CheckCircle2, Phone, UserCheck, Boxes,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import { osLoginRequest, setOsSession } from "./osSession";
@@ -13,7 +13,7 @@ import { savePortalPatient } from "../../lib/patientAuth";
 import { useJourney } from "../../lib/store";
 import { api } from "../../lib/api";
 
-type RoleType = "Doctor" | "Admin" | "Patient" | "Nurse" | "Pharmacy" | "Lab Technician" | "Reception Desk" | "Care Team";
+type RoleType = "Doctor" | "Admin" | "Patient" | "Nurse" | "Pharmacy" | "Lab Technician" | "Reception Desk" | "Care Team" | "Inventory";
 type PatientStep = "credentials" | "otp" | "profile_select";
 
 
@@ -35,7 +35,9 @@ const MORE_STAFF_ROLES: {
   { label: "Lab Technician", tabLabel: "Lab Tech", roleKey: "lab", icon: FlaskConical, desc: "Lab Diagnostics & Reports (/lab)" },
   { label: "Reception Desk", tabLabel: "Reception", roleKey: "reception", icon: ClipboardList, desc: "Front Desk & Check-in (/reception)" },
   { label: "Care Team", tabLabel: "Care Team", roleKey: "care_team", icon: Users, desc: "Care Team Portal (/care-team)" },
+  { label: "Inventory", tabLabel: "Inventory", roleKey: "inventory", icon: Boxes, desc: "Inventory Command Center (/inventory)" },
 ];
+
 
 const FEATURES = [
   { icon: ShieldCheck, title: "Secure", body: "Enterprise-grade security & privacy" },
@@ -94,6 +96,8 @@ export default function LoginOS() {
     if (p === "pharmacy" || p === "pharmacist") return "Pharmacy";
     if (p === "lab") return "Lab Technician";
     if (p === "reception" || p === "receptionist") return "Reception Desk";
+    if (p === "care_team" || p === "care-team") return "Care Team";
+    if (p === "inventory") return "Inventory";
     return "Doctor";
   };
 
@@ -120,8 +124,11 @@ export default function LoginOS() {
     else if (p === "pharmacy" || p === "pharmacist") setRole("Pharmacy");
     else if (p === "lab") setRole("Lab Technician");
     else if (p === "reception" || p === "receptionist") setRole("Reception Desk");
+    else if (p === "care_team" || p === "care-team") setRole("Care Team");
+    else if (p === "inventory") setRole("Inventory");
     else if (p === "doctor") setRole("Doctor");
   }, [searchParams]);
+
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -245,7 +252,14 @@ export default function LoginOS() {
       return;
     }
 
+    if (roleLower === "inventory" || roleLower === "inventory manager" || roleLower === "inventory staff") {
+      useJourney.getState().setRole("inventory" as any);
+      navigate("/inventory");
+      return;
+    }
+
     navigate("/home");
+
   };
 
   /* ------------------------------------------------------------- Sign In Handlers */
@@ -394,6 +408,12 @@ export default function LoginOS() {
     } else if (role === "Reception Desk") {
       demoUser = "Reception Desk";
       demoPass = "1234";
+    } else if (role === "Care Team") {
+      demoUser = "Dr. Ahmed Ali";
+      demoPass = "1234";
+    } else if (role === "Inventory") {
+      demoUser = "Inventory Manager";
+      demoPass = "1234";
     }
 
     void signIn({ username: demoUser, password: demoPass, role });
@@ -415,6 +435,10 @@ export default function LoginOS() {
         return "Demo: Enter Lab Technician Name / ID with PIN 1234";
       case "Reception Desk":
         return "Demo: Enter Receptionist Name / ID with PIN 1234";
+      case "Care Team":
+        return "Demo: Enter Care Team Member Name / ID with PIN 1234";
+      case "Inventory":
+        return "Demo: Enter Inventory Manager / Staff ID with PIN 1234 or password cliniq";
     }
   };
 
@@ -434,6 +458,10 @@ export default function LoginOS() {
         return "Lab Technician ID / Name";
       case "Reception Desk":
         return "Receptionist ID / Name";
+      case "Care Team":
+        return "Care Team Member ID / Name";
+      case "Inventory":
+        return "Inventory Staff ID / Name";
     }
   };
 
@@ -453,8 +481,13 @@ export default function LoginOS() {
         return "Enter lab technician name or staff ID";
       case "Reception Desk":
         return "Enter receptionist name or staff ID";
+      case "Care Team":
+        return "Enter care team member name or staff ID";
+      case "Inventory":
+        return "Enter inventory staff name or ID";
     }
   };
+
 
   return (
     <div className="login-page min-h-screen">

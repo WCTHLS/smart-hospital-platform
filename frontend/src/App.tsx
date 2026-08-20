@@ -21,7 +21,9 @@ const ReceptionWorkspace = lazy(() => import("./features/reception/ReceptionWork
 const PharmacyWorkspace = lazy(() => import("./features/pharmacy/PharmacyWorkspace"));
 const OncologyWorkspace = lazy(() => import("./features/oncology/OncologyWorkspace"));
 const CareTeamWorkspace = lazy(() => import("./features/careteam/CareTeamWorkspace"));
+const InventoryWorkspace = lazy(() => import("./features/inventory/InventoryWorkspace"));
 const CommandCenterOS = lazy(() => import("./features/os/CommandCenterOS"));
+
 const LoginOS = lazy(() => import("./features/os/LoginOS"));
 const PatientPortal = lazy(() => import("./features/portal/PatientPortal"));
 
@@ -50,12 +52,14 @@ export default function App() {
             <Route path="/os/login" element={<LoginOS />} />
             <Route path="/os" element={<CommandCenterOS />} />
             <Route path="/portal" element={<PatientPortal />} />
+            <Route path="/inventory" element={<InventoryWorkspace />} />
             <Route
               path="/*"
               element={
                 <Layout>
                   <Routes>
                     <Route path="/" element={<Home />} />
+
                     <Route path="/home" element={<Home />} />
                     <Route path="/triage" element={<TriageWorkspace />} />
                     <Route path="/copilot" element={<DoctorWorkspace />} />
@@ -72,7 +76,9 @@ export default function App() {
                     <Route path="/command" element={<CommandCenter />} />
                     <Route path="/admin" element={<AdminPortal />} />
                     <Route path="/care-team" element={<CareTeamWorkspace />} />
+                    <Route path="/inventory" element={<InventoryWorkspace />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
+
                   </Routes>
                 </Layout>
               }
