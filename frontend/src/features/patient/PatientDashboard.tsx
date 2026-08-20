@@ -271,7 +271,7 @@ export default function PatientDashboard() {
   // Booking Flow States (ClinIQ Multi-Step DB Sync)
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [bookingStep, setBookingStep] = useState<"form" | "slots" | "confirm" | "success">("form");
-  const [bookingDate, setBookingDate] = useState(() => new Date(Date.now() + 86400000).toISOString().slice(0, 10));
+  const [bookingDate, setBookingDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [bookingReason, setBookingReason] = useState("Post-procedure Follow-up & Cardiac Health Review");
   const [bookingSpecialty, setBookingSpecialty] = useState("Cardiology");
   const [availableSlots, setAvailableSlots] = useState<any[]>([]);
@@ -887,7 +887,7 @@ export default function PatientDashboard() {
     return null;
   }, [p360?.active_tokens, latestEpisode, p360?.active_encounter?.status, activeEncounterStatus, currentToken, careTeam]);
 
-  // 3. Active Lab Token (Issued upon lab booking and payment, vanishes when all lab tests are completed)
+  // 3. Active Lab Token (Issued ONLY upon lab check-in, vanishes when all lab tests are completed)
   const activeLabToken = useMemo(() => {
     if (p360?.active_tokens && Array.isArray(p360.active_tokens)) {
       const labTok = p360.active_tokens.find(
@@ -900,15 +900,17 @@ export default function PatientDashboard() {
       if (labTok && labTok.status !== "DONE" && labTok.status !== "COMPLETED") return labTok;
     }
     if (p360?.active_token && (p360.active_token.is_lab || (p360.active_token.number && p360.active_token.number.startsWith("L-")) || p360.active_token.visit_type === "LAB")) {
-      return p360.active_token;
+      if (p360.active_token.status !== "DONE" && p360.active_token.status !== "COMPLETED") {
+        return p360.active_token;
+      }
     }
-    // Fallback: if any lab or scan order is CONFIRMED / BOOKED / PREPAID and not yet completed
-    const hasBookedUncompletedLab = [...labReports, ...scansAndDiagnostics].some((o: any) => {
+    // If any lab or scan is actively CHECKED_IN / SAMPLE_COLLECTED / IN_PROGRESS and not yet resulted/completed:
+    const hasCheckedInLab = [...labReports, ...scansAndDiagnostics].some((o: any) => {
       const st = (o.status || o.raw_status || "").toUpperCase();
       const isDone = st === "COMPLETED" || st === "RESULTED" || st === "DISCHARGED" || Boolean(o.attachment_uri);
-      return (st === "CONFIRMED" || st === "BOOKED" || st === "PREPAID" || st === "SAMPLE_COLLECTED") && !isDone;
+      return (st === "CHECKED_IN" || st === "SAMPLE_COLLECTED" || st === "IN_PROGRESS") && !isDone;
     });
-    if (hasBookedUncompletedLab) {
+    if (hasCheckedInLab) {
       return {
         number: "L-101",
         room: "Phlebotomy / Lab 1",
@@ -920,6 +922,38 @@ export default function PatientDashboard() {
     }
     return null;
   }, [p360?.active_token, p360?.active_tokens, labReports, scansAndDiagnostics]);
+
+  // Booked lab orders that are confirmed/prepaid but not yet checked in
+  const pendingLabCheckInOrders = useMemo(() => {
+    return [...labReports, ...scansAndDiagnostics].filter((o: any) => {
+      const st = (o.status || o.raw_status || "").toUpperCase();
+      const isDone = st === "COMPLETED" || st === "RESULTED" || st === "DISCHARGED" || Boolean(o.attachment_uri);
+      return (st === "CONFIRMED" || st === "PREPAID" || st === "BOOKED") && !isDone && !activeLabToken;
+    });
+  }, [labReports, scansAndDiagnostics, activeLabToken]);
+
+  const [labCheckInBusy, setLabCheckInBusy] = useState(false);
+  const handleLabCheckIn = async (customDate?: string, customSlot?: string) => {
+    const pId = p360?.patient?.patient_id || portalPatientId;
+    if (!pId) return;
+    setLabCheckInBusy(true);
+    try {
+      const targetOrder = pendingLabCheckInOrders[0];
+      const bDate = customDate || targetOrder?.booking_date || new Date().toISOString().slice(0, 10);
+      const bSlot = customSlot || targetOrder?.booking_slot || "09:00 AM";
+      const res = await api.labCheckIn({
+        patient_id: pId,
+        booking_date: bDate,
+        booking_slot: bSlot,
+      });
+      await refetchP360();
+      alert(`✓ Checked in successfully for Lab & Diagnostics! Your Token is ${res.token_number || "L-101"}`);
+    } catch (err: any) {
+      alert(err?.message || "Failed to check in for lab.");
+    } finally {
+      setLabCheckInBusy(false);
+    }
+  };
 
   // 4. Active Pharmacy Pickup Token (Issued when prescription is prepaid, vanishes when dispensed)
   const activePharmacyToken = useMemo(() => {
@@ -1525,164 +1559,167 @@ export default function PatientDashboard() {
         />
       )}
 
-      {/* ================= PATIENT WORKSPACE SIDE PANEL (Dark Navy Theme with Bright White Text & Toggle) ================= */}
+      {/* ================= PATIENT WORKSPACE SIDE PANEL (Matches Doctor Workspace ClinIQ Glass Theme) ================= */}
       <aside
-        className={`fixed bottom-0 left-0 top-16 z-20 flex w-[240px] flex-col gap-1 p-3 bg-[#0b1329] border-r border-slate-800/80 shadow-2xl overflow-y-auto select-none transition-transform duration-200 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
+        className={`fixed bottom-0 left-0 top-16 z-20 flex w-[236px] flex-col gap-1 p-4 overflow-y-auto select-none scrollbar-thin transition-transform duration-200 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        style={{
+          borderRight: "1px solid var(--line)",
+          backgroundImage: "var(--glass-highlight), var(--glass-sheen), linear-gradient(rgba(255,255,255,.55), rgba(255,255,255,.55))",
+          backdropFilter: "blur(28px) saturate(180%)",
+        }}
       >
         {/* Top Header Row with Title + Collapse button */}
-        <div className="flex items-center justify-between px-2 pt-1 pb-1.5 border-b border-slate-800/60 mb-0.5">
-          <span
-            className="text-[11px] font-extrabold uppercase tracking-wider"
-            style={{ color: "#94a3b8", letterSpacing: "0.08em" }}
-          >
-            MAIN MENU
+        <div className="mb-2 px-3 flex items-center justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Main Menu
           </span>
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
             title="Collapse Sidebar"
-            className="grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
+            className="grid h-6 w-6 place-items-center rounded-md text-slate-400 hover:text-slate-700 hover:bg-black/5 transition cursor-pointer"
           >
-            <PanelLeftClose size={16} />
+            <PanelLeftClose size={15} />
           </button>
         </div>
 
-        {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "MAIN").map((n) => {
-          const isActive =
-            (n.tab === "My Health Overview" && (!tab || tab === "My Health Overview")) ||
-            tab === n.tab ||
-            (n.tab === "Appointments" && tab === "Book Consultation") ||
-            (n.tab === "My Lab Reports" && (tab === "Scans & Imaging" || tab === "My Lab Reports"));
+        <div className="space-y-0.5">
+          {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "MAIN").map((n) => {
+            const isActive =
+              (n.tab === "My Health Overview" && (!tab || tab === "My Health Overview")) ||
+              tab === n.tab ||
+              (n.tab === "Appointments" && tab === "Book Consultation") ||
+              (n.tab === "My Lab Reports" && (tab === "Scans & Imaging" || tab === "My Lab Reports"));
 
-          return (
-            <button
-              key={n.label}
-              type="button"
-              onClick={() => {
-                setTab(n.tab);
-                if (window.innerWidth < 1024) setSidebarOpen(false);
-              }}
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition text-left cursor-pointer ${isActive
-                ? "bg-[#0078d4] text-white shadow-sm shadow-blue-500/20"
-                : "hover:bg-white/10"
-                }`}
-              style={{
-                color: isActive ? "#ffffff" : "#f8fafc",
-              }}
-            >
-              <n.icon size={17} color={isActive ? "#ffffff" : "#f8fafc"} className="shrink-0" />
-              <span style={{ color: isActive ? "#ffffff" : "#f8fafc" }}>{n.label}</span>
-            </button>
-          );
-        })}
+            return (
+              <button
+                key={n.label}
+                type="button"
+                onClick={() => {
+                  setTab(n.tab);
+                  if (window.innerWidth < 1024) setSidebarOpen(false);
+                }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition text-left cursor-pointer"
+                style={{
+                  color: isActive ? "#0078d4" : "var(--muted)",
+                  background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                  border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                }}
+              >
+                <n.icon size={15} className={isActive ? "text-[#0078d4] shrink-0" : "text-slate-450 shrink-0"} />
+                <span className="truncate">{n.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
         {/* DIGITAL TWIN */}
-        <div
-          className="px-3 pt-3.5 pb-1.5 text-[12px] font-extrabold uppercase tracking-wider mt-1"
-          style={{ color: "#94a3b8", letterSpacing: "0.08em", borderTop: "1px solid rgba(51, 65, 85, 0.8)" }}
-        >
-          DIGITAL TWIN
+        <div className="mb-2 mt-4 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          Digital Twin
         </div>
 
-        {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "DIGITAL_TWIN").map((n) => {
-          const isActive = tab === n.tab;
-          return (
-            <button
-              key={n.label}
-              type="button"
-              onClick={() => {
-                setTab(n.tab);
-                if (window.innerWidth < 1024) setSidebarOpen(false);
-              }}
-              className={`flex w-full items-center justify-between gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition text-left cursor-pointer ${isActive ? "bg-[#0078d4] text-white shadow-sm shadow-blue-500/20" : "hover:bg-white/10"
-                }`}
-              style={{ color: isActive ? "#ffffff" : "#f8fafc" }}
-            >
-              <div className="flex items-center gap-2.5">
-                <n.icon size={17} color={isActive ? "#ffffff" : "#f8fafc"} className="shrink-0" />
-                <span style={{ color: isActive ? "#ffffff" : "#f8fafc" }}>{n.label}</span>
-              </div>
-            </button>
-          );
-        })}
+        <div className="space-y-0.5">
+          {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "DIGITAL_TWIN").map((n) => {
+            const isActive = tab === n.tab;
+            return (
+              <button
+                key={n.label}
+                type="button"
+                onClick={() => {
+                  setTab(n.tab);
+                  if (window.innerWidth < 1024) setSidebarOpen(false);
+                }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition text-left cursor-pointer"
+                style={{
+                  color: isActive ? "#0078d4" : "var(--muted)",
+                  background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                  border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                }}
+              >
+                <n.icon size={15} className={isActive ? "text-[#0078d4] shrink-0" : "text-slate-450 shrink-0"} />
+                <span className="truncate">{n.label}</span>
+              </button>
+            );
+          })}
+        </div>
 
         {/* SYSTEM */}
-        <div
-          className="px-3 pt-3.5 pb-1.5 text-[12px] font-extrabold uppercase tracking-wider mt-1"
-          style={{ color: "#94a3b8", letterSpacing: "0.08em", borderTop: "1px solid rgba(51, 65, 85, 0.8)" }}
-        >
-          SYSTEM
+        <div className="mb-2 mt-4 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          System
         </div>
 
-        {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "SYSTEM").map((n) => {
-          const isActive = tab === n.tab;
-          return (
-            <button
-              key={n.label}
-              type="button"
-              onClick={() => {
-                setTab(n.tab);
-                if (window.innerWidth < 1024) setSidebarOpen(false);
-              }}
-              className={`flex w-full items-center justify-between gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition text-left cursor-pointer ${isActive ? "bg-[#0078d4] text-white shadow-sm shadow-blue-500/20" : "hover:bg-white/10"
-                }`}
-              style={{ color: isActive ? "#ffffff" : "#f8fafc" }}
-            >
-              <div className="flex items-center gap-2.5">
-                <n.icon size={17} color={isActive ? "#ffffff" : "#f8fafc"} className="shrink-0" />
-                <span style={{ color: isActive ? "#ffffff" : "#f8fafc" }}>{n.label}</span>
-              </div>
-              {n.badge && (
-                <span className="rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/30 px-2 py-0.2 text-[10px] font-extrabold">
-                  {n.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
+        <div className="space-y-0.5">
+          {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "SYSTEM").map((n) => {
+            const isActive = tab === n.tab;
+            return (
+              <button
+                key={n.label}
+                type="button"
+                onClick={() => {
+                  setTab(n.tab);
+                  if (window.innerWidth < 1024) setSidebarOpen(false);
+                }}
+                className="flex w-full items-center justify-between gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition text-left cursor-pointer"
+                style={{
+                  color: isActive ? "#0078d4" : "var(--muted)",
+                  background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                  border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                }}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <n.icon size={15} className={isActive ? "text-[#0078d4] shrink-0" : "text-slate-450 shrink-0"} />
+                  <span className="truncate">{n.label}</span>
+                </div>
+                {n.badge && (
+                  <span className="rounded-full bg-red-100 px-1.5 py-0.2 text-[9.5px] font-extrabold text-red-600">
+                    {n.badge}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
 
         {/* ACCOUNT & SETTINGS */}
-        <div
-          className="px-3 pt-3.5 pb-1.5 text-[12px] font-extrabold uppercase tracking-wider mt-1"
-          style={{ color: "#94a3b8", letterSpacing: "0.08em", borderTop: "1px solid rgba(51, 65, 85, 0.8)" }}
-        >
-          ACCOUNT &amp; SETTINGS
+        <div className="mb-2 mt-4 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+          Account &amp; Settings
         </div>
 
-        {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "ACCOUNT").map((n) => {
-          const isActive = tab === n.tab;
-          return (
-            <button
-              key={n.label}
-              type="button"
-              onClick={() => {
-                setTab(n.tab);
-                if (window.innerWidth < 1024) setSidebarOpen(false);
-              }}
-              className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-bold transition text-left cursor-pointer ${isActive
-                ? "bg-[#0078d4] text-white shadow-sm shadow-blue-500/20"
-                : "hover:bg-white/10"
-                }`}
-              style={{
-                color: isActive ? "#ffffff" : "#f8fafc",
-              }}
-            >
-              <n.icon size={17} color={isActive ? "#ffffff" : "#f8fafc"} className="shrink-0" />
-              <span style={{ color: isActive ? "#ffffff" : "#f8fafc" }}>{n.label}</span>
-            </button>
-          );
-        })}
+        <div className="space-y-0.5">
+          {PATIENT_SIDEBAR_NAV.filter((n) => n.section === "ACCOUNT").map((n) => {
+            const isActive = tab === n.tab;
+            return (
+              <button
+                key={n.label}
+                type="button"
+                onClick={() => {
+                  setTab(n.tab);
+                  if (window.innerWidth < 1024) setSidebarOpen(false);
+                }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold transition text-left cursor-pointer"
+                style={{
+                  color: isActive ? "#0078d4" : "var(--muted)",
+                  background: isActive ? "rgba(0,120,212,.08)" : "transparent",
+                  border: isActive ? "1px solid rgba(0,120,212,.15)" : "1px solid transparent",
+                }}
+              >
+                <n.icon size={15} className={isActive ? "text-[#0078d4] shrink-0" : "text-slate-450 shrink-0"} />
+                <span className="truncate">{n.label}</span>
+              </button>
+            );
+          })}
 
-        <button
-          type="button"
-          onClick={handleSignOut}
-          className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-[12.5px] font-semibold transition text-left hover:bg-rose-950/40 hover:text-rose-100 mt-1 cursor-pointer"
-          style={{ color: "#fca5a5" }}
-        >
-          <LogOut size={17} className="shrink-0" color="#f87171" />
-          <span style={{ color: "#fca5a5" }}>Log Out</span>
-        </button>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-1.5 text-[12.5px] font-bold text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition text-left mt-1 cursor-pointer"
+          >
+            <LogOut size={15} className="shrink-0 text-slate-400" />
+            <span>Log Out</span>
+          </button>
+        </div>
       </aside>
 
       {/* ================= MAIN CONTENT + AI ASSISTANT ================= */}
@@ -1831,20 +1868,31 @@ export default function PatientDashboard() {
                       </button>
                     )}
 
-                    {/* 3. Lab Queue Token Pill */}
-                    {activeLabToken && (
+                    {/* 3. Lab Queue Token Pill OR Check-in Button */}
+                    {activeLabToken ? (
                       <button
                         type="button"
                         onClick={() => setTab("My Lab Reports")}
-                        className="flex items-center gap-2 rounded-xl bg-indigo-50/90 border border-indigo-200 hover:bg-indigo-100/70 px-3 py-1.5 text-[11.5px] font-bold text-indigo-700 transition shadow-2xs"
+                        className="flex items-center gap-2 rounded-xl bg-sky-50/90 border border-sky-200 hover:bg-sky-100/70 px-3 py-1.5 text-[11.5px] font-bold text-[#0078d4] transition shadow-2xs"
                       >
-                        <FlaskConical size={14} className="text-indigo-600" />
+                        <FlaskConical size={14} className="text-[#0078d4]" />
                         <span>Lab Token: <b className="text-slate-900 text-[13px]">{activeLabToken.number}</b></span>
                         <span className="text-slate-300">|</span>
                         <span className="text-slate-600 font-medium">Destination: <b className="text-slate-800">{activeLabToken.room}</b></span>
-                        <span className="rounded-full bg-blue-100 text-[#0078d4] px-1.5 py-0.2 text-[9.5px] font-bold">● Slot Booked</span>
+                        <span className="rounded-full bg-emerald-100 text-emerald-700 px-1.5 py-0.2 text-[9.5px] font-bold">● Checked In</span>
                       </button>
-                    )}
+                    ) : pendingLabCheckInOrders.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => handleLabCheckIn()}
+                        disabled={labCheckInBusy}
+                        className="flex items-center gap-2 rounded-xl bg-sky-50 hover:bg-sky-100/80 border border-sky-200/80 px-3 py-1.5 text-[11.5px] font-bold text-[#0078d4] transition shadow-2xs cursor-pointer"
+                      >
+                        <FlaskConical size={14} className="text-[#0078d4]" />
+                        <span>{labCheckInBusy ? "Checking In..." : "Check In for Lab Test"}</span>
+                        <span className="rounded-full bg-sky-100 text-[#0078d4] px-1.5 py-0.2 text-[9px] font-extrabold border border-sky-200/60">Slot Booked</span>
+                      </button>
+                    ) : null}
 
                     {/* 4. Pharmacy Pickup Token Pill */}
                     {activePharmacyToken && (
@@ -2005,8 +2053,8 @@ export default function PatientDashboard() {
                       </div>
                     )}
 
-                    {/* 3. LIVE LABORATORY TOKEN BANNER */}
-                    {activeLabToken && (
+                    {/* 3. LIVE LABORATORY TOKEN BANNER OR CHECK-IN BANNER */}
+                    {activeLabToken ? (
                       <div className="rounded-2xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 via-blue-50/40 to-white p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
                         <div className="flex items-center gap-3.5 min-w-0">
                           <div className="grid h-12 w-14 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#0078d4] to-[#3730a3] text-white font-black text-[16px] shadow-xs">
@@ -2015,8 +2063,8 @@ export default function PatientDashboard() {
                           <div className="min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="text-[14px] font-extrabold text-slate-900">Active Laboratory Queue Token</span>
-                              <span className="rounded-full bg-blue-100 text-[#0078d4] border border-blue-200 px-2.5 py-0.5 text-[10.5px] font-bold">
-                                ● Slot Booked &amp; Confirmed
+                              <span className="rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 text-[10.5px] font-bold">
+                                ● Checked In
                               </span>
                             </div>
                             <p className="text-[12px] text-slate-600 mt-0.5">
@@ -2032,7 +2080,35 @@ export default function PatientDashboard() {
                           View Test Details ›
                         </button>
                       </div>
-                    )}
+                    ) : pendingLabCheckInOrders.length > 0 ? (
+                      <div className="rounded-2xl border border-sky-200/80 bg-gradient-to-r from-sky-50/70 via-blue-50/40 to-white p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sky-100 text-[#0078d4] border border-sky-200 shadow-2xs">
+                            <FlaskConical size={20} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[13.5px] font-extrabold text-slate-800">Lab &amp; Diagnostic Slot Booked</span>
+                              <span className="rounded-full bg-sky-100 text-[#0078d4] border border-sky-200 px-2.5 py-0.5 text-[10px] font-bold">
+                                ● {pendingLabCheckInOrders[0]?.booking_date || "Today"} · {pendingLabCheckInOrders[0]?.booking_slot || "09:00 AM"}
+                              </span>
+                            </div>
+                            <p className="text-[12px] text-slate-600 mt-0.5">
+                              {pendingLabCheckInOrders.map((o: any) => o.test || o.name).join(", ")}. Click Check In when you arrive at the hospital to receive your token.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleLabCheckIn()}
+                          disabled={labCheckInBusy}
+                          className="shrink-0 px-4 py-2 rounded-xl bg-[#0078d4] hover:bg-[#0a6ec2] text-white font-bold text-[12px] transition shadow-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                        >
+                          <FlaskConical size={14} />
+                          <span>{labCheckInBusy ? "Checking In..." : "Check In for Lab Test"}</span>
+                        </button>
+                      </div>
+                    ) : null}
 
                     {/* 4. LIVE PHARMACY PICKUP TOKEN BANNER */}
                     {activePharmacyToken && (
@@ -3121,9 +3197,9 @@ export default function PatientDashboard() {
                     />
                   )}
 
-                  {/* ACTIVE LAB QUEUE TOKEN BANNER */}
+                  {/* ACTIVE LAB QUEUE TOKEN BANNER (Shown once checked in) */}
                   {activeLabToken && (
-                    <div className="rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50/90 via-indigo-50/40 to-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                    <div className="rounded-2xl border border-sky-200 bg-gradient-to-r from-sky-50/90 via-blue-50/40 to-white p-4 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
                       <div className="flex items-center gap-3.5 min-w-0">
                         <div className="grid h-12 w-14 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[#0078d4] to-[#0c3b63] text-white font-black text-[16px] shadow-sm">
                           {activeLabToken.number}
@@ -3131,8 +3207,8 @@ export default function PatientDashboard() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[14px] font-extrabold text-slate-900">Active Laboratory Queue Token</span>
-                            <span className="rounded-full bg-blue-100 text-[#0078d4] border border-blue-200 px-2.5 py-0.5 text-[10.5px] font-bold">
-                              ● Slot Booked &amp; Confirmed
+                            <span className="rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 text-[10.5px] font-bold">
+                              ● Checked In
                             </span>
                           </div>
                           <p className="text-[12px] text-slate-600 mt-0.5">
@@ -3145,6 +3221,37 @@ export default function PatientDashboard() {
                           Est. Wait: ~{activeLabToken.eta_minutes || 10} min
                         </span>
                       </div>
+                    </div>
+                  )}
+
+                  {/* PENDING LAB CHECK-IN BANNER (Shown when slot is booked before check-in) */}
+                  {!activeLabToken && pendingLabCheckInOrders.length > 0 && (
+                    <div className="rounded-2xl border border-sky-200/80 bg-gradient-to-r from-sky-50/70 via-blue-50/40 to-white p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-sky-100 text-[#0078d4] border border-sky-200 shadow-2xs">
+                          <FlaskConical size={20} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[13.5px] font-extrabold text-slate-800">Lab &amp; Diagnostic Slot Booked</span>
+                            <span className="rounded-full bg-sky-100 text-[#0078d4] border border-sky-200 px-2.5 py-0.5 text-[10px] font-bold">
+                              ● {pendingLabCheckInOrders[0]?.booking_date || "Today"} · {pendingLabCheckInOrders[0]?.booking_slot || "09:00 AM"}
+                            </span>
+                          </div>
+                          <p className="text-[12px] text-slate-600 mt-0.5">
+                            {pendingLabCheckInOrders.map((o: any) => o.test || o.name).join(", ")}. Click Check In when you arrive at the hospital to receive your token.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleLabCheckIn()}
+                        disabled={labCheckInBusy}
+                        className="shrink-0 px-4 py-2 rounded-xl bg-[#0078d4] hover:bg-[#0a6ec2] text-white font-bold text-[12px] transition shadow-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                      >
+                        <FlaskConical size={14} />
+                        <span>{labCheckInBusy ? "Checking In..." : "Check In for Lab Test"}</span>
+                      </button>
                     </div>
                   )}
 
