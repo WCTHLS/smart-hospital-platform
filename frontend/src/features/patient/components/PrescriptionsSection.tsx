@@ -86,6 +86,7 @@ export default function PrescriptionsSection({
   const [activePayRx, setActivePayRx] = useState<PrescriptionRecord | null>(null);
   const [paying, setPaying] = useState(false);
   const [paymentDone, setPaymentDone] = useState(false);
+  const [optimisticPrepaidMap, setOptimisticPrepaidMap] = useState<Record<string, { number: string; room: string; floor: string; status?: string }>>({});
 
   // Format date helper without time (Date only: e.g. Aug 18, 2026)
   const formatDateDisplay = (dateStr?: string, ts?: string) => {
@@ -225,15 +226,26 @@ export default function PrescriptionsSection({
         });
       }
 
-      await api.verifyRazorpayPrescriptionPayment({
+      const res = await api.verifyRazorpayPrescriptionPayment({
         ...payment,
         rx_id: rx.rx_id,
       });
 
-      qc.invalidateQueries({ queryKey: ["portal-encounter"] });
-      qc.invalidateQueries({ queryKey: ["portal-p360"] });
-      if (refetchEnc) refetchEnc();
-      if (refetchP360) refetchP360();
+      if (res?.token_number) {
+        setOptimisticPrepaidMap((prev) => ({
+          ...prev,
+          [rx.rx_id]: {
+            number: res.token_number,
+            room: res.room || "Pharmacy Counter 3",
+            floor: res.floor || "Ground Floor",
+          },
+        }));
+      }
+
+      await qc.invalidateQueries({ queryKey: ["portal-p360"] });
+      await qc.invalidateQueries({ queryKey: ["portal-encounter"] });
+      if (refetchEnc) await refetchEnc();
+      if (refetchP360) await refetchP360();
 
       setPaymentDone(true);
       setTimeout(() => {
@@ -302,13 +314,13 @@ export default function PrescriptionsSection({
             const items = rx.items || [];
             const doc = rx.doctor;
             const appt = rx.appointment;
-            const pickupToken = rx.pickup_token;
+            const pickupToken = rx.pickup_token || optimisticPrepaidMap[rx.rx_id];
             const isDispensed =
               rx.status === "DISPENSED" ||
               rx.status === "COLLECTED" ||
               pickupToken?.status === "COMPLETED";
             const isPrepaid =
-              rx.status === "PREPAID" || Boolean(pickupToken) || isDispensed;
+              rx.status === "PREPAID" || Boolean(pickupToken) || isDispensed || Boolean(optimisticPrepaidMap[rx.rx_id]);
             const showActiveToken = Boolean(pickupToken) && !isDispensed;
 
             const subtotal = items.reduce((acc, itm) => {
