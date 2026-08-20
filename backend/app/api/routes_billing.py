@@ -459,8 +459,23 @@ def verify_razorpay_prescription_payment(body: RazorpayPrescriptionVerifyRequest
     else:
         token.status = "WAITING"
     db.commit()
+
+    bus.publish(Topics.TOKEN_ISSUED, {
+        "encounter_id": rx.encounter_id,
+        "token_number": token.token_number,
+        "department": "Pharmacy",
+        "room": token.room,
+        "floor": token.floor,
+        "status": token.status,
+    })
     
-    return {"success": True}
+    return {
+        "success": True,
+        "token_number": token.token_number,
+        "room": token.room,
+        "floor": token.floor,
+        "status": token.status,
+    }
 
 
 @router.post("/payments/razorpay/verify-payment")

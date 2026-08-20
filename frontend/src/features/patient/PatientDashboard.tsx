@@ -272,8 +272,8 @@ export default function PatientDashboard() {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [bookingStep, setBookingStep] = useState<"form" | "slots" | "confirm" | "success">("form");
   const [bookingDate, setBookingDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [bookingReason, setBookingReason] = useState("Post-procedure Follow-up & Cardiac Health Review");
-  const [bookingSpecialty, setBookingSpecialty] = useState("Cardiology");
+  const [bookingReason, setBookingReason] = useState("");
+  const [bookingSpecialty, setBookingSpecialty] = useState("");
   const [availableSlots, setAvailableSlots] = useState<any[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
   const [confirmedAppointment, setConfirmedAppointment] = useState<any | null>(null);
@@ -281,6 +281,13 @@ export default function PatientDashboard() {
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState("");
   const [bookingSuccessMsg, setBookingSuccessMsg] = useState("");
+
+  // Follow-Up Specific Consultation State (Complimentary ₹0 fee lab review)
+  const [isFollowUpBooking, setIsFollowUpBooking] = useState(false);
+  const [followUpDoctorId, setFollowUpDoctorId] = useState<string | null>(null);
+  const [followUpDoctorName, setFollowUpDoctorName] = useState<string | null>(null);
+  const [followUpEncounterId, setFollowUpEncounterId] = useState<string | null>(null);
+  const [followUpTestNames, setFollowUpTestNames] = useState<string | null>(null);
 
   // Profile Editable Demographics State (First Name, Last Name, Gender, DOB, Email, Address)
   const [profileFirstName, setProfileFirstName] = useState("");
@@ -489,33 +496,59 @@ export default function PatientDashboard() {
 
   // Split appointments into Upcoming & Today (active / ongoing visits on top) vs Past appointments
   const { upcomingAndTodayAppointments, pastAppointmentsList } = useMemo(() => {
-    const all = [...(appointmentData?.appointments || []), ...(todayApptData?.appointments || [])];
+    const all = [
+      ...(p360?.all_appointments || []),
+      ...(appointmentData?.appointments || []),
+      ...(todayApptData?.appointments || [])
+    ];
     const uniqueMap = new Map<string, any>();
     for (const a of all) {
       if (a.appointment_id && !uniqueMap.has(a.appointment_id)) {
         uniqueMap.set(a.appointment_id, a);
       }
     }
+
+    // Also include completed clinical encounters if not already present
+    if (p360?.encounters && Array.isArray(p360.encounters)) {
+      for (const enc of p360.encounters) {
+        if (enc.visit_type === "LAB" || (enc.department || "").toLowerCase() === "diagnostics" || !enc.doctor_name) {
+          continue;
+        }
+        const encKey = enc.appointment_id || enc.encounter_id;
+        if (encKey && !uniqueMap.has(encKey)) {
+          uniqueMap.set(encKey, {
+            appointment_id: encKey,
+            encounter_id: enc.encounter_id,
+            doctor: {
+              name: enc.doctor_name.startsWith("Dr.") ? enc.doctor_name : `Dr. ${enc.doctor_name}`,
+              specialty: enc.department || "General Medicine",
+            },
+            specialty: enc.department || "General Medicine",
+            status: enc.status || "DISCHARGED",
+            scheduled_start: enc.arrival_ts || `${enc.date || "2026-08-20"}T10:00:00Z`,
+            reason: enc.reason || "Clinical Consultation",
+          });
+        }
+      }
+    }
+
     const combined = Array.from(uniqueMap.values());
     const todayIsoStr = new Date().toISOString().slice(0, 10);
 
     const upcoming: any[] = [];
     const past: any[] = [];
 
-    const ACTIVE_VISIT_STATUSES = new Set([
-      "CHECKED_IN", "CHECKEDIN", "ARRIVED", "WAITING",
-      "TRIAGED", "TRIAGE", "EMERGENCY",
-      "IN_CONSULT", "IN_CONSULTATION", "CONSULTING", "WITH_DOCTOR", "WAITING_DOCTOR", "CONSULTATION",
-      "DIAGNOSTICS", "LAB", "LAB_ORDERED", "LAB_PENDING", "LAB_COMPLETED", "UNDER_REVIEW",
-      "RX_ISSUED", "PHARMACY", "PHARMACY_PENDING", "RX_READY",
-      "BOOKED", "SCHEDULED", "CONFIRMED"
-    ]);
-
     for (const a of combined) {
+      // Filter out pure lab queue entries that might have been accidentally booked under appointments
+      const aReason = (a.reason || "").toLowerCase();
+      if (a.appointment_type === "LAB" || aReason === "laboratory tests") {
+        continue;
+      }
+
       const apptDate = a.scheduled_start ? a.scheduled_start.slice(0, 10) : todayIsoStr;
       const rawStatus = (a.status || "").toUpperCase().replace(/-/g, "_");
 
-      // An appointment is only past if it has been completed/discharged/cancelled,
+      // An appointment is only past if it has been finished/discharged/cancelled,
       // or if it was an unattended scheduled slot from a previous calendar day
       const isFinished = rawStatus === "COMPLETED" || rawStatus === "DISCHARGED" || rawStatus === "CANCELLED";
       const isPastUnattended = apptDate < todayIsoStr && (rawStatus === "BOOKED" || rawStatus === "SCHEDULED" || rawStatus === "CONFIRMED");
@@ -525,45 +558,6 @@ export default function PatientDashboard() {
         past.push(a);
       } else {
         upcoming.push(a);
-      }
-    }
-
-    // Also include encounters from patient chart if not already captured
-    if (p360?.encounters && Array.isArray(p360.encounters)) {
-      for (const enc of p360.encounters) {
-        const rawStatus = (enc.status || "").toUpperCase().replace(/-/g, "_");
-        const encDate = enc.date || (enc.arrival_ts ? enc.arrival_ts.slice(0, 10) : todayIsoStr);
-        const isFinished = rawStatus === "COMPLETED" || rawStatus === "DISCHARGED" || rawStatus === "CANCELLED";
-
-        const alreadyInUpcoming = upcoming.some(
-          (u) => (u.encounter_id && u.encounter_id === enc.encounter_id) || (u.appointment_id && u.appointment_id === enc.appointment_id)
-        );
-        const alreadyInPast = past.some(
-          (p) => (p.encounter_id && p.encounter_id === enc.encounter_id) || (p.appointment_id && p.appointment_id === enc.appointment_id)
-        );
-        if (alreadyInUpcoming || alreadyInPast) continue;
-
-        const encItem = {
-          appointment_id: enc.appointment_id || enc.encounter_id || `ENC-${enc.encounter_id}`,
-          encounter_id: enc.encounter_id,
-          doctor: {
-            name: enc.doctor_name || (careTeam[0]?.name || "Dr. Ananya Mehta"),
-            specialty: enc.department || (careTeam[0]?.specialty || "General Medicine"),
-            room: enc.room || (careTeam[0]?.room || "Room 101"),
-            floor: enc.floor || (careTeam[0]?.floor || "Floor 1"),
-          },
-          specialty: enc.department || "General Medicine",
-          status: enc.status || (isFinished ? "COMPLETED" : "TRIAGED"),
-          scheduled_start: enc.arrival_ts || (enc.date ? `${enc.date}T10:00:00Z` : `${todayIsoStr}T10:00:00Z`),
-          reason: enc.reason || enc.chief_complaint || "Clinical Consultation",
-          is_today: encDate === todayIsoStr || !isFinished,
-        };
-
-        if (isFinished || (encDate < todayIsoStr && !ACTIVE_VISIT_STATUSES.has(rawStatus))) {
-          past.push(encItem);
-        } else {
-          upcoming.push(encItem);
-        }
       }
     }
 
@@ -577,11 +571,14 @@ export default function PatientDashboard() {
       return (a.scheduled_start || "").localeCompare(b.scheduled_start || "");
     });
 
+    // Sort past: newest completed visits first
+    past.sort((a, b) => (b.scheduled_start || "").localeCompare(a.scheduled_start || ""));
+
     return {
       upcomingAndTodayAppointments: upcoming,
       pastAppointmentsList: past,
     };
-  }, [appointmentData?.appointments, todayApptData?.appointments, p360?.encounters, careTeam]);
+  }, [p360?.all_appointments, p360?.encounters, appointmentData?.appointments, todayApptData?.appointments]);
 
   // Dynamically compute the active stage for Live Visit Tracker
   const activeEncounterStatus = (
@@ -955,6 +952,73 @@ export default function PatientDashboard() {
     }
   };
 
+  // Identify consultations / appointments where ALL ordered lab & radiology tests are completed/resulted
+  const completedFollowUpOpportunities = useMemo(() => {
+    const allTests = [...(labReports || []), ...(scansAndDiagnostics || [])];
+    if (allTests.length === 0) return [];
+
+    const groups: Record<string, {
+      key: string;
+      encounterId?: string;
+      appointmentId?: string;
+      doctorName: string;
+      doctorSpecialty: string;
+      doctorId?: string;
+      date: string;
+      reason: string;
+      tests: { name: string; status: string; value?: string; attachment_uri?: string }[];
+    }> = {};
+
+    for (const test of allTests) {
+      const gKey = test.appointment?.appointment_id || test.encounter_id || test.doctor?.name || "consultation";
+      const docName = test.doctor?.name || (careTeam?.[0]?.name) || "Attending Doctor";
+      const docSpec = test.doctor?.specialty || (careTeam?.[0]?.specialty) || "Specialist";
+      const docId = (test.doctor as any)?.doctor_id || (careTeam?.[0]?.staff_id);
+
+      if (!groups[gKey]) {
+        groups[gKey] = {
+          key: gKey,
+          encounterId: test.encounter_id,
+          appointmentId: test.appointment?.appointment_id,
+          doctorName: docName,
+          doctorSpecialty: docSpec,
+          doctorId: docId,
+          date: test.appointment?.date || test.date || "Recent",
+          reason: test.appointment?.reason || "Clinical Assessment & Diagnostics",
+          tests: [],
+        };
+      }
+      groups[gKey].tests.push({
+        name: test.test || test.name || "Investigation",
+        status: (test.status || test.raw_status || "COMPLETED").toUpperCase(),
+        value: test.value || test.finding || undefined,
+        attachment_uri: test.attachment_uri || undefined,
+      });
+    }
+
+    // Filter to appointments where all tests have been resulted/completed
+    // AND the patient does NOT already have an active/upcoming appointment with this doctor or a booked follow-up
+    return Object.values(groups).filter((g) => {
+      if (g.tests.length === 0) return false;
+      const allCompleted = g.tests.every(
+        (t) => t.status === "COMPLETED" || t.status === "RESULTED" || t.status === "DISCHARGED"
+      );
+      if (!allCompleted) return false;
+
+      const hasUpcomingFollowUp = upcomingAndTodayAppointments.some((appt: any) => {
+        const apptDocId = appt.doctor?.doctor_id || appt.doctor_id;
+        const apptDocName = appt.doctor?.name || "";
+        const apptReason = (appt.reason || "").toLowerCase();
+        const isFollowUpType = appt.appointment_type === "FOLLOWUP" || apptReason.includes("follow-up") || apptReason.includes("follow up");
+        const isSameDoctor = (g.doctorId && apptDocId === g.doctorId) || (g.doctorName && apptDocName.toLowerCase().includes(g.doctorName.toLowerCase()));
+
+        return isFollowUpType || isSameDoctor;
+      });
+
+      return !hasUpcomingFollowUp;
+    });
+  }, [labReports, scansAndDiagnostics, careTeam, upcomingAndTodayAppointments]);
+
   // 4. Active Pharmacy Pickup Token (Issued when prescription is prepaid, vanishes when dispensed)
   const activePharmacyToken = useMemo(() => {
     if (p360?.prescriptions && Array.isArray(p360.prescriptions)) {
@@ -987,6 +1051,19 @@ export default function PatientDashboard() {
     }
     return null;
   }, [p360?.prescriptions, p360?.active_tokens]);
+
+  // 5. Prescribed medications pending payment & collection (Doctor prescribed, but patient has not paid yet)
+  const pendingPrescriptionsToPay = useMemo(() => {
+    if (!p360?.prescriptions || !Array.isArray(p360.prescriptions)) return [];
+    return p360.prescriptions.filter((rx: any) => {
+      const isDispensed =
+        rx.status === "DISPENSED" ||
+        rx.status === "COLLECTED" ||
+        rx.pickup_token?.status === "COMPLETED";
+      const isPrepaid = rx.status === "PREPAID" || Boolean(rx.pickup_token) || isDispensed;
+      return !isPrepaid && !isDispensed && (rx.items?.length || 0) > 0;
+    });
+  }, [p360?.prescriptions]);
 
   // Sync profile editable fields when p360 changes
   useEffect(() => {
@@ -1368,9 +1445,50 @@ export default function PatientDashboard() {
         appointment_date: bookingDate,
         reason: bookingReason,
       });
-      setBookingSpecialty(result.specialty || "Cardiology");
+      setBookingSpecialty(result.specialty || "General Medicine");
       setAvailableSlots(result.slots ?? []);
       setBookingStep("slots");
+    } catch (err: any) {
+      setBookingError(err?.message || "Failed to retrieve available doctor slots for this date.");
+    } finally {
+      setFindingSlots(false);
+    }
+  };
+
+  // Trigger Follow-up Consultation Booking (Free / ₹0 OPD fee)
+  const handleOpenFollowUpBooking = async (
+    doctorName?: string,
+    specialty?: string,
+    doctorId?: string,
+    testNames?: string,
+    encounterId?: string
+  ) => {
+    setIsFollowUpBooking(true);
+    setFollowUpDoctorId(doctorId || null);
+    setFollowUpDoctorName(doctorName || null);
+    setFollowUpEncounterId(encounterId || null);
+    setFollowUpTestNames(testNames || null);
+
+    const spec = specialty || "General Medicine";
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const reasonText = `Follow-Up Consultation to review test results${testNames ? ` (${testNames})` : ""}`;
+
+    setBookingDate(todayStr);
+    setBookingSpecialty(spec);
+    setBookingReason(reasonText);
+    setTab("Book Consultation");
+    setBookingStep("slots");
+    setFindingSlots(true);
+    setBookingError("");
+    setSelectedSlot(null);
+
+    try {
+      const result = await api.appointmentSlots({
+        patient_id: portalPatientId,
+        appointment_date: todayStr,
+        reason: reasonText,
+      });
+      setAvailableSlots(result.slots ?? []);
     } catch (err: any) {
       setBookingError(err?.message || "Failed to retrieve available doctor slots for this date.");
     } finally {
@@ -1383,68 +1501,10 @@ export default function PatientDashboard() {
     setBookingLoading(true);
     setBookingError("");
     try {
-      let Razorpay = (window as any).Razorpay;
-      if (!Razorpay) {
-        const loaded = await loadRazorpayScript();
-        if (loaded) Razorpay = (window as any).Razorpay;
-      }
-
       let bookedAppt: any = null;
-      try {
-        const order = await api.createRazorpayOrder({
-          patient_id: portalPatientId,
-          doctor_id: selectedSlot.doctor_id,
-          scheduled_start: selectedSlot.scheduled_start,
-          scheduled_end: selectedSlot.scheduled_end,
-          reason: bookingReason,
-          specialty: selectedSlot.specialty,
-          appointment_type: "OPD",
-          channel: "PORTAL",
-          checkout_email: portalSession?.email || "patient@cliniq.health",
-        });
 
-        let payment: RazorpaySuccess;
-        if (order.key_id === "mock_sandbox_key" || !Razorpay) {
-          payment = {
-            razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
-            razorpay_order_id: order.order_id,
-            razorpay_signature: "mock_signature_sandbox",
-          };
-        } else {
-          payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
-            let settled = false;
-            const checkout = new Razorpay({
-              key: order.key_id,
-              amount: order.amount,
-              currency: order.currency,
-              name: "ClinIQ Healthcare",
-              description: `${selectedSlot.specialty} consultation with ${selectedSlot.doctor_name}`,
-              order_id: order.order_id,
-              prefill: order.prefill,
-              theme: { color: "#0078d4" },
-              modal: {
-                confirm_close: true,
-                ondismiss: () => {
-                  if (!settled) reject(new Error("Payment was cancelled. Your appointment has not been booked."));
-                },
-              },
-              handler: (response: RazorpaySuccess) => {
-                settled = true;
-                resolve(response);
-              },
-            });
-            checkout.on("payment.failed", (response: any) => {
-              settled = true;
-              reject(new Error(response?.error?.description || "Payment failed. Please try again."));
-            });
-            checkout.open();
-          });
-        }
-
-        const result = await api.verifyRazorpayPayment(payment);
-        bookedAppt = result.appointment;
-      } catch (payErr: any) {
-        // Direct appointment booking fallback to ensure seamless DB sync
+      // For Follow-Up Consultations (Free / ₹0 OPD Fee), bypass Razorpay and book immediately!
+      if (isFollowUpBooking || selectedSlot.opd_fee === 0) {
         const directRes = await api.bookAppointment({
           patient_id: portalPatientId,
           doctor_id: selectedSlot.doctor_id,
@@ -1452,14 +1512,94 @@ export default function PatientDashboard() {
           scheduled_start: selectedSlot.scheduled_start,
           scheduled_end: selectedSlot.scheduled_end,
           reason: bookingReason,
+          appointment_type: "FOLLOWUP",
           channel: "PORTAL",
+          encounter_id: followUpEncounterId || undefined,
         });
         bookedAppt = directRes.appointment || directRes;
+      } else {
+        // Standard paid consultation booking with Razorpay checkout
+        let Razorpay = (window as any).Razorpay;
+        if (!Razorpay) {
+          const loaded = await loadRazorpayScript();
+          if (loaded) Razorpay = (window as any).Razorpay;
+        }
+
+        try {
+          const order = await api.createRazorpayOrder({
+            patient_id: portalPatientId,
+            doctor_id: selectedSlot.doctor_id,
+            scheduled_start: selectedSlot.scheduled_start,
+            scheduled_end: selectedSlot.scheduled_end,
+            reason: bookingReason,
+            specialty: selectedSlot.specialty,
+            appointment_type: "OPD",
+            channel: "PORTAL",
+            checkout_email: portalSession?.email || "patient@cliniq.health",
+          });
+
+          let payment: RazorpaySuccess;
+          if (order.key_id === "mock_sandbox_key" || !Razorpay) {
+            payment = {
+              razorpay_payment_id: `pay_mock_${Math.random().toString(36).substring(2, 11)}`,
+              razorpay_order_id: order.order_id,
+              razorpay_signature: "mock_signature_sandbox",
+            };
+          } else {
+            payment = await new Promise<RazorpaySuccess>((resolve, reject) => {
+              let settled = false;
+              const checkout = new Razorpay({
+                key: order.key_id,
+                amount: order.amount,
+                currency: order.currency,
+                name: "ClinIQ Healthcare",
+                description: `${selectedSlot.specialty} consultation with ${selectedSlot.doctor_name}`,
+                order_id: order.order_id,
+                prefill: order.prefill,
+                theme: { color: "#0078d4" },
+                modal: {
+                  confirm_close: true,
+                  ondismiss: () => {
+                    if (!settled) reject(new Error("Payment was cancelled. Your appointment has not been booked."));
+                  },
+                },
+                handler: (response: RazorpaySuccess) => {
+                  settled = true;
+                  resolve(response);
+                },
+              });
+              checkout.on("payment.failed", (response: any) => {
+                settled = true;
+                reject(new Error(response?.error?.description || "Payment failed. Please try again."));
+              });
+              checkout.open();
+            });
+          }
+
+          const result = await api.verifyRazorpayPayment(payment);
+          bookedAppt = result.appointment;
+        } catch (payErr: any) {
+          // Direct appointment booking fallback to ensure seamless DB sync
+          const directRes = await api.bookAppointment({
+            patient_id: portalPatientId,
+            doctor_id: selectedSlot.doctor_id,
+            specialty: selectedSlot.specialty,
+            scheduled_start: selectedSlot.scheduled_start,
+            scheduled_end: selectedSlot.scheduled_end,
+            reason: bookingReason,
+            channel: "PORTAL",
+          });
+          bookedAppt = directRes.appointment || directRes;
+        }
       }
 
       setConfirmedAppointment(bookedAppt);
       setBookingStep("success");
-      setBookingSuccessMsg(`Your appointment is confirmed for ${bookingDate} with ${selectedSlot.doctor_name}.`);
+      setBookingSuccessMsg(
+        isFollowUpBooking
+          ? `Your complimentary follow-up consultation is confirmed for ${bookingDate} with ${selectedSlot.doctor_name}.`
+          : `Your appointment is confirmed for ${bookingDate} with ${selectedSlot.doctor_name}.`
+      );
       await refetchAppointments();
       await refetchTodayAppointments();
       await refetchP360();
@@ -1477,6 +1617,13 @@ export default function PatientDashboard() {
     setBookingError("");
     setConfirmedAppointment(null);
     setBookingSuccessMsg("");
+    setBookingReason("");
+    setBookingSpecialty("");
+    setIsFollowUpBooking(false);
+    setFollowUpDoctorId(null);
+    setFollowUpDoctorName(null);
+    setFollowUpEncounterId(null);
+    setFollowUpTestNames(null);
   };
 
   const sendCopilotChat = (textToSend?: string) => {
@@ -1909,6 +2056,40 @@ export default function PatientDashboard() {
                       </button>
                     )}
 
+                    {/* 5. Free Follow-Up Ready Pill */}
+                    {completedFollowUpOpportunities.length > 0 && !activeLabToken && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleOpenFollowUpBooking(
+                            completedFollowUpOpportunities[0].doctorName,
+                            completedFollowUpOpportunities[0].doctorSpecialty,
+                            completedFollowUpOpportunities[0].doctorId,
+                            completedFollowUpOpportunities[0].tests.map((t: any) => t.name).join(", "),
+                            completedFollowUpOpportunities[0].encounterId
+                          )
+                        }
+                        className="flex items-center gap-2 rounded-xl bg-emerald-50/90 hover:bg-emerald-100/90 border border-emerald-300 px-3 py-1.5 text-[11.5px] font-bold text-emerald-800 transition shadow-2xs cursor-pointer"
+                      >
+                        <CheckCircle2 size={14} className="text-emerald-600" />
+                        <span>Lab Results Ready: <b>Book Follow-Up</b></span>
+                        <span className="rounded-full bg-emerald-600 text-white px-1.5 py-0.2 text-[9px] font-black uppercase tracking-wider">Free · ₹0</span>
+                      </button>
+                    )}
+
+                    {/* 6. Action Required: Prescriptions Pending Payment & Collection */}
+                    {pendingPrescriptionsToPay.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setTab("My Prescriptions")}
+                        className="flex items-center gap-2 rounded-xl bg-amber-50/95 hover:bg-amber-100/90 border border-amber-300 px-3 py-1.5 text-[11.5px] font-bold text-amber-900 transition shadow-2xs cursor-pointer animate-pulse"
+                      >
+                        <PillIcon size={14} className="text-amber-600" />
+                        <span>Prescribed Medicines: <b>Action Required</b></span>
+                        <span className="rounded-full bg-amber-500 text-white px-1.5 py-0.2 text-[9px] font-black uppercase tracking-wider">Pay &amp; Collect</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => setTab("My Prescriptions")}
@@ -2135,6 +2316,77 @@ export default function PatientDashboard() {
                           className="shrink-0 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[12px] transition shadow-xs"
                         >
                           View Prescription Slip ›
+                        </button>
+                      </div>
+                    )}
+
+                    {/* 5. ALL LAB TESTS COMPLETED — FREE FOLLOW-UP CONSULTATION BANNER */}
+                    {completedFollowUpOpportunities.length > 0 && !activeLabToken && (
+                      <div className="rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50/90 via-teal-50/50 to-blue-50/30 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-emerald-600 text-white font-black shadow-xs">
+                            <CheckCircle2 size={22} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[14px] font-extrabold text-slate-900">All Diagnostic Results Ready for Review</span>
+                              <span className="rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300/80 px-2.5 py-0.5 text-[10.5px] font-bold">
+                                ● Free Follow-Up · ₹0 OPD Fee
+                              </span>
+                            </div>
+                            <p className="text-[12px] text-slate-600 mt-0.5">
+                              All prescribed investigations ({completedFollowUpOpportunities[0].tests.map((t: any) => t.name).join(", ")}) are ready for clinical review with <b>{completedFollowUpOpportunities[0].doctorName}</b> ({completedFollowUpOpportunities[0].doctorSpecialty}).
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleOpenFollowUpBooking(
+                              completedFollowUpOpportunities[0].doctorName,
+                              completedFollowUpOpportunities[0].doctorSpecialty,
+                              completedFollowUpOpportunities[0].doctorId,
+                              completedFollowUpOpportunities[0].tests.map((t: any) => t.name).join(", "),
+                              completedFollowUpOpportunities[0].encounterId
+                            )
+                          }
+                          className="shrink-0 px-4 py-2.5 rounded-xl bg-[#0078d4] hover:bg-[#0a6ec2] text-white font-bold text-[12.5px] transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <CalendarPlus size={15} />
+                          <span>Book Free Follow-Up</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {/* 6. PRESCRIBED MEDICATIONS PENDING PAYMENT / PICKUP (ACTION REQUIRED) */}
+                    {pendingPrescriptionsToPay.length > 0 && !activePharmacyToken && (
+                      <div className="rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50/95 via-orange-50/40 to-white p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in">
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-amber-500 text-white font-black shadow-xs">
+                            <PillIcon size={22} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[14px] font-extrabold text-slate-900">Action Required: Prescribed Medications Pending Payment</span>
+                              <span className="rounded-full bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-0.5 text-[10.5px] font-bold">
+                                ● Payment &amp; Pickup Required
+                              </span>
+                            </div>
+                            <p className="text-[12px] text-slate-600 mt-0.5">
+                              {pendingPrescriptionsToPay[0]?.doctor?.name ? `Prescribed by ${pendingPrescriptionsToPay[0]?.doctor?.name}: ` : ""}
+                              <b>{pendingPrescriptionsToPay[0]?.items?.map((i: any) => i.drug_name || i.name).filter(Boolean).slice(0, 3).join(", ")}</b>
+                              {(pendingPrescriptionsToPay[0]?.items?.length || 0) > 3 ? ` and ${(pendingPrescriptionsToPay[0]?.items?.length || 0) - 3} more` : ""}.
+                              Pay online to generate your pharmacy queue token and collect your medicines.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setTab("My Prescriptions")}
+                          className="shrink-0 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[12.5px] transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <CreditCard size={15} />
+                          <span>Pay &amp; Collect Medicines</span>
                         </button>
                       </div>
                     )}
@@ -2873,9 +3125,11 @@ export default function PatientDashboard() {
                             >
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-bold text-[13px] text-slate-800">{pa.doctor?.name || "Dr. Ahmed Ali"}</span>
+                                  <span className="font-bold text-[13px] text-slate-800">
+                                    {pa.doctor?.name || pa.doctor_name || "Specialist Physician"}
+                                  </span>
                                   <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600">
-                                    {pa.specialty || pa.doctor?.specialty || "Cardiology"}
+                                    {pa.specialty || pa.doctor?.specialty || "General Medicine"}
                                   </span>
                                   {isCancelled ? (
                                     <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-50 text-red-700 border border-red-200">
@@ -2990,6 +3244,18 @@ export default function PatientDashboard() {
                   {/* STEP 2: Doctor & Slot Selection */}
                   {bookingStep === "slots" && (
                     <div className="space-y-4">
+                      {isFollowUpBooking && (
+                        <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-[12px] flex items-center justify-between gap-2 shadow-xs">
+                          <div className="flex items-center gap-2 font-bold">
+                            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                            <span>Complimentary Follow-Up Consultation · <b>₹0 OPD Fee</b> (Lab Review)</span>
+                          </div>
+                          <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                            Free Follow-Up
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between">
                         <span className="text-[12.5px] font-bold text-slate-700">
                           Available Specialist Slots ({bookingSpecialty}) on {bookingDate}
@@ -3019,11 +3285,11 @@ export default function PatientDashboard() {
                                   <div>
                                     <div className="font-bold text-[13px] text-slate-800">{doctor.doctor_name}</div>
                                     <div className="text-[10.5px] text-slate-400">
-                                      {doctor.specialty} · Room: {doctor.room || "OPD-04"} · Fee: ₹{doctor.opd_fee || 500}
+                                      {doctor.specialty} · Room: {doctor.room || "OPD-04"} · Fee: {isFollowUpBooking ? "₹0 (Free Follow-Up)" : `₹${doctor.opd_fee || 500}`}
                                     </div>
                                   </div>
                                 </div>
-                                <Pill tone="#16a34a">Available</Pill>
+                                <Pill tone="#16a34a">{isFollowUpBooking ? "Free Follow-Up" : "Available"}</Pill>
                               </div>
 
                               {/* Horizontal left to right scrolling slot row */}
@@ -3075,9 +3341,16 @@ export default function PatientDashboard() {
                   {bookingStep === "confirm" && selectedSlot && (
                     <div className="space-y-4">
                       <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 text-[12px]">
-                        <h3 className="font-extrabold text-[13px] text-slate-800 border-b border-slate-200/60 pb-2">
-                          Consultation Booking Summary
-                        </h3>
+                        <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+                          <h3 className="font-extrabold text-[13px] text-slate-800">
+                            Consultation Booking Summary
+                          </h3>
+                          {isFollowUpBooking && (
+                            <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                              Complimentary Follow-Up
+                            </span>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <span className="text-[10px] font-bold uppercase text-slate-400">Doctor</span>
@@ -3103,7 +3376,9 @@ export default function PatientDashboard() {
                           </div>
                           <div>
                             <span className="text-[10px] font-bold uppercase text-slate-400">Consultation Fee</span>
-                            <div className="font-extrabold text-emerald-600">₹{selectedSlot.opd_fee || 500}</div>
+                            <div className="font-extrabold text-emerald-600">
+                              {isFollowUpBooking || selectedSlot.opd_fee === 0 ? "₹0 (Free Follow-Up · No Payment)" : `₹${selectedSlot.opd_fee || 500}`}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -3122,8 +3397,8 @@ export default function PatientDashboard() {
                           onClick={handleConfirmAndPay}
                           className="py-2.5 px-6 rounded-lg bg-[#0078d4] hover:bg-[#0a6ec2] text-white font-bold text-[13px] shadow-sm flex items-center gap-2 transition"
                         >
-                          {bookingLoading ? <RefreshCw className="animate-spin" size={16} /> : <CreditCard size={16} />}
-                          {bookingLoading ? "Processing Booking..." : `Pay ₹${selectedSlot.opd_fee || 500} & Confirm Booking`}
+                          {bookingLoading ? <RefreshCw className="animate-spin" size={16} /> : (isFollowUpBooking ? <CalendarPlus size={16} /> : <CreditCard size={16} />)}
+                          {bookingLoading ? "Processing Booking..." : (isFollowUpBooking ? "Confirm Free Follow-Up Appointment" : `Pay ₹${selectedSlot.opd_fee || 500} & Confirm Booking`)}
                         </button>
                       </div>
                     </div>
@@ -3135,9 +3410,11 @@ export default function PatientDashboard() {
                       <div className="grid h-12 w-12 place-items-center rounded-full bg-emerald-600 text-white mx-auto">
                         <CheckCircle2 size={24} />
                       </div>
-                      <h3 className="text-[16px] font-extrabold text-emerald-900">Consultation Booked Successfully!</h3>
+                      <h3 className="text-[16px] font-extrabold text-emerald-900">
+                        {isFollowUpBooking ? "Follow-Up Consultation Booked Successfully!" : "Consultation Booked Successfully!"}
+                      </h3>
                       <p className="text-[12.5px] text-emerald-800 max-w-md mx-auto">
-                        Your appointment with <b>{selectedSlot?.doctor_name || "Doctor"}</b> has been confirmed for <b>{bookingDate}</b>.
+                        Your {isFollowUpBooking ? "complimentary follow-up" : ""} appointment with <b>{selectedSlot?.doctor_name || "Doctor"}</b> has been confirmed for <b>{bookingDate}</b>.
                       </p>
                       <div className="pt-2 flex justify-center gap-3">
                         <button
@@ -3259,6 +3536,8 @@ export default function PatientDashboard() {
                     labReports={labReports}
                     scansAndDiagnostics={scansAndDiagnostics}
                     refetchP360={() => refetchP360()}
+                    hasFollowUpBooked={completedFollowUpOpportunities.length === 0}
+                    onBookFollowUp={handleOpenFollowUpBooking}
                   />
                 </div>
               )}
@@ -3276,8 +3555,8 @@ export default function PatientDashboard() {
               {tab === "Doctor Notes" && (
                 <DoctorNotesSection
                   notesByAppointment={p360?.doctor_notes_by_appointment || []}
-                  onBookFollowUp={() => {
-                    setTab("Book Consultation");
+                  onBookFollowUp={(docName, spec) => {
+                    handleOpenFollowUpBooking(docName, spec);
                   }}
                 />
               )}

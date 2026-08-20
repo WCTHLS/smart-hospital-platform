@@ -19,7 +19,8 @@ import {
   XCircle,
   AlertCircle,
   Check,
-  LoaderCircle
+  LoaderCircle,
+  CalendarPlus
 } from "lucide-react";
 import { api } from "../../../lib/api";
 
@@ -91,12 +92,22 @@ interface LabReportsSectionProps {
   labReports?: LabReportRecord[];
   scansAndDiagnostics?: LabReportRecord[];
   refetchP360?: () => void;
+  hasFollowUpBooked?: boolean;
+  onBookFollowUp?: (
+    doctorName?: string,
+    specialty?: string,
+    doctorId?: string,
+    testNames?: string,
+    encounterId?: string
+  ) => void;
 }
 
 export default function LabReportsSection({
   labReports = [],
   scansAndDiagnostics = [],
   refetchP360,
+  hasFollowUpBooked = false,
+  onBookFollowUp,
 }: LabReportsSectionProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"ALL" | "LAB" | "IMAGING">("ALL");
@@ -385,6 +396,14 @@ export default function LabReportsSection({
             const labCount = group.orders.filter((o) => !o.is_imaging).length;
             const scanCount = group.orders.filter((o) => o.is_imaging).length;
 
+            const isGroupAllCompleted =
+              !hasFollowUpBooked &&
+              group.orders.length > 0 &&
+              group.orders.every((o) => {
+                const st = (o.raw_status || o.status || "").toUpperCase();
+                return st === "COMPLETED" || st === "RESULTED" || st === "DISCHARGED";
+              });
+
             return (
               <div
                 key={group.groupId}
@@ -446,6 +465,26 @@ export default function LabReportsSection({
                       </span>
                     </span>
 
+                    {/* Header Quick Follow-Up CTA if all tests completed */}
+                    {isGroupAllCompleted && onBookFollowUp && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onBookFollowUp(
+                            doc?.name,
+                            doc?.specialty,
+                            (doc as any)?.doctor_id,
+                            group.orders.map((o) => o.name || o.test || "").filter(Boolean).join(", "),
+                            group.encounter_id
+                          );
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg bg-[#0078d4] hover:bg-[#0a6ec2] text-white px-2.5 py-1 text-[11px] font-bold shadow-xs transition"
+                      >
+                        <CalendarPlus size={12} /> Book Follow-Up
+                      </button>
+                    )}
+
                     {/* Expand/Collapse Button for Past Consultations */}
                     {!isLatestGroup && (
                       <button
@@ -473,7 +512,45 @@ export default function LabReportsSection({
                 {/* 2. EXPANDED GROUP BODY: LIST OF PRESCRIBED TESTS */}
                 {isGroupExpanded && (
                   <div className="p-4 pt-0 border-t border-slate-100/80 space-y-3 animate-in fade-in duration-150">
-                    <div className="space-y-3 pt-3">
+                    {/* Follow-Up Card when all tests are completed */}
+                    {isGroupAllCompleted && (
+                      <div className="mt-3 p-3.5 rounded-xl bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 border border-emerald-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                        <div className="flex items-center gap-3">
+                          <div className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-600 text-white font-bold shrink-0 shadow-xs">
+                            <CheckCircle2 size={18} />
+                          </div>
+                          <div>
+                            <div className="text-[13px] font-extrabold text-emerald-950 flex items-center gap-2 flex-wrap">
+                              <span>All Prescribed Investigations Resulted!</span>
+                              <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                Free Follow-Up · ₹0 Fee
+                              </span>
+                            </div>
+                            <p className="text-[11.5px] text-emerald-800 mt-0.5">
+                              Diagnostic reports are ready for clinical review with <b>{doc?.name || "your attending doctor"}</b>.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onBookFollowUp?.(
+                              doc?.name,
+                              doc?.specialty,
+                              (doc as any)?.doctor_id,
+                              group.orders.map((o) => o.name || o.test || "").filter(Boolean).join(", "),
+                              group.encounter_id
+                            )
+                          }
+                          className="shrink-0 px-4 py-2 rounded-xl bg-[#0078d4] hover:bg-[#0a6ec2] text-white text-[12px] font-bold shadow-sm transition flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <CalendarPlus size={14} />
+                          <span>Book Free Follow-Up</span>
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="space-y-3 pt-2">
                       {group.orders.map((item, itemIdx) => {
                         const rawStatus = (item.raw_status || item.status || "").toUpperCase();
                         const isCompleted =
