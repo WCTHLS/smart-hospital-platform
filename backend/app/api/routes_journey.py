@@ -297,7 +297,7 @@ def _appointment_brief(appointment: models.Appointment, doctor: models.Staff | N
     appt_status = appointment.status
     if db and appointment.encounter_id:
         enc = db.get(models.Encounter, appointment.encounter_id)
-        if enc and enc.status:
+        if enc and enc.status and enc.appointment_id == appointment.appointment_id:
             appt_status = enc.status
     return {
         "appointment_id": appointment.appointment_id,
@@ -949,9 +949,14 @@ def appointment_slots(body: AppointmentSlotsRequest, db: Session = Depends(get_d
 
 @router.post("/appointments/book")
 def book_appointment(body: BookAppointmentRequest, db: Session = Depends(get_db)) -> dict:
-    encounter = _get_encounter(db, body.encounter_id) if body.encounter_id else None
-    if encounter and encounter.patient_id != body.patient_id:
-        raise HTTPException(400, "Encounter does not belong to this patient")
+    encounter = None
+    if body.encounter_id:
+        cand = _get_encounter(db, body.encounter_id)
+        if cand and cand.patient_id != body.patient_id:
+            raise HTTPException(400, "Encounter does not belong to this patient")
+        # Only attach encounter if it is currently active and not yet completed/discharged
+        if cand and cand.status not in ("DISCHARGED", "COMPLETED"):
+            encounter = cand
     doctor = db.get(models.Staff, body.doctor_id)
     if not doctor or doctor.role != "DOCTOR":
         raise HTTPException(404, "Doctor not found")
@@ -1384,19 +1389,12 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             .where(models.Encounter.appointment_id == appt.appointment_id)
         )
         if not linked_enc and appt.encounter_id:
-            linked_enc = db.get(models.Encounter, appt.encounter_id)
-        if not linked_enc and appt.doctor_id:
-            linked_enc = db.scalar(
-                select(models.Encounter)
-                .where(
-                    models.Encounter.patient_id == appt.patient_id,
-                    models.Encounter.doctor_id == appt.doctor_id,
-                )
-                .order_by(models.Encounter.arrival_ts.desc())
-            )
+            cand_enc = db.get(models.Encounter, appt.encounter_id)
+            if cand_enc and cand_enc.appointment_id == appt.appointment_id:
+                linked_enc = cand_enc
         if linked_enc:
             processed_enc_ids.add(linked_enc.encounter_id)
-            if linked_enc.status in ("DISCHARGED", "COMPLETED") and appt.status not in ("DISCHARGED", "COMPLETED"):
+            if linked_enc.status in ("DISCHARGED", "COMPLETED") and appt.status not in ("DISCHARGED", "COMPLETED", "BOOKED", "SCHEDULED", "CONFIRMED"):
                 appt.status = linked_enc.status
 
         appt_date_str = appt.scheduled_start.strftime("%d %b %Y, %I:%M %p") if appt.scheduled_start else "Recent"
@@ -1663,6 +1661,7 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
         )
 
         doctor_data = {
+            "doctor_id": o_doc_staff.staff_id if o_doc_staff else (care_team_list[0].get("staff_id") if care_team_list else None),
             "name": o_doc_name or (care_team_list[0]["name"] if care_team_list else "Dr. Neha Nair"),
             "specialty": o_doc_spec or (o_enc.department if o_enc else "Orthopaedics"),
             "room": o_doc_room,
@@ -2478,11 +2477,18 @@ def patient_360(patient_id: str, db: Session = Depends(get_db)) -> dict:
             }
             for order, result in recent_results
         ],
+        "all_appointments": [
+            _appointment_brief(appt, staff_by_id.get(appt.doctor_id), db)
+            for appt in all_patient_appts
+        ],
         "encounters": [
             {"encounter_id": e.encounter_id, "date": e.arrival_ts.date().isoformat(),
              "arrival_ts": e.arrival_ts.isoformat(),
              "department": e.department, "status": e.status,
              "visit_type": e.visit_type,
+             "doctor_id": e.doctor_id,
+             "doctor_name": staff_by_id[e.doctor_id].name if e.doctor_id and e.doctor_id in staff_by_id else None,
+             "appointment_id": e.appointment_id,
              "reason": encounter_appointments[e.appointment_id].reason
              if e.appointment_id in encounter_appointments else None}
             for e in encounters

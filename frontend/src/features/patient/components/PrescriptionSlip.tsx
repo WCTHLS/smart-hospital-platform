@@ -124,12 +124,12 @@ export default function PrescriptionSlip({
         rx_id: rxId,
       });
 
-      qc.invalidateQueries({ queryKey: ["portal-encounter"] });
-      qc.invalidateQueries({ queryKey: ["portal-encounter-parent"] });
-      qc.invalidateQueries({ queryKey: ["portal-episode-invoice"] });
-      qc.invalidateQueries({ queryKey: ["p360"] });
-      if (refetchEnc) refetchEnc();
-      if (refetchP360) refetchP360();
+      await qc.invalidateQueries({ queryKey: ["portal-p360"] });
+      await qc.invalidateQueries({ queryKey: ["portal-encounter"] });
+      await qc.invalidateQueries({ queryKey: ["portal-encounter-parent"] });
+      await qc.invalidateQueries({ queryKey: ["portal-episode-invoice"] });
+      if (refetchEnc) await refetchEnc();
+      if (refetchP360) await refetchP360();
 
       setPaymentDone(true);
       setTimeout(() => {
