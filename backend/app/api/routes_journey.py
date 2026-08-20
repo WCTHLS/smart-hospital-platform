@@ -3627,18 +3627,12 @@ def list_doctors(db: Session = Depends(get_db)) -> list[dict]:
 
 @router.get("/triage/encounters")
 def list_pending_triage_encounters(db: Session = Depends(get_db)) -> list[dict]:
-    """Today's hospital-wide checked-in queue for encounters not yet triaged."""
-    hospital_tz = ZoneInfo("Asia/Kolkata")
-    today = datetime.now(hospital_tz).date()
-    day_start = datetime.combine(today, time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
-    day_end = (datetime.combine(today, time.min, tzinfo=hospital_tz) + timedelta(days=1)).astimezone(timezone.utc)
+    """Hospital-wide checked-in queue for encounters not yet triaged."""
     has_triage = select(models.Triage.triage_id).where(
         models.Triage.encounter_id == models.Encounter.encounter_id
     ).exists()
     encounters = db.scalars(
         select(models.Encounter)
-        .where(models.Encounter.arrival_ts >= day_start)
-        .where(models.Encounter.arrival_ts < day_end)
         .where(models.Encounter.status == "CHECKED_IN")
         .where(~has_triage)
         .order_by(models.Encounter.arrival_ts.asc())
@@ -3671,24 +3665,17 @@ def list_pending_triage_encounters(db: Session = Depends(get_db)) -> list[dict]:
 
 @router.get("/triage/recent")
 def list_recently_triaged_encounters(db: Session = Depends(get_db)) -> list[dict]:
-    """Today's hospital-wide encounters that have already been triaged."""
-    hospital_tz = ZoneInfo("Asia/Kolkata")
-    today = datetime.now(hospital_tz).date()
-    day_start = datetime.combine(today, time.min, tzinfo=hospital_tz).astimezone(timezone.utc)
-    day_end = (datetime.combine(today, time.min, tzinfo=hospital_tz) + timedelta(days=1)).astimezone(timezone.utc)
-
-    # Subquery to check if triage row exists
+    """Hospital-wide encounters that have already been triaged."""
     has_triage = select(models.Triage.triage_id).where(
         models.Triage.encounter_id == models.Encounter.encounter_id
     ).exists()
 
     encounters = db.scalars(
         select(models.Encounter)
-        .where(models.Encounter.arrival_ts >= day_start)
-        .where(models.Encounter.arrival_ts < day_end)
         .where(models.Encounter.status != "CHECKED_IN")  # TRIAGED, IN_CONSULT, etc.
         .where(has_triage)
         .order_by(models.Encounter.arrival_ts.desc())
+        .limit(50)
     ).all()
 
     out = []
