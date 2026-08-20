@@ -16,7 +16,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(() => {
     return localStorage.getItem("selected_doctor_id") || "";
   });
-  const [queueTab, setQueueTab] = useState<"first" | "reconsult">("first");
+  const [queueTab, setQueueTab] = useState<"first" | "reconsult" | "completed">("first");
   const [searchQuery, setSearchQuery] = useState("");
   const [doctorSearchQuery, setDoctorSearchQuery] = useState("");
   const [docAvailable, setDocAvailable] = useState<boolean>(true);
@@ -261,7 +261,7 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                     queueTab === "first" ? "bg-white/10 text-white" : "text-[var(--muted)] hover:text-white border border-transparent hover:border-white/10"
                   }`}
                 >
-                  First Consult ({queue?.filter((e: any) => !e.is_reconsult).length || 0})
+                  First Consult ({queue?.filter((e: any) => !e.is_reconsult && e.status !== "COMPLETED" && e.status !== "DISCHARGED").length || 0})
                 </button>
                 <button
                   onClick={() => setQueueTab("reconsult")}
@@ -269,10 +269,18 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                     queueTab === "reconsult" ? "bg-white/10 text-white" : "text-[var(--muted)] hover:text-white border border-transparent hover:border-white/10"
                   }`}
                 >
-                  Report Review ({queue?.filter((e: any) => e.is_reconsult).length || 0})
-                  {queue?.some((e: any) => e.is_reconsult) && (
+                  Report Review ({queue?.filter((e: any) => e.is_reconsult && e.status !== "COMPLETED" && e.status !== "DISCHARGED").length || 0})
+                  {queue?.some((e: any) => e.is_reconsult && e.status !== "COMPLETED" && e.status !== "DISCHARGED") && (
                     <span className="w-1.5 h-1.5 rounded-full bg-[var(--cyan)] animate-pulse" />
                   )}
+                </button>
+                <button
+                  onClick={() => setQueueTab("completed")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+                    queueTab === "completed" ? "bg-white/10 text-white" : "text-[var(--muted)] hover:text-white border border-transparent hover:border-white/10"
+                  }`}
+                >
+                  Completed ({queue?.filter((e: any) => e.status === "COMPLETED" || e.status === "DISCHARGED").length || 0})
                 </button>
                 {showReportReviewNotice && reportReviewCount > 0 && (
                   <div
@@ -310,9 +318,16 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
             </div>
 
             {(() => {
-              const tabFiltered = queue?.filter((enc: any) =>
-                queueTab === "reconsult" ? enc.is_reconsult : !enc.is_reconsult
-              ) || [];
+              const tabFiltered = queue?.filter((enc: any) => {
+                const isFinished = enc.status === "COMPLETED" || enc.status === "DISCHARGED";
+                if (queueTab === "completed") {
+                  return isFinished;
+                } else if (queueTab === "reconsult") {
+                  return enc.is_reconsult && !isFinished;
+                } else {
+                  return !enc.is_reconsult && !isFinished;
+                }
+              }) || [];
               
               const searchLower = searchQuery.toLowerCase();
               const filteredQueue = tabFiltered.filter((enc: any) => {
@@ -330,6 +345,8 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                       ? `No patients match "${searchQuery}"`
                       : queueTab === "reconsult"
                       ? "No patients waiting for report review."
+                      : queueTab === "completed"
+                      ? "No completed consultations found."
                       : "No patients waiting in your queue."}
                   </Empty>
                 );
@@ -393,7 +410,11 @@ export default function DoctorQueue({ onSelectPatient }: DoctorQueueProps) {
                           onClick={() => onSelectPatient({ ...enc, _doctorName: activeDoc?.name || null })}
                           className={`btn mt-4 w-full flex items-center justify-center gap-1.5 ${isRedFlag ? "r" : ""}`}
                         >
-                          Consult Patient <ArrowRight size={14} />
+                          {enc.status === "COMPLETED" || enc.status === "DISCHARGED" ? (
+                            <>Review Consult <ArrowRight size={14} /></>
+                          ) : (
+                            <>Consult Patient <ArrowRight size={14} /></>
+                          )}
                         </button>
                       </Card>
                     );

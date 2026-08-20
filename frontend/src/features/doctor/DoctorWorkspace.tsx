@@ -365,7 +365,17 @@ export default function DoctorWorkspace() {
     enabled: !!parentEncounterId,
   });
 
-  const toggleTest = (t: string) => setSel((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));
+  const toggleTest = async (t: string) => {
+    setSel((s) => (s.includes(t) ? s.filter((x) => x !== t) : [...s, t]));
+    try {
+      if (journey.encounterId) {
+        await api.createLabOrders(journey.encounterId, [t], journey.doctorName);
+        qc.invalidateQueries({ queryKey: ["lab", journey.encounterId] });
+      }
+    } catch (e) {
+      console.error("Failed to add copilot suggested order:", e);
+    }
+  };
 
   async function runCds(items: any[]) {
     setRxBusy(true); 
