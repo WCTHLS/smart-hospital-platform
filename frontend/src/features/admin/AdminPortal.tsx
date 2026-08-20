@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users, Plus, ShieldAlert, BadgeCheck, Stethoscope, Landmark, Edit, X, Calendar, Clock,
-  Search, Trash2, FlaskConical, Pill, ClipboardList, User,
+  Search, Trash2, FlaskConical, Pill, ClipboardList, User, Boxes,
 } from "lucide-react";
 import { api } from "../../lib/api";
 import { Card, Tag, SectionTitle, Empty } from "../../components/ui";
@@ -29,7 +29,7 @@ export default function AdminPortal() {
   const qc = useQueryClient();
   const [adminTab, setAdminTab] = useState<"OPD" | "LAB">("OPD");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<"DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST" | "CARE_TEAM">("DOCTOR");
+  const [role, setRole] = useState<"DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST" | "CARE_TEAM" | "INVENTORY">("DOCTOR");
   const [specialty, setSpecialty] = useState("General Medicine");
   const [experience, setExperience] = useState("");
   const [room, setRoom] = useState("");
@@ -88,7 +88,7 @@ export default function AdminPortal() {
     }
   }, [labSchedules]);
 
-  const [directoryRoleFilter, setDirectoryRoleFilter] = useState<"ALL" | "DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST" | "CARE_TEAM">("ALL");
+  const [directoryRoleFilter, setDirectoryRoleFilter] = useState<"ALL" | "DOCTOR" | "NURSE" | "LAB" | "PHARMACIST" | "RECEPTIONIST" | "CARE_TEAM" | "INVENTORY">("ALL");
 
   const doctorCount = doctors?.filter((d: any) => ((d.role || "DOCTOR").toUpperCase() === "DOCTOR")).length || 0;
   const nurseCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "NURSE")).length || 0;
@@ -96,7 +96,9 @@ export default function AdminPortal() {
   const pharmacistCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "PHARMACIST")).length || 0;
   const receptionistCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "RECEPTIONIST")).length || 0;
   const careTeamCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "CARE_TEAM")).length || 0;
+  const inventoryCount = doctors?.filter((d: any) => ((d.role || "").toUpperCase() === "INVENTORY")).length || 0;
   const totalCount = doctors?.length || 0;
+
 
   const normalizedSearch = directorySearch.trim().toLowerCase();
   const filteredDoctors = doctors?.filter((doctor: any) => {
@@ -634,6 +636,9 @@ export default function AdminPortal() {
                         } else if (newRole === "LAB") {
                           setSpecialty("Pathology & Blood/Urine");
                           setFee("0");
+                        } else if (newRole === "INVENTORY") {
+                          setSpecialty("Central Store & Logistics");
+                          setFee("0");
                         } else {
                           setFee("0");
                         }
@@ -645,6 +650,7 @@ export default function AdminPortal() {
                       <option value="PHARMACIST">Pharmacist</option>
                       <option value="RECEPTIONIST">Receptionist</option>
                       <option value="CARE_TEAM">Care Team</option>
+                      <option value="INVENTORY">Inventory Staff / Manager</option>
                     </select>
                   </div>
 
@@ -660,6 +666,8 @@ export default function AdminPortal() {
                         ? "Pharmacist Full Name *"
                         : role === "RECEPTIONIST"
                         ? "Receptionist Full Name *"
+                        : role === "INVENTORY"
+                        ? "Inventory Staff Full Name *"
                         : "Care Team Full Name *"}
                     </label>
                     <input
@@ -675,12 +683,15 @@ export default function AdminPortal() {
                           ? "e.g. Sunil Pharmacist"
                           : role === "RECEPTIONIST"
                           ? "e.g. Deepa Front Desk"
+                          : role === "INVENTORY"
+                          ? "e.g. Rahul Inventory Manager"
                           : "e.g. Amit Care Coordinator"
                       }
                       className="input text-xs"
                       value={name}
                       onChange={(e) => setName(e.target.value)}
                       required
+
                     />
                   </div>
 
@@ -854,6 +865,33 @@ export default function AdminPortal() {
                     </div>
                   )}
 
+                  {role === "INVENTORY" && (
+                    <div className="grid gap-3 sm:grid-cols-2 animate-in fade-in duration-200">
+                      <div className="space-y-1">
+                        <label className="block font-bold text-[var(--dim)]">Store Assignment</label>
+                        <input
+                          type="text"
+                          className="input text-xs cursor-not-allowed opacity-60"
+                          value="Central Store & Medical Logistics"
+                          disabled
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-300">Experience (Years) *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="e.g. 5"
+                          className="input text-xs"
+                          value={experience}
+                          onChange={(e) => setExperience(e.target.value)}
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <label className="block font-bold text-slate-300">
@@ -867,6 +905,8 @@ export default function AdminPortal() {
                           ? "Pharmacy Counter / Window *"
                           : role === "RECEPTIONIST"
                           ? "Reception Desk / Counter *"
+                          : role === "INVENTORY"
+                          ? "Store / Warehouse Location *"
                           : "Care Team Office / Room *"}
                       </label>
                       <input
@@ -882,6 +922,8 @@ export default function AdminPortal() {
                             ? "e.g. Pharmacy Window 1"
                             : role === "RECEPTIONIST"
                             ? "e.g. Front Desk 1"
+                            : role === "INVENTORY"
+                            ? "e.g. Central Warehouse / Store 1"
                             : "e.g. Operations Room 3"
                         }
                         className="input text-xs"
@@ -890,6 +932,7 @@ export default function AdminPortal() {
                         required
                       />
                     </div>
+
 
                     <div className="space-y-1">
                       <label className="block font-bold text-slate-300">Floor Number *</label>
@@ -993,8 +1036,11 @@ export default function AdminPortal() {
                         ? "Register Pharmacist"
                         : role === "RECEPTIONIST"
                         ? "Register Receptionist"
+                        : role === "INVENTORY"
+                        ? "Register Inventory Staff"
                         : "Register Care Team Member"}
                     </button>
+
                   </div>
                 </form>
               </Card>
@@ -1130,7 +1176,9 @@ export default function AdminPortal() {
                 { id: "PHARMACIST", label: "Pharmacists", count: pharmacistCount, icon: Pill },
                 { id: "RECEPTIONIST", label: "Receptionists", count: receptionistCount, icon: ClipboardList },
                 { id: "CARE_TEAM", label: "Care Team", count: careTeamCount, icon: Users },
+                { id: "INVENTORY", label: "Inventory", count: inventoryCount, icon: Boxes },
               ].map((tab) => {
+
                 const isActive = directoryRoleFilter === tab.id;
                 return (
                   <button
@@ -1201,6 +1249,8 @@ export default function AdminPortal() {
                       const isLab = d.role === "LAB";
                       const isPharmacist = d.role === "PHARMACIST";
                       const isReceptionist = d.role === "RECEPTIONIST";
+                      const isCareTeam = d.role === "CARE_TEAM";
+                      const isInventory = d.role === "INVENTORY";
 
                       return (
                         <tr
@@ -1215,14 +1265,16 @@ export default function AdminPortal() {
                             <div
                               className={`w-7 h-7 rounded-full flex items-center justify-center font-extrabold text-[11px] ${
                                 isDoctor
-                                  ? "bg-sky-600/10 border border-sky-600/25 text-sky-500"
-                                  : isNurse
-                                  ? "bg-rose-500/10 border border-rose-500/25 text-rose-400"
-                                  : isLab
-                                  ? "bg-cyan-500/10 border border-cyan-500/25 text-cyan-400"
-                                  : isPharmacist
-                                  ? "bg-purple-500/10 border border-purple-500/25 text-purple-400"
-                                  : "bg-teal-500/10 border border-teal-500/25 text-teal-400"
+                                   ? "bg-sky-600/10 border border-sky-600/25 text-sky-500"
+                                   : isNurse
+                                   ? "bg-rose-500/10 border border-rose-500/25 text-rose-400"
+                                   : isLab
+                                   ? "bg-cyan-500/10 border border-cyan-500/25 text-cyan-400"
+                                   : isPharmacist
+                                   ? "bg-purple-500/10 border border-purple-500/25 text-purple-400"
+                                   : isInventory
+                                   ? "bg-amber-500/10 border border-amber-500/25 text-amber-400"
+                                   : "bg-teal-500/10 border border-teal-500/25 text-teal-400"
                               }`}
                             >
                               {d.name.split(" ").slice(-1)[0][0]}
@@ -1234,6 +1286,8 @@ export default function AdminPortal() {
                                 {isLab && <Tag tone="violet">Lab Tech</Tag>}
                                 {isPharmacist && <Tag tone="amber">Pharmacist</Tag>}
                                 {isReceptionist && <Tag tone="green">Reception</Tag>}
+                                {isCareTeam && <Tag tone="sky">Care Team</Tag>}
+                                {isInventory && <Tag tone="orange">Inventory</Tag>}
                               </div>
                               <div className="text-[10px] text-[var(--muted)]">{d.experience_years} years exp</div>
                             </div>
@@ -1245,9 +1299,12 @@ export default function AdminPortal() {
                               {isLab && <FlaskConical size={13} className="text-cyan-400" />}
                               {isPharmacist && <Pill size={13} className="text-purple-400" />}
                               {isReceptionist && <ClipboardList size={13} className="text-teal-400" />}
+                              {isCareTeam && <Users size={13} className="text-sky-400" />}
+                              {isInventory && <Boxes size={13} className="text-amber-400" />}
                               {d.specialty}
                             </span>
                           </td>
+
                           <td className="py-3.5 text-slate-300">
                             <div>{d.room}</div>
                             <div className="text-[10px] text-[var(--muted)]">{d.floor}</div>

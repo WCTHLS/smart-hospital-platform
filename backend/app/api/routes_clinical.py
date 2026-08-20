@@ -234,23 +234,39 @@ def _check_and_discharge_lab_visit(db: Session, patient_id: str, encounter_id: s
                 select(func.count())
                 .select_from(models.LabOrder)
                 .where(models.LabOrder.encounter_id == target_enc_id)
-                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "CHECKED_IN", "SAMPLE_COLLECTED"]))
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "CHECKED_IN", "SAMPLE_COLLECTED", "IN_PROGRESS", "BOOKED", "PREPAID"]))
             ) or 0
-        elif lab_enc.notes and "," in lab_enc.notes:
-            order_ids = lab_enc.notes.split(",")
+        elif lab_enc.notes:
+            order_ids = [oid.strip() for oid in lab_enc.notes.split(",") if oid.strip()]
+            if order_ids:
+                pending_count = db.scalar(
+                    select(func.count())
+                    .select_from(models.LabOrder)
+                    .where(models.LabOrder.lab_order_id.in_(order_ids))
+                    .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "CHECKED_IN", "SAMPLE_COLLECTED", "IN_PROGRESS", "BOOKED", "PREPAID"]))
+                ) or 0
+            else:
+                pending_count = 0
+        else:
+            # Fallback: check if patient has any active uncompleted lab orders
             pending_count = db.scalar(
                 select(func.count())
                 .select_from(models.LabOrder)
-                .where(models.LabOrder.lab_order_id.in_(order_ids))
-                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "CHECKED_IN", "SAMPLE_COLLECTED"]))
+                .where(models.LabOrder.patient_id == patient_id)
+                .where(models.LabOrder.status.in_(["CREATED", "CONFIRMED", "CHECKED_IN", "SAMPLE_COLLECTED", "IN_PROGRESS", "BOOKED", "PREPAID"]))
             ) or 0
-        else:
-            pending_count = 0
 
         if pending_count == 0:
             lab_enc.status = "DISCHARGED"
             for tk in db.scalars(select(models.Token).where(models.Token.encounter_id == lab_enc.encounter_id)):
                 tk.status = "COMPLETED"
+        else:
+            # Keep active
+            if lab_enc.status == "DISCHARGED":
+                lab_enc.status = "CHECKED_IN"
+            for tk in db.scalars(select(models.Token).where(models.Token.encounter_id == lab_enc.encounter_id)):
+                if tk.status == "COMPLETED":
+                    tk.status = "WAITING"
 
 
 @router.post("/lab-orders/{lab_order_id}/publish-result")
@@ -486,8 +502,11 @@ def upload_lab_attachment(
     order.attachment_name = file.filename
     order.attachment_uri = attachment_uri
     order.status = "RESULTED"
-    order.notes = notes or "External report uploaded by patient"
     order.ai_analysis_summary = None
+    if notes is not None:
+        order.notes = notes
+    elif not order.notes:
+        order.notes = "Diagnostic investigation report attached"
 
     # Upsert LabResult record for full clinical synchronization
     existing_res = db.scalar(select(models.LabResult).where(models.LabResult.lab_order_id == lab_order_id))
@@ -495,7 +514,7 @@ def upload_lab_attachment(
         db.add(models.LabResult(
             lab_order_id=lab_order_id,
             test_code=order.test_code or "EXT",
-            analyte=order.test_name,
+            analyte=order.test_name or "Diagnostic Investigation",
             value=None,
             unit="",
             abnormal_flag="N",
@@ -505,6 +524,7 @@ def upload_lab_attachment(
         existing_res.value = None
         existing_res.status = "FINAL"
 
+    _check_and_discharge_lab_visit(db, order.patient_id, encounter_id=order.encounter_id)
     db.commit()
     return {"filename": file.filename, "uri": attachment_uri}
  

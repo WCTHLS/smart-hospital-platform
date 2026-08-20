@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app import models
 from app.core.database import get_db
-from app.core.os_auth import require_os_staff, require_portal_patient, sign_os_token
+from app.core.os_auth import require_os_staff, require_os_staff_optional, require_portal_patient, sign_os_token
 
 router = APIRouter(prefix="/api/v1/os", tags=["os-dashboard"])
 
@@ -38,6 +38,9 @@ _ROLE_MAP = {
     "receptionist": "RECEPTIONIST",
     "care team": "CARE_TEAM",
     "care_team": "CARE_TEAM",
+    "inventory": "INVENTORY",
+    "inventory manager": "INVENTORY",
+    "inventory staff": "INVENTORY",
 }
 _ROLE_LABELS = {
     "DOCTOR": "Doctor",
@@ -48,7 +51,9 @@ _ROLE_LABELS = {
     "LAB": "Lab Technician",
     "RECEPTIONIST": "Receptionist",
     "CARE_TEAM": "Care Team",
+    "INVENTORY": "Inventory",
 }
+
 
 
 class OsLoginRequest(BaseModel):
@@ -461,9 +466,140 @@ def build_patient_overview(patient_id: str, db: Session) -> dict:
     }
 
 
+def _item_status(it: "models.InventoryItem", today: date) -> str:
+    if it.current_stock == 0:
+        return "Out of Stock"
+    if it.expiry_date and it.expiry_date < today:
+        return "Expired"
+    if it.current_stock < it.min_level:
+        return "Low Stock"
+    if it.non_moving:
+        return "Non-moving"
+    return "In Stock"
+
+
+@router.get("/inventory")
+def inventory(db: Session = Depends(get_db), _claims: dict | None = Depends(require_os_staff_optional)) -> dict:
+    """Inventory Command Center — stock overview, valuation, worklist, POs, suppliers."""
+
+    today = date.today()
+    items = db.scalars(select(models.InventoryItem)).all()
+    pos = db.scalars(select(models.PurchaseOrder)).all()
+    suppliers = db.scalars(select(models.Supplier)).all()
+
+    total_value = sum((it.current_stock or 0) * (it.unit_cost or 0.0) for it in items)
+    statuses = [_item_status(it, today) for it in items]
+    status_counts = {s: statuses.count(s) for s in ("In Stock", "Low Stock", "Out of Stock", "Non-moving", "Expired")}
+    expiring_soon = [it for it in items if it.expiry_date and today <= it.expiry_date <= today + timedelta(days=30)]
+
+    total = len(items) or 1
+    overview_palette = {
+        "In Stock": "#10b981", "Low Stock": "#f59e0b", "Out of Stock": "#ef4444",
+        "Non-moving": "#64748b", "Expired": "#8b5cf6",
+    }
+    stock_overview = [
+        {"label": s, "value": f"{c:,} ({c / total * 100:.1f}%)", "pct": round(c / total * 100, 1), "color": overview_palette[s]}
+        for s, c in status_counts.items()
+    ]
+
+    # Value by category
+    cat_palette = {"Pharmaceutical": "#0284c7", "Medical Consumable": "#14b8a6", "Surgical": "#f59e0b", "Equipment": "#a855f7", "Other": "#94a3b8"}
+    cat_totals: dict[str, float] = {}
+    for it in items:
+        cat_totals[it.category] = cat_totals.get(it.category, 0.0) + (it.current_stock or 0) * (it.unit_cost or 0.0)
+    value_by_category = [
+        {"label": c, "value": _fmt_inr_indian(v), "pct": round(v / total_value * 100, 1) if total_value else 0.0,
+         "color": cat_palette.get(c, "#94a3b8")}
+        for c, v in sorted(cat_totals.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
+    expiring_soon_codes = {it.code for it in expiring_soon}
+
+    worklist = [{
+        "code": it.code, "name": it.name, "category": it.category, "unit": it.unit,
+        "current": f"{it.current_stock:,}", "min": f"{it.min_level:,}", "max": f"{it.max_level:,}",
+        "status": "Expiring Soon" if (it.code in expiring_soon_codes and st != "Out of Stock") else st,
+        "rawStatus": st,
+        "isExpiringSoon": it.code in expiring_soon_codes,
+        "expiryDate": it.expiry_date.strftime("%b %d, %Y") if it.expiry_date else None,
+        "updated": it.updated_ts.strftime("%b %d, %Y") if it.updated_ts else "May 20, 2024",
+    } for it, st in zip(items, statuses)]
+
+
+    tab_counts = {
+        "allItems": len(items),
+        "lowStock": status_counts["Low Stock"],
+        "outOfStock": status_counts["Out of Stock"],
+        "expiringSoon": len(expiring_soon),
+        "nonMoving": status_counts["Non-moving"],
+    }
+
+    recent_pos = [{
+        "po": p.po_number, "supplier": p.supplier, "date": p.order_date.strftime("%b %d, %Y") if p.order_date else "May 20, 2024",
+        "status": p.status, "value": _fmt_inr_indian(p.value or 0.0),
+    } for p in sorted(pos, key=lambda p: p.order_date or today, reverse=True)]
+
+    expiring = [{
+        "name": it.name, "batch": it.batch_no or "B240315",
+        "exp": it.expiry_date.strftime("%b %d, %Y") if it.expiry_date else "Jun 05, 2024", "qty": f"{it.current_stock:,}",
+    } for it in sorted(expiring_soon, key=lambda it: it.expiry_date)][:6]
+
+    top_consumed = [{
+        "name": it.name, "qty": f"{it.consumed_month:,}", "unit": it.unit,
+    } for it in sorted(items, key=lambda it: it.consumed_month or 0, reverse=True)[:5]]
+
+    store_names: list[str] = []
+    for it in items:
+        if it.store not in store_names:
+            store_names.append(it.store)
+    stores = []
+    for name in store_names:
+        group = [(it, st) for it, st in zip(items, statuses) if it.store == name]
+        stores.append({
+            "store": name,
+            "total": f"{len(group):,}",
+            "inStock": f"{sum(1 for _, st in group if st == 'In Stock'):,}",
+            "low": f"{sum(1 for _, st in group if st == 'Low Stock'):,}",
+            "out": f"{sum(1 for _, st in group if st == 'Out of Stock'):,}",
+            "value": _fmt_inr_indian(sum((it.current_stock or 0) * (it.unit_cost or 0.0) for it, _ in group)),
+        })
+
+    supplier_rows = [{
+        "name": s.name, "otd": f"{s.on_time_pct:.0f}%", "quality": f"{s.quality_score:.1f}",
+        "fill": f"{s.fill_rate:.0f}%", "rating": int(s.rating),
+    } for s in sorted(suppliers, key=lambda s: s.rating, reverse=True)][:5]
+
+    grn_pending = sum(1 for p in pos if p.status in ("Ordered", "Approved"))
+    in_transit = sum(1 for p in pos if p.status == "Partially Received")
+
+    return {
+        "kpis": {
+            "totalItems": len(items),
+            "stockValue": _fmt_inr_indian(total_value),
+            "purchaseOrders": len(pos),
+            "grnPending": grn_pending,
+            "transfersInTransit": in_transit,
+            "suppliers": len(suppliers),
+        },
+        "stockOverview": {"total": f"{len(items):,}", "segments": stock_overview},
+        "valueByCategory": {"total": _fmt_inr_indian(total_value), "segments": value_by_category},
+        "tabCounts": tab_counts,
+        "items": worklist,
+        "purchaseOrders": recent_pos,
+        "expiring": expiring,
+        "topConsumed": top_consumed,
+        "stores": stores,
+        "suppliers": supplier_rows,
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+
+
 # ============================================================================ Patient Portal
 
 _UPCOMING_ENC = ("CHECKED_IN", "TRIAGED", "IN_CONSULT", "ADMITTED", "SCHEDULED", "BOOKED")
+
 
 
 def _resolve_portal_patient(username: str, db: Session) -> models.Patient | None:
