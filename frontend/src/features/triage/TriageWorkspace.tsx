@@ -798,11 +798,11 @@ export default function TriageWorkspace() {
           </div>
 
           {/* Middle Row: Triage Queue Table (Left) + Patient Details & Assessment Form (Right) */}
-          <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+          <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr] items-start">
 
-            {/* Left Subcolumn: Triage Queue Card - Stretched to equal height */}
-            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs p-4 flex flex-col justify-between h-full min-h-0">
-              <div className="space-y-3 flex-1 flex flex-col min-h-0">
+            {/* Left Subcolumn: Triage Queue Card */}
+            <div className="bg-white rounded-2xl border border-black/[0.06] shadow-xs p-4 flex flex-col">
+              <div className="space-y-3 flex flex-col">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2 shrink-0">
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-extrabold text-slate-900">Triage Queue</h3>
@@ -868,7 +868,7 @@ export default function TriageWorkspace() {
                 </div>
 
                 {/* Queue Table with Scroll Container */}
-                <div className="overflow-x-auto overflow-y-auto flex-1 min-h-[460px] max-h-[660px] rounded-xl border border-slate-100 pr-0.5">
+                <div className="overflow-x-auto overflow-y-auto h-[810px] max-h-[810px] rounded-xl border border-slate-100 pr-0.5">
                   <table className="w-full text-left text-xs border-collapse min-w-[540px]">
                     <thead className="sticky top-0 bg-white z-10 shadow-[0_1px_0_rgba(0,0,0,0.06)]">
                       <tr className="border-b border-slate-100 text-[10px] uppercase font-bold text-slate-400">
@@ -1012,7 +1012,7 @@ export default function TriageWorkspace() {
               </div>
 
               {/* Status filter toggle pills */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs mt-3">
+              <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs mt-3 shrink-0">
                 <span className="text-slate-500 font-semibold">Filter Queue View:</span>
                 <div className="inline-flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-xl border border-slate-200/70">
                   <button
