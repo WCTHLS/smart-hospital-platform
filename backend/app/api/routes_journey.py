@@ -3648,12 +3648,38 @@ def list_pending_triage_encounters(db: Session = Depends(get_db)) -> list[dict]:
     for encounter in encounters:
         patient = db.get(models.Patient, encounter.patient_id)
         appt = db.get(models.Appointment, encounter.appointment_id) if encounter.appointment_id else None
+        if not appt and encounter.patient_id:
+            appt = db.scalar(
+                select(models.Appointment)
+                .where((models.Appointment.encounter_id == encounter.encounter_id) | (models.Appointment.patient_id == encounter.patient_id))
+                .order_by(models.Appointment.scheduled_start.desc())
+            )
+        doc_id = encounter.doctor_id or (appt.doctor_id if appt else None)
+        doc = db.get(models.Staff, doc_id) if doc_id else None
+
         out.append({
             "encounter_id": encounter.encounter_id,
-            "appointment_id": encounter.appointment_id,
+            "appointment_id": encounter.appointment_id or (appt.appointment_id if appt else None),
+            "doctor_id": doc_id,
+            "doctor": {
+                "doctor_id": doc.staff_id,
+                "name": doc.name,
+                "specialty": doc.specialty or (appt.specialty if appt else encounter.department),
+                "room": doc.room or "Room 101",
+                "floor": doc.floor or "Floor 1",
+            } if doc else None,
+            "appointment": {
+                "appointment_id": appt.appointment_id,
+                "doctor_id": appt.doctor_id,
+                "specialty": appt.specialty or appt.department,
+                "doctor_name": doc.name if doc else None,
+                "reason": appt.reason,
+                "scheduled_start": appt.scheduled_start.isoformat() if appt.scheduled_start else None,
+            } if appt else None,
             "status": encounter.status,
             "visit_type": encounter.visit_type,
-            "department": encounter.department,
+            "department": encounter.department or (appt.department if appt else None) or (doc.specialty if doc else None),
+            "specialty": (appt.specialty if appt and appt.specialty else None) or encounter.department or (doc.specialty if doc else None),
             "channel": encounter.channel,
             "arrival": encounter.arrival_ts.isoformat(),
             "reason": appt.reason if appt else None,
@@ -3688,6 +3714,12 @@ def list_recently_triaged_encounters(db: Session = Depends(get_db)) -> list[dict
     for encounter in encounters:
         patient = db.get(models.Patient, encounter.patient_id)
         appt = db.get(models.Appointment, encounter.appointment_id) if encounter.appointment_id else None
+        if not appt and encounter.patient_id:
+            appt = db.scalar(
+                select(models.Appointment)
+                .where((models.Appointment.encounter_id == encounter.encounter_id) | (models.Appointment.patient_id == encounter.patient_id))
+                .order_by(models.Appointment.scheduled_start.desc())
+            )
         triage = db.scalar(
             select(models.Triage)
             .where(models.Triage.encounter_id == encounter.encounter_id)
@@ -3706,12 +3738,32 @@ def list_recently_triaged_encounters(db: Session = Depends(get_db)) -> list[dict
             .order_by(models.Token.issued_ts.desc())
         )
 
+        doc_id = encounter.doctor_id or (triage.recommended_doctor_id if triage else None) or (appt.doctor_id if appt else None)
+        doc = db.get(models.Staff, doc_id) if doc_id else None
+
         out.append({
             "encounter_id": encounter.encounter_id,
-            "appointment_id": encounter.appointment_id,
+            "appointment_id": encounter.appointment_id or (appt.appointment_id if appt else None),
+            "doctor_id": doc_id,
+            "doctor": {
+                "doctor_id": doc.staff_id,
+                "name": doc.name,
+                "specialty": doc.specialty or (triage.specialty if triage else None) or (appt.specialty if appt else encounter.department),
+                "room": doc.room or "Room 101",
+                "floor": doc.floor or "Floor 1",
+            } if doc else None,
+            "appointment": {
+                "appointment_id": appt.appointment_id,
+                "doctor_id": appt.doctor_id,
+                "specialty": appt.specialty or appt.department,
+                "doctor_name": doc.name if doc else None,
+                "reason": appt.reason,
+                "scheduled_start": appt.scheduled_start.isoformat() if appt.scheduled_start else None,
+            } if appt else None,
             "status": encounter.status,
             "visit_type": encounter.visit_type,
-            "department": encounter.department,
+            "department": encounter.department or (triage.specialty if triage else None) or (appt.department if appt else None),
+            "specialty": (triage.specialty if triage and triage.specialty else None) or (appt.specialty if appt and appt.specialty else None) or encounter.department or (doc.specialty if doc else None),
             "channel": encounter.channel,
             "arrival": encounter.arrival_ts.isoformat(),
             "reason": appt.reason if appt else None,
