@@ -504,10 +504,6 @@ export default function LoginOS() {
               <span className="ml-2 text-xs font-semibold uppercase tracking-wider text-[#0078d4]">Hospital OS</span>
             </div>
           </div>
-          <div className="hidden sm:flex items-center gap-2 text-xs font-medium text-slate-500">
-            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Operational · Production Environment</span>
-          </div>
         </header>
 
         {/* Main Grid */}
@@ -916,6 +912,12 @@ export default function LoginOS() {
             </div>
           </div>
         </div>
+        
+        {/* Footer */}
+        <footer className="mt-auto border-t border-black/[0.05] pt-6 pb-2 text-center text-xs text-slate-500 font-semibold space-y-1">
+          <div>© 2026 WaferWire Cloud Technologies</div>
+          <div className="text-[11px] text-slate-400">Redmond, USA · Hyderabad, India</div>
+        </footer>
       </div>
     </div>
   );

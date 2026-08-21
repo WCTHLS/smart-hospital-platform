@@ -119,9 +119,11 @@ export default function Layout({ children }: { children: ReactNode }) {
     !loc.pathname.startsWith("/signup") &&
     (
       (isAdmin && (loc.pathname === "/admin" || loc.pathname === "/command")) ||
-      (isDoctor && (loc.pathname === "/copilot" || loc.pathname === "/oncology")) ||
-      loc.pathname === "/triage" ||
-      (isCareTeam && loc.pathname === "/care-team")
+      (isCareTeam && loc.pathname === "/care-team") ||
+      ((isDoctor || isNurse) && [
+        "/copilot", "/oncology", "/triage", "/lab", "/radiology", 
+        "/pharmacy", "/reception", "/care-team", "/command", "/admin", "/inventory"
+      ].includes(loc.pathname))
     );
 
   const currentUser = osSession ? {

@@ -3763,7 +3763,7 @@ def list_doctor_encounters(doctor_id: str, db: Session = Depends(get_db)) -> lis
             (models.Encounter.doctor_id == doctor_id) |
             ((models.Encounter.doctor_id.is_(None)) & (models.Encounter.department == doctor.department))
         )
-        .where(models.Encounter.status.in_(["CHECKED_IN", "TRIAGED", "IN_CONSULT", "EMERGENCY"]))
+        .where(models.Encounter.status.in_(["CHECKED_IN", "TRIAGED", "IN_CONSULT", "EMERGENCY", "COMPLETED", "DISCHARGED"]))
     )
     encounters = db.scalars(stmt).all()
     

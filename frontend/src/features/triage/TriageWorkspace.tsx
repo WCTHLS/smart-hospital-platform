@@ -296,7 +296,7 @@ export default function TriageWorkspace() {
           bp_systolic: String(selectedEncounter.vitals.bp_systolic ?? "150"),
           bp_diastolic: String(selectedEncounter.vitals.bp_diastolic ?? "92"),
           heart_rate: String(selectedEncounter.vitals.heart_rate ?? "112"),
-          rr: String(selectedEncounter.vitals.rr ?? "24"),
+          rr: String(selectedEncounter.vitals.respiratory_rate ?? selectedEncounter.vitals.resp_rate ?? selectedEncounter.vitals.rr ?? "24"),
           spo2: String(selectedEncounter.vitals.spo2 ?? "94"),
           temperature: String(selectedEncounter.vitals.temperature ?? "98.6"),
           weight_kg: String(selectedEncounter.vitals.weight_kg ?? "68"),
@@ -327,7 +327,7 @@ export default function TriageWorkspace() {
         bp_systolic: String(encounter.vitals.bp_systolic ?? "120"),
         bp_diastolic: String(encounter.vitals.bp_diastolic ?? "80"),
         heart_rate: String(encounter.vitals.heart_rate ?? "78"),
-        rr: String(encounter.vitals.rr ?? "18"),
+        rr: String(encounter.vitals.respiratory_rate ?? encounter.vitals.resp_rate ?? encounter.vitals.rr ?? "18"),
         spo2: String(encounter.vitals.spo2 ?? "98"),
         temperature: String(encounter.vitals.temperature ?? "98.6"),
         weight_kg: String(encounter.vitals.weight_kg ?? "68"),
@@ -344,7 +344,7 @@ export default function TriageWorkspace() {
             bp_systolic: sys || "120",
             bp_diastolic: dia || "80",
             heart_rate: String(lv.heart_rate ?? "76"),
-            rr: String(lv.rr ?? "18"),
+            rr: String(lv.respiratory_rate ?? lv.resp_rate ?? lv.rr ?? "18"),
             spo2: String(lv.spo2 ?? "98"),
             temperature: String(lv.temperature ?? "98.6"),
             weight_kg: String(lv.weight_kg ?? "68"),
@@ -377,6 +377,7 @@ export default function TriageWorkspace() {
         bp_systolic: Number(vitals.bp_systolic) || 120,
         bp_diastolic: Number(vitals.bp_diastolic) || 80,
         heart_rate: Number(vitals.heart_rate) || 75,
+        respiratory_rate: Number(vitals.rr) || 18,
         spo2: Number(vitals.spo2) || 98,
         temperature: Number(vitals.temperature) || 98.6,
         weight_kg: Number(vitals.weight_kg) || 68,
@@ -1291,7 +1292,7 @@ export default function TriageWorkspace() {
                   )}
                 </div>
 
-                <div className="grid grid-cols-5 gap-1.5">
+                <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 gap-1.5">
                   {/* BP */}
                   <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 text-center">
                     <div className="text-[9.5px] font-bold text-slate-400 uppercase">BP</div>
@@ -1357,6 +1358,30 @@ export default function TriageWorkspace() {
                       className="w-full text-center text-xs font-extrabold text-slate-900 bg-transparent outline-none my-0.5"
                     />
                     <div className="text-[8.5px] text-slate-400">°F</div>
+                  </div>
+
+                  {/* Weight */}
+                  <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                    <div className="text-[9.5px] font-bold text-slate-400 uppercase">Weight</div>
+                    <input
+                      type="number"
+                      value={vitals.weight_kg}
+                      onChange={(e) => handleVitalChange("weight_kg", e.target.value)}
+                      className="w-full text-center text-xs font-extrabold text-slate-900 bg-transparent outline-none my-0.5"
+                    />
+                    <div className="text-[8.5px] text-slate-400">kg</div>
+                  </div>
+
+                  {/* Height */}
+                  <div className="p-2 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                    <div className="text-[9.5px] font-bold text-slate-400 uppercase">Height</div>
+                    <input
+                      type="number"
+                      value={vitals.height_cm}
+                      onChange={(e) => handleVitalChange("height_cm", e.target.value)}
+                      className="w-full text-center text-xs font-extrabold text-slate-900 bg-transparent outline-none my-0.5"
+                    />
+                    <div className="text-[8.5px] text-slate-400">cm</div>
                   </div>
                 </div>
               </div>
